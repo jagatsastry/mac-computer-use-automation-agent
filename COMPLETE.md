@@ -48,12 +48,11 @@ I just added **comprehensive automated tests** covering all core components:
 
 ### ⏳ Currently Running
 
-**Ollama Models Downloading (Background):**
-1. `qwen2-vl` (~8GB) - Vision model for screen understanding
-2. `gemma2:9b` (~5GB) - Text model for planning/reasoning
+**Ollama Models Status:**
+1. `qwen2-vl` (~8GB) - Vision model for screen understanding - ⏳ DOWNLOADING
+2. `gemma2:9b` (5.4 GB) - Text model for planning/reasoning - ✅ COMPLETE
 
-**Total:** ~14GB download
-**Time:** 5-15 minutes depending on connection
+**Note:** gemma2:9b downloaded successfully! qwen2-vl is downloading now (~8GB, 5-10 minutes remaining)
 
 ### ✅ Check Download Status
 
