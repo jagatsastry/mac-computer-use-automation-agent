@@ -1,0 +1,80 @@
+"""Command-line interface for the automation agent."""
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Optional, List
+
+from .config import LogLevel
+from .version import __description__, __version__
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="automation-agent",
+        description=__description__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  automation-agent "Click on the Safari icon"
+  automation-agent --ollama-host http://192.168.1.100:11434 "Open Finder"
+  automation-agent --dry-run --verbose "Test prompt"
+        """,
+    )
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
+    parser.add_argument("prompt", type=str, help="The automation task to perform")
+
+    # Configuration
+    parser.add_argument("--config", type=Path, metavar="FILE", help="Path to JSON config file")
+
+    # Ollama settings
+    parser.add_argument("--ollama-host", type=str, metavar="URL", help="Ollama server host URL")
+    parser.add_argument("--ollama-model", type=str, metavar="MODEL", help="Ollama model to use")
+    parser.add_argument(
+        "--ollama-timeout", type=int, metavar="SECONDS", help="Timeout for Ollama API calls"
+    )
+
+    # Logging
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        choices=[level.value for level in LogLevel],
+        help="Logging level",
+    )
+    parser.add_argument("--log-dir", type=Path, metavar="DIR", help="Directory for log files")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+
+    # Execution
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Analyze and plan without executing"
+    )
+
+    return parser
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = create_parser()
+    args = parser.parse_args(argv)
+
+    if args.verbose:
+        args.log_level = LogLevel.DEBUG.value
+
+    if not args.prompt.strip():
+        parser.error("prompt cannot be empty")
+
+    return args
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    """Validate parsed arguments."""
+    if args.config and not args.config.exists():
+        print(f"Error: Configuration file not found: {args.config}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.ollama_timeout is not None and args.ollama_timeout <= 0:
+        print("Error: --ollama-timeout must be greater than 0", file=sys.stderr)
+        sys.exit(1)
