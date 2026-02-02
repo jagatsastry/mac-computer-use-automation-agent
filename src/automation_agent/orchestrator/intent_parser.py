@@ -57,7 +57,13 @@ Return ONLY valid JSON with this structure:
    - "google" → "https://www.google.com"
    - "github" → "https://github.com"
 
-2. **App Name Normalization**: Use exact macOS app names
+2. **Search Queries**: For "search X for Y" commands, use direct search URLs (NOT type_text):
+   - "search YouTube for cats" → open_url with "https://www.youtube.com/results?search_query=cats"
+   - "search Google for weather" → open_url with "https://www.google.com/search?q=weather"
+   - "google something" → open_url with "https://www.google.com/search?q=something"
+   This is MORE RELIABLE than typing in search boxes.
+
+3. **App Name Normalization**: Use exact macOS app names
    - "chrome" → "Google Chrome"
    - "safari" → "Safari"
    - "terminal" → "Terminal"
@@ -89,7 +95,10 @@ Input: "Open Safari and go to youtube.com"
 Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.youtube.com", "browser": "Safari"}}], "requires_observation": false}
 
 Input: "Search YouTube for cooking tutorials"
-Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.youtube.com", "browser": "Safari"}}, {"action": "type_text", "params": {"text": "cooking tutorials"}}, {"action": "press_key", "params": {"keys": ["return"]}}], "requires_observation": false}
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.youtube.com/results?search_query=cooking+tutorials", "browser": "Safari"}}], "requires_observation": false}
+
+Input: "Google the weather in San Francisco"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/search?q=weather+in+San+Francisco", "browser": "Safari"}}], "requires_observation": false}
 
 Input: "Find the most viewed video and click on it"
 Output: {"steps": [{"action": "click_element", "params": {"description": "the video with most views"}}], "requires_observation": true}
