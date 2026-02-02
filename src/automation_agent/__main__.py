@@ -1,10 +1,19 @@
 """Main entry point for the automation agent CLI."""
 
+import asyncio
 import sys
 
 from .cli import parse_args, validate_args
 from .config import AgentConfig, LogLevel, load_config
 from .logging import configure_logging, get_logger
+from .llm.client import OllamaClient
+from .perception.capture import ScreenCapturer
+from .orchestrator import (
+    AutomationAgent,
+    IntentParser,
+    ActionRegistry,
+    ScreenObserver,
+)
 
 
 def apply_cli_overrides(config: AgentConfig, args) -> None:
@@ -23,6 +32,112 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.log_file_level = level
     if args.log_dir:
         config.log_dir = args.log_dir
+
+
+async def run_agent(prompt: str, config: AgentConfig, dry_run: bool = False) -> int:
+    """
+    Run the automation agent with the given prompt.
+
+    Args:
+        prompt: User's natural language command
+        config: Agent configuration
+        dry_run: If True, only parse intent without executing
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    logger = get_logger(__name__)
+
+    # Initialize LLM client
+    llm_client = OllamaClient(
+        host=config.ollama_host,
+        timeout=config.ollama_timeout,
+    )
+
+    # Test connection
+    if not await llm_client.test_connection():
+        logger.error("ollama_connection_failed", host=config.ollama_host)
+        print(f"\n[ERROR] Could not connect to Ollama at {config.ollama_host}")
+        print("Make sure Ollama is running: ollama serve")
+        return 1
+
+    # Initialize components
+    capturer = ScreenCapturer(config)
+    parser = IntentParser(llm_client, model=config.text_model)
+    observer = ScreenObserver(llm_client, capturer, model=config.vision_model)
+    registry = ActionRegistry()
+
+    # Create agent
+    agent = AutomationAgent(
+        parser=parser,
+        observer=observer,
+        registry=registry,
+        llm_client=llm_client,
+        text_model=config.text_model,
+        max_iterations=20,
+        action_delay=config.action_delay,
+    )
+
+    if dry_run:
+        # Dry run - just parse the intent
+        logger.info("dry_run_parsing", prompt=prompt)
+        print(f"\n[DRY RUN] Parsing: {prompt}")
+
+        try:
+            intent = await parser.parse(prompt)
+            print(f"\nParsed Intent:")
+            print(f"  Requires Observation: {intent.requires_observation}")
+            print(f"  Steps:")
+            for i, step in enumerate(intent.steps, 1):
+                print(f"    {i}. {step.action}: {step.params}")
+            return 0
+        except Exception as e:
+            logger.error("intent_parsing_failed", error=str(e))
+            print(f"\n[ERROR] Failed to parse intent: {e}")
+            return 1
+
+    # Execute the command
+    logger.info("executing_prompt", prompt=prompt)
+    print(f"\n[INFO] Executing: {prompt}")
+
+    try:
+        result = await agent.execute(prompt)
+
+        if result.success:
+            logger.info("execution_succeeded", message=result.message)
+            print(f"\n[SUCCESS] {result.message}")
+
+            if result.steps:
+                print(f"\nActions executed:")
+                for i, step in enumerate(result.steps, 1):
+                    status = "OK" if step.success else "FAIL"
+                    print(f"  {i}. [{status}] {step.action}: {step.params}")
+
+            if result.iterations > 0:
+                print(f"\nCompleted in {result.iterations} iteration(s)")
+
+            return 0
+        else:
+            logger.error("execution_failed", error=result.error, message=result.message)
+            print(f"\n[FAILED] {result.message}")
+
+            if result.error:
+                print(f"Error: {result.error}")
+
+            if result.steps:
+                print(f"\nActions attempted:")
+                for i, step in enumerate(result.steps, 1):
+                    status = "OK" if step.success else "FAIL"
+                    print(f"  {i}. [{status}] {step.action}: {step.params}")
+                    if step.error:
+                        print(f"      Error: {step.error}")
+
+            return 1
+
+    except Exception as e:
+        logger.exception("agent_execution_error", error=str(e))
+        print(f"\n[ERROR] Agent execution failed: {e}")
+        return 1
 
 
 def main() -> None:
@@ -48,23 +163,10 @@ def main() -> None:
     )
 
     try:
-        logger.info("received_prompt", prompt=args.prompt, dry_run=args.dry_run)
-
-        if args.dry_run:
-            logger.info("dry_run_mode_enabled")
-            print(f"\n[DRY RUN] Would execute: {args.prompt}")
-            print("\nConfiguration:")
-            print(f"  Ollama Host: {config.ollama_host}")
-            print(f"  Vision Model: {config.vision_model}")
-            print(f"  Text Model: {config.text_model}")
-            print(f"  Log Directory: {config.log_dir}")
-        else:
-            print(f"\n[INFO] Received prompt: {args.prompt}")
-            print("\n[INFO] Phase 1: Setup complete. Full agent implementation in progress.")
-            print(f"[INFO] Logs written to: {config.get_log_file_path()}")
-
-        logger.info("automation_agent_completed", success=True)
-        sys.exit(0)
+        # Run the async agent
+        exit_code = asyncio.run(run_agent(args.prompt, config, args.dry_run))
+        logger.info("automation_agent_completed", success=(exit_code == 0))
+        sys.exit(exit_code)
 
     except KeyboardInterrupt:
         logger.warning("automation_agent_interrupted")
