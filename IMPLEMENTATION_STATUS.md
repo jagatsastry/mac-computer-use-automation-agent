@@ -54,18 +54,23 @@
 
 ## Test Results
 
+### Automated Test Suite: ✅ 54/54 tests passing
+
 ```
 ============================= test session starts ==============================
-======================== 6 passed, 1 skipped in 25.26s =========================
-
-✅ test_config_loads
-✅ test_logging_initializes
-✅ test_ollama_connection (Ollama running, models need to be pulled)
-⚠️  test_screen_capture (SKIPPED - needs Accessibility permission)
-✅ test_action_validation
-✅ test_simple_action_execution
-✅ test_complete_flow (FULL INTEGRATION TEST PASSED)
+============================== 54 passed in 1.58s ==============================
 ```
+
+**Test Coverage:**
+- ✅ Configuration system (10 tests)
+- ✅ CLI argument parsing (13 tests)
+- ✅ LLM client (8 tests)
+- ✅ Action system (16 tests)
+- ✅ Integration tests (7 tests)
+
+**All core components fully tested!**
+
+See `TESTS.md` for detailed test documentation.
 
 ## What Works Right Now
 
