@@ -1,38 +1,9 @@
-"""Pytest configuration and fixtures."""
+"""Pytest fixtures for orchestrator tests."""
 
 import pytest
-import sys
-import os
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-
-@pytest.fixture
-def sample_config_data():
-    """Sample configuration data for testing."""
-    return {
-        "ollama_host": "http://test:11434",
-        "vision_model": "test-vision",
-        "text_model": "test-text",
-        "log_level": "DEBUG",
-    }
-
-
-@pytest.fixture
-def mock_ollama_response():
-    """Mock Ollama API response."""
-    return {
-        'message': {'content': 'Mock response'},
-        'model': 'test-model',
-    }
-
-
-# ============================================================================
-# Orchestrator fixtures (shared across all test modules)
-# ============================================================================
 
 @pytest.fixture
 def mock_ollama_client():
@@ -80,3 +51,33 @@ def sample_complex_intent_json():
         ],
         "requires_observation": True
     }
+
+
+@pytest.fixture
+def mock_applescript_result():
+    """Create a mock AppleScriptResult."""
+    from automation_agent.actions.applescript import AppleScriptResult
+    return AppleScriptResult(success=True, output="", error="")
+
+
+@pytest.fixture
+def mock_action_result():
+    """Create a mock ActionResult for testing."""
+    from automation_agent.orchestrator.models import ActionResult
+    return ActionResult(
+        success=True,
+        action="activate_app",
+        params={"app_name": "Safari"},
+        output="Safari activated",
+    )
+
+
+@pytest.fixture
+def sample_observation():
+    """Create a sample observation for testing."""
+    from automation_agent.orchestrator.models import Observation
+    return Observation(
+        screenshot_b64="base64_data",
+        description="Safari browser is open showing YouTube homepage",
+        timestamp=datetime.now(),
+    )
