@@ -48,9 +48,41 @@ class ScreenCapturer:
         except Exception as e:
             raise RuntimeError(f"Failed to capture region: {e}")
 
-    def capture_screen_b64(self) -> str:
-        """Capture screenshot and return base64 encoded string."""
+    def capture_screen_b64(self, max_size_bytes: int = 4_500_000) -> str:
+        """
+        Capture screenshot and return base64 encoded string.
+
+        Automatically compresses to stay under max_size_bytes (default 4.5MB
+        to leave room for base64 encoding overhead under Anthropic's 5MB limit).
+        """
         screenshot = self.capture_screen()
+
+        # Try JPEG with decreasing quality until under size limit
+        for quality in [85, 70, 55, 40, 30]:
+            buffered = io.BytesIO()
+            # Convert to RGB (JPEG doesn't support alpha)
+            if screenshot.mode == 'RGBA':
+                screenshot = screenshot.convert('RGB')
+            screenshot.save(buffered, format="JPEG", quality=quality, optimize=True)
+
+            if buffered.tell() <= max_size_bytes:
+                return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # If still too large, resize the image
+        width, height = screenshot.size
+        for scale in [0.75, 0.5, 0.4, 0.3]:
+            new_size = (int(width * scale), int(height * scale))
+            resized = screenshot.resize(new_size, Image.LANCZOS)
+
+            buffered = io.BytesIO()
+            resized.save(buffered, format="JPEG", quality=50, optimize=True)
+
+            if buffered.tell() <= max_size_bytes:
+                return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # Last resort: return whatever we have
         buffered = io.BytesIO()
-        screenshot.save(buffered, format="PNG")
+        screenshot.resize((width // 3, height // 3), Image.LANCZOS).save(
+            buffered, format="JPEG", quality=40, optimize=True
+        )
         return base64.b64encode(buffered.getvalue()).decode('utf-8')

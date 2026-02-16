@@ -62,6 +62,20 @@ automation-agent --verbose "Complex task"
 automation-agent --ollama-host http://192.168.1.100:11434 "Task"
 ```
 
+### Molmo Vision Mode
+
+Use Molmo for vision-based coordinate grounding:
+
+```bash
+# Uses Molmo backend when available
+automation-agent --molmo "Book a table for 2 in San Jose tonight at 7pm"
+```
+
+Molmo backend resolution order:
+- OpenRouter Molmo when `AGENT_OPENROUTER_API_KEY` (or `OPENROUTER_API_KEY`) is set
+- Local Ollama `molmo` model if installed
+- Automatic fallback to `qwen3-vl` if Molmo is unavailable
+
 ### Restaurant-Focused Workflow
 
 For a higher-success reservation flow, run restaurant mode:
@@ -101,6 +115,14 @@ ruff check src/ tests/
 # Type check
 mypy src/
 ```
+
+## Molmo Evaluation Assets
+
+To benchmark Molmo for restaurant automation:
+
+- `MOLMO_EVALUATION_PLAN.md` - A/B protocol and success criteria
+- `MOLMO_EVAL_TASKS.json` - Fixed 20-task benchmark checklist
+- `MOLMO_EVAL_RESULTS_TEMPLATE.csv` - Results logging template
 
 ## Project Status
 

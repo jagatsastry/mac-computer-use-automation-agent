@@ -9,25 +9,65 @@ from .base import ActionBase, ActionType, ActionResult
 
 
 class ClickAction(ActionBase):
-    """Click at coordinates."""
+    """Click at coordinates with Retina display scaling support."""
+
+    # Class-level scaling factor cache
+    _scale_factor: float = None
 
     def __init__(self, x: int, y: int):
         super().__init__(ActionType.CLICK)
         self.x = x
         self.y = y
 
+    @classmethod
+    def _get_scale_factor(cls) -> float:
+        """
+        Calculate the scaling factor between screenshot pixels and logical screen pixels.
+        On Retina displays, screenshots are 2x the logical resolution.
+        """
+        if cls._scale_factor is None:
+            # Get logical screen size (what PyAutoGUI uses for clicking)
+            logical_width, logical_height = pyautogui.size()
+
+            # Take a screenshot to get actual pixel dimensions
+            screenshot = pyautogui.screenshot()
+            screenshot_width, screenshot_height = screenshot.size
+
+            # Calculate scale factor (typically 2.0 on Retina, 1.0 otherwise)
+            cls._scale_factor = screenshot_width / logical_width
+
+        return cls._scale_factor
+
+    def _scale_coordinates(self) -> Tuple[int, int]:
+        """Scale coordinates from screenshot space to logical screen space."""
+        scale = self._get_scale_factor()
+        scaled_x = int(self.x / scale)
+        scaled_y = int(self.y / scale)
+        return scaled_x, scaled_y
+
     async def validate(self) -> bool:
         screen_w, screen_h = pyautogui.size()
-        return 0 <= self.x <= screen_w and 0 <= self.y <= screen_h
+        scaled_x, scaled_y = self._scale_coordinates()
+        return 0 <= scaled_x <= screen_w and 0 <= scaled_y <= screen_h
 
     async def execute(self) -> ActionResult:
         try:
-            pyautogui.click(self.x, self.y)
+            # Scale coordinates for Retina displays
+            scaled_x, scaled_y = self._scale_coordinates()
+            scale = self._get_scale_factor()
+
+            pyautogui.click(scaled_x, scaled_y)
             return ActionResult(
                 success=True,
                 action_type=self.action_type,
                 timestamp=time.time(),
-                metadata={"x": self.x, "y": self.y}
+                metadata={
+                    "original_x": self.x,
+                    "original_y": self.y,
+                    "scaled_x": scaled_x,
+                    "scaled_y": scaled_y,
+                    "scale_factor": scale
+                }
             )
         except Exception as e:
             return ActionResult(

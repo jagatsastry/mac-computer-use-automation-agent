@@ -3,12 +3,13 @@
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any, Tuple
 
 from .cli import parse_args, validate_args
 from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
 from .llm.client import OllamaClient
-from .llm import AnthropicClient, ANTHROPIC_AVAILABLE
+from .llm import AnthropicClient, ANTHROPIC_AVAILABLE, MolmoVisionClient
 from .perception.capture import ScreenCapturer
 from .workflows import run_restaurant_workflow
 from .orchestrator import (
@@ -40,6 +41,10 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.anthropic_model = args.anthropic_model
         config.anthropic_vision_model = args.anthropic_model
 
+    # OpenRouter settings (Molmo mode)
+    if hasattr(args, "openrouter_api_key") and args.openrouter_api_key:
+        config.openrouter_api_key = args.openrouter_api_key
+
     # Logging settings
     if args.log_level:
         level = LogLevel(args.log_level)
@@ -53,6 +58,51 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
     if hasattr(args, "molmo") and args.molmo:
         config.model_provider = ModelProvider.OLLAMA
         config.vision_model = "molmo"
+
+
+async def _resolve_molmo_vision_backend(
+    config: AgentConfig,
+    text_llm_client: Any,
+    logger: Any,
+) -> Tuple[Any, str]:
+    """
+    Resolve the best available Molmo-capable vision backend.
+
+    Priority:
+    1) OpenRouter Molmo via API key
+    2) Local Ollama model named "molmo"
+    3) Fallback to local qwen3-vl
+    """
+    # 1) OpenRouter Molmo
+    if config.openrouter_api_key:
+        molmo_client = MolmoVisionClient(
+            api_key=config.openrouter_api_key,
+            model=config.molmo_model,
+            timeout=config.ollama_timeout,
+            base_url=config.openrouter_base_url,
+        )
+        if await molmo_client.test_connection():
+            logger.info("using_molmo_openrouter", model=config.molmo_model)
+            print(f"[INFO] Using Molmo via OpenRouter ({config.molmo_model})")
+            return molmo_client, config.molmo_model
+        logger.warning("molmo_openrouter_unavailable_fallback")
+        print("[WARN] OpenRouter Molmo unavailable, trying local Ollama models...")
+
+    # 2/3) Local Ollama choices
+    if isinstance(text_llm_client, OllamaClient):
+        if await text_llm_client.check_model_available("molmo"):
+            logger.info("using_molmo_ollama", model="molmo")
+            print("[INFO] Using local Ollama Molmo model (molmo)")
+            return text_llm_client, "molmo"
+
+        if await text_llm_client.check_model_available("qwen3-vl"):
+            logger.warning("molmo_not_found_fallback_qwen3_vl")
+            print("[WARN] Local Molmo model not found; falling back to qwen3-vl for vision.")
+            return text_llm_client, "qwen3-vl"
+
+    logger.warning("molmo_not_available_any_backend")
+    print("[WARN] Molmo backend unavailable; using configured vision model.")
+    return text_llm_client, config.vision_model
 
 
 def _is_restaurant_prompt(prompt: str) -> bool:
@@ -77,6 +127,7 @@ async def run_agent(
     config: AgentConfig,
     dry_run: bool = False,
     restaurant_only: bool = False,
+    molmo: bool = False,
 ) -> int:
     """
     Run the automation agent with the given prompt.
@@ -140,10 +191,20 @@ async def run_agent(
             print("Make sure Ollama is running: ollama serve")
             return 1
 
+    # Select vision backend (default: same client as text path)
+    vision_client = llm_client
+    observer_vision_model = vision_model
+    if molmo:
+        vision_client, observer_vision_model = await _resolve_molmo_vision_backend(
+            config=config,
+            text_llm_client=llm_client,
+            logger=logger,
+        )
+
     # Initialize components
     capturer = ScreenCapturer(config)
     parser = IntentParser(llm_client, model=text_model)
-    observer = ScreenObserver(llm_client, capturer, model=vision_model)
+    observer = ScreenObserver(vision_client, capturer, model=observer_vision_model)
     registry = ActionRegistry()
 
     # Create agent
@@ -272,6 +333,7 @@ def main() -> None:
                 config,
                 args.dry_run,
                 getattr(args, "restaurant_only", False),
+                getattr(args, "molmo", False),
             )
         )
         logger.info("automation_agent_completed", success=(exit_code == 0))

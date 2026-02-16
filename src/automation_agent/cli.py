@@ -59,6 +59,14 @@ Examples:
         help="Anthropic model to use (default: claude-sonnet-4-20250514)",
     )
 
+    # OpenRouter settings (used by Molmo mode)
+    parser.add_argument(
+        "--openrouter-api-key",
+        type=str,
+        metavar="KEY",
+        help="OpenRouter API key for Molmo mode (or set AGENT_OPENROUTER_API_KEY/OPENROUTER_API_KEY)",
+    )
+
     # Logging
     parser.add_argument(
         "--log-level",
@@ -81,7 +89,7 @@ Examples:
     parser.add_argument(
         "--molmo",
         action="store_true",
-        help="Use Molmo for vision-based coordinate identification (Ollama)",
+        help="Use Molmo for vision-based coordinate identification",
     )
 
     return parser

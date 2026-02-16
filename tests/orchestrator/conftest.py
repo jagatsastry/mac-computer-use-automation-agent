@@ -13,7 +13,7 @@ def mock_ollama_client():
     client.generate_vision = AsyncMock()
     client.test_connection = AsyncMock(return_value=True)
     client.check_model_available = AsyncMock(return_value=True)
-    client.list_models = AsyncMock(return_value=["gemma2:9b", "qwen2-vl"])
+    client.list_models = AsyncMock(return_value=["gemma2:9b", "qwen3-vl"])
     return client
 
 

@@ -22,16 +22,18 @@ class TestOllamaClient:
         """Test checking if model is available (found)."""
         client = OllamaClient()
 
-        # Mock the list response
-        mock_response = {
-            'models': [
-                {'name': 'qwen2-vl:latest'},
-                {'name': 'gemma2:9b'},
-            ]
-        }
+        # Mock the list response - needs to match ollama library's response format
+        # response.models is a list of Model objects with .model attribute
+        mock_model1 = MagicMock()
+        mock_model1.model = 'qwen3-vl:latest'
+        mock_model2 = MagicMock()
+        mock_model2.model = 'gemma2:9b'
+
+        mock_response = MagicMock()
+        mock_response.models = [mock_model1, mock_model2]
 
         with patch.object(client._client, 'list', new=AsyncMock(return_value=mock_response)):
-            available = await client.check_model_available('qwen2-vl')
+            available = await client.check_model_available('qwen3-vl')
             assert available is True
             print("✓ Model availability check (found) works")
 
@@ -40,11 +42,12 @@ class TestOllamaClient:
         """Test checking if model is available (not found)."""
         client = OllamaClient()
 
-        mock_response = {
-            'models': [
-                {'name': 'other-model:latest'},
-            ]
-        }
+        # Mock the list response - needs to match ollama library's response format
+        mock_model = MagicMock()
+        mock_model.model = 'other-model:latest'
+
+        mock_response = MagicMock()
+        mock_response.models = [mock_model]
 
         with patch.object(client._client, 'list', new=AsyncMock(return_value=mock_response)):
             available = await client.check_model_available('nonexistent-model')

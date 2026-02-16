@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -123,6 +124,10 @@ def _upsert_memory(memory_path: Path, request: RestaurantRequest, selected: str)
 
 async def _ask_user(question: str, default: Optional[str] = None) -> str:
     """Prompt user for input without blocking event loop."""
+    if not sys.stdin or not sys.stdin.isatty():
+        # Unattended mode: use defaults/memory without blocking for input.
+        return default or ""
+
     suffix = f" [{default}]" if default else ""
     value = await asyncio.to_thread(input, f"{question}{suffix}: ")
     trimmed = value.strip()
@@ -174,16 +179,30 @@ async def _aggregate_options(agent: AutomationAgent, req: RestaurantRequest) -> 
     """Gather top options from providers by navigating and observing with vision."""
     options: List[ProviderOption] = []
     for provider, url in _provider_urls(req).items():
-        preload_goal = f"Open Safari and go to {url}"
-        await agent.execute(preload_goal)
-        await asyncio.sleep(max(agent.action_delay, 1.0))
+        try:
+            preload_goal = f"Open Safari and go to {url}"
+            preload_result = await agent.execute(preload_goal)
+            await asyncio.sleep(max(agent.action_delay, 1.0))
 
-        observation = await agent.observer.observe(
-            f"From this {provider} page, list the top 3 restaurant options for "
-            f"{req.cuisine} in {req.location} around {req.date_time}. "
-            "Include names, rating/price if visible, and which one seems best."
-        )
-        options.append(ProviderOption(provider=provider, query_url=url, summary=observation.description))
+            if not preload_result.success:
+                summary = f"Navigation failed: {preload_result.error or preload_result.message}"
+            else:
+                observation = await agent.observer.observe(
+                    f"From this {provider} page, list the top 3 restaurant options for "
+                    f"{req.cuisine} in {req.location} around {req.date_time}. "
+                    "Include names, rating/price if visible, and which one seems best."
+                )
+                summary = observation.description
+
+            options.append(ProviderOption(provider=provider, query_url=url, summary=summary))
+        except Exception as e:
+            options.append(
+                ProviderOption(
+                    provider=provider,
+                    query_url=url,
+                    summary=f"Provider aggregation error: {e}",
+                )
+            )
     return options
 
 
@@ -204,10 +223,7 @@ async def run_restaurant_workflow(
         print(f"\n{idx}. {option.provider} ({option.query_url})")
         print(option.summary)
 
-    choice = await _ask_user(
-        "Choose provider/option number to continue with reservation automation",
-        "1",
-    )
+    choice = await _ask_user("Choose provider/option number to continue with reservation automation", "1")
     try:
         selected_idx = max(1, min(len(options), int(choice))) - 1
     except ValueError:

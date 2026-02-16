@@ -49,6 +49,12 @@ dev = [
     "ruff>=0.2.0",
     "mypy>=1.8.0",
 ]
+anthropic = [
+    "anthropic>=0.40.0",
+]
+all = [
+    "automation-agent[dev,anthropic]",
+]
 
 [project.scripts]
 automation-agent = "automation_agent.__main__:main"

@@ -72,19 +72,80 @@ Return ONLY valid JSON with this structure:
    - "slack" → "Slack"
    - "spotify" → "Spotify"
 
-3. **requires_observation**: Set to true ONLY when the task needs to:
+4. **requires_observation**: Set to true when the task needs to:
    - Read or understand screen content
    - Find UI elements by visual description
    - Make decisions based on what's visible
    - Click on dynamically positioned elements
    - Verify if an action succeeded
+   - Fill in forms with multiple fields
+   - Compare options and make choices (like finding cheapest/best)
 
-4. **Simple vs Complex Tasks**:
-   - Simple (requires_observation: false): "Open Safari", "Go to youtube.com", "Quit Chrome"
-   - Complex (requires_observation: true): "Click the most popular video", "Find and click the login button", "Search for X and click the first result"
+5. **Simple vs Complex Tasks**:
+   - Simple (requires_observation: false): "Open Safari", "Go to youtube.com", "Quit Chrome", "Search YouTube for cats"
+   - Complex (requires_observation: true): "Click the most popular video", "Find and click the login button", "Find the cheapest flight", "Book a hotel", "Fill out a form"
 
-5. **Multi-step Commands**: Break complex commands into sequential steps
+6. **Multi-step Commands**: Break complex commands into sequential steps
    - "Open Safari and go to google.com" → [activate_app Safari, open_url google.com]
+
+## Travel & Booking Search Patterns
+
+Use direct URLs with search parameters pre-filled. This is MORE RELIABLE than navigating manually.
+
+7. **Flight Searches** - Use Google Flights:
+   - "find flights from X to Y" → "https://www.google.com/travel/flights?q=flights+from+X+to+Y"
+   - Include dates in query: "flights+from+SFO+to+Tokyo+March+15-20+2026"
+   - Set requires_observation: true to analyze results
+
+8. **Hotel Searches** - Use Google Hotels:
+   - "find hotels in CITY" → "https://www.google.com/travel/hotels/CITY"
+   - "hotels in Tokyo March 15-20" → "https://www.google.com/travel/hotels/Tokyo?q=hotels+in+Tokyo+March+15+to+March+20+2026"
+   - For specific dates, add: "&dates=2026-03-15,2026-03-20" (format: YYYY-MM-DD)
+   - Set requires_observation: true to compare prices
+
+9. **Restaurant Searches** - Use Google Maps:
+   - "find restaurants near X" → "https://www.google.com/maps/search/restaurants+near+X"
+   - "best sushi in Tokyo" → "https://www.google.com/maps/search/best+sushi+in+Tokyo"
+   - "coffee shops nearby" → "https://www.google.com/maps/search/coffee+shops"
+   - Set requires_observation: true for choosing/clicking
+
+10. **Shopping Searches** - Use Google Shopping:
+    - "find X for sale" → "https://www.google.com/search?q=X&tbm=shop"
+    - "buy iPhone 15" → "https://www.google.com/search?q=buy+iPhone+15&tbm=shop"
+    - "compare prices for X" → "https://www.google.com/search?q=X&tbm=shop"
+    - Set requires_observation: true to compare/select
+
+11. **Directions/Maps** - Use Google Maps:
+    - "directions from X to Y" → "https://www.google.com/maps/dir/X/Y"
+    - "how to get to X" → "https://www.google.com/maps/search/X"
+    - Set requires_observation: false for simple directions display
+
+12. **News Searches** - Use Google News:
+    - "news about X" → "https://www.google.com/search?q=X&tbm=nws"
+    - "latest news on Y" → "https://www.google.com/search?q=Y&tbm=nws"
+    - Set requires_observation: true if selecting articles
+
+13. **Image Searches** - Use Google Images:
+    - "images of X" → "https://www.google.com/search?q=X&tbm=isch"
+    - "pictures of cats" → "https://www.google.com/search?q=cats&tbm=isch"
+    - Set requires_observation: true if selecting images
+
+14. **Restaurant Reservations** - Use OpenTable for direct booking:
+    - "book a table at RESTAURANT" → "https://www.opentable.com/s?term=RESTAURANT"
+    - "reserve a table at RESTAURANT for N people" → "https://www.opentable.com/s?term=RESTAURANT&covers=N"
+    - "make a reservation at RESTAURANT" → "https://www.opentable.com/s?term=RESTAURANT"
+    - Include date/time in search if provided
+    - Set requires_observation: true (need to select time slot and complete booking)
+
+15. **Movie Tickets** - Use Fandango:
+    - "buy tickets for MOVIE" → "https://www.fandango.com/search?q=MOVIE"
+    - "movie showtimes for MOVIE" → "https://www.fandango.com/search?q=MOVIE"
+    - Set requires_observation: true
+
+16. **Event Tickets** - Use Ticketmaster:
+    - "buy tickets for EVENT" → "https://www.ticketmaster.com/search?q=EVENT"
+    - "concert tickets for ARTIST" → "https://www.ticketmaster.com/search?q=ARTIST"
+    - Set requires_observation: true
 
 ## Examples
 
@@ -105,6 +166,51 @@ Output: {"steps": [{"action": "click_element", "params": {"description": "the vi
 
 Input: "Close Chrome"
 Output: {"steps": [{"action": "quit_app", "params": {"app_name": "Google Chrome"}}], "requires_observation": false}
+
+Input: "Find the cheapest flight from San Francisco to Singapore in March 2026"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/travel/flights?q=flights+from+San+Francisco+to+Singapore+March+2026", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Find flights from NYC to London next week"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/travel/flights?q=flights+from+NYC+to+London+next+week", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Find me a hotel in Tokyo for March 15-20 2026"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/travel/hotels/Tokyo?q=hotels+in+Tokyo+March+15+to+20+2026&dates=2026-03-15,2026-03-20", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Find hotels in Paris for next weekend"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/travel/hotels/Paris?q=hotels+in+Paris+next+weekend", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Find the best restaurants near Times Square"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/maps/search/best+restaurants+near+Times+Square", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Find sushi restaurants in San Francisco"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/maps/search/sushi+restaurants+in+San+Francisco", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Compare prices for MacBook Pro"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/search?q=MacBook+Pro&tbm=shop", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Get directions from San Francisco to Los Angeles"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/maps/dir/San+Francisco/Los+Angeles", "browser": "Safari"}}], "requires_observation": false}
+
+Input: "Show me news about AI"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/search?q=AI&tbm=nws", "browser": "Safari"}}], "requires_observation": false}
+
+Input: "Find images of golden gate bridge"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.google.com/search?q=golden+gate+bridge&tbm=isch", "browser": "Safari"}}], "requires_observation": false}
+
+Input: "Book a table for two at Joey Valley Fair Restaurant for tonight at 7pm"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.opentable.com/s?term=Joey+Valley+Fair&covers=2&dateTime=2026-02-03T19:00", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Make a reservation at Nobu for 4 people"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.opentable.com/s?term=Nobu&covers=4", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Reserve a table at The French Laundry"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.opentable.com/s?term=The+French+Laundry", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Buy movie tickets for Dune 2"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.fandango.com/search?q=Dune+2", "browser": "Safari"}}], "requires_observation": true}
+
+Input: "Get tickets for Taylor Swift concert"
+Output: {"steps": [{"action": "open_url", "params": {"url": "https://www.ticketmaster.com/search?q=Taylor+Swift", "browser": "Safari"}}], "requires_observation": true}
 
 Output ONLY valid JSON, no explanation or markdown."""
 

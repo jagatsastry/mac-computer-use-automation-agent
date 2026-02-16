@@ -45,6 +45,14 @@ class TestParseArgs:
         assert args.prompt == "Find the reserve button"
         print("✓ Molmo flag parsing works")
 
+    def test_parse_with_openrouter_api_key(self):
+        """Test parsing with OpenRouter API key option."""
+        args = parse_args(["--openrouter-api-key", "sk-test", "Find reserve button"])
+
+        assert args.openrouter_api_key == "sk-test"
+        assert args.prompt == "Find reserve button"
+        print("✓ OpenRouter API key parsing works")
+
     def test_parse_with_verbose(self):
         """Test parsing with --verbose flag."""
         args = parse_args(["--verbose", "Test"])

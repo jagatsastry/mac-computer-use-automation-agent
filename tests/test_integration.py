@@ -23,7 +23,7 @@ class TestBasicIntegration:
         config = load_config()
         assert config is not None
         assert config.ollama_host == "http://localhost:11434"
-        assert config.vision_model == "qwen2-vl"
+        assert config.vision_model == "qwen3-vl"
         assert config.text_model == "gemma2:9b"
         print(f"✓ Config loaded: {config.ollama_host}")
 
@@ -192,7 +192,7 @@ class TestEndToEnd:
         print("✅ Action execution: Working")
         print("\n📋 Next steps:")
         print("   1. Start Ollama: ollama serve")
-        print("   2. Pull models: ollama pull qwen2-vl && ollama pull gemma2:9b")
+        print("   2. Pull models: ollama pull qwen3-vl && ollama pull gemma2:9b")
         print("   3. Grant macOS permissions (Accessibility, Screen Recording)")
         print("   4. Implement remaining phases (2-6) for full agent")
         print("\n" + "="*60 + "\n")

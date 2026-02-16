@@ -17,3 +17,13 @@ def test_molmo_flag_forces_ollama_vision_model():
 
     assert config.model_provider == ModelProvider.OLLAMA
     assert config.vision_model == "molmo"
+
+
+def test_openrouter_key_override():
+    """--openrouter-api-key should update config for Molmo mode."""
+    config = AgentConfig(_env_file=None)
+    args = parse_args(["--openrouter-api-key", "sk-test", "Find reserve button"])
+
+    apply_cli_overrides(config, args)
+
+    assert config.openrouter_api_key == "sk-test"

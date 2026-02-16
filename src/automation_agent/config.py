@@ -20,6 +20,7 @@ class LogLevel(str, Enum):
 class ModelProvider(str, Enum):
     """Supported LLM providers."""
     OLLAMA = "ollama"
+    ANTHROPIC = "anthropic"
 
 
 class AgentConfig(BaseSettings):
@@ -44,25 +45,73 @@ class AgentConfig(BaseSettings):
     # LLM Configuration
     model_provider: ModelProvider = Field(
         default=ModelProvider.OLLAMA,
-        description="LLM provider to use",
+        description="LLM provider to use (ollama or anthropic)",
     )
     ollama_host: str = Field(
         default="http://localhost:11434",
         description="Ollama server host URL",
     )
     vision_model: str = Field(
-        default="qwen2-vl",
-        description="Vision model for screen analysis",
+        default="qwen3-vl",
+        description="Vision model for screen analysis (Ollama model name)",
     )
     text_model: str = Field(
         default="gemma2:9b",
-        description="Text model for planning and reasoning",
+        description="Text model for planning and reasoning (Ollama model name)",
     )
     ollama_timeout: int = Field(
-        default=120,
+        default=300,
         description="Timeout in seconds for Ollama API calls",
         gt=0,
     )
+
+    # Anthropic (Claude) Configuration
+    anthropic_api_key: Optional[str] = Field(
+        default=None,
+        description="Anthropic API key (required if model_provider is anthropic). Also checks ANTHROPIC_API_KEY env var.",
+    )
+
+    @field_validator("anthropic_api_key", mode="before")
+    @classmethod
+    def get_anthropic_key(cls, v: Optional[str]) -> Optional[str]:
+        """Check multiple env vars for Anthropic API key."""
+        import os
+        if v:
+            return v
+        # Fallback to common ANTHROPIC_API_KEY env var
+        return os.environ.get("ANTHROPIC_API_KEY")
+    anthropic_model: str = Field(
+        default="claude-sonnet-4-20250514",
+        description="Anthropic model to use for text generation",
+    )
+    anthropic_vision_model: str = Field(
+        default="claude-sonnet-4-20250514",
+        description="Anthropic model to use for vision tasks",
+    )
+
+    # Molmo/OpenRouter configuration
+    openrouter_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenRouter API key for Molmo vision mode. Also checks OPENROUTER_API_KEY env var.",
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Base URL for OpenRouter-compatible API",
+    )
+    molmo_model: str = Field(
+        default="allenai/molmo-2-8b:free",
+        description="Molmo model identifier for OpenRouter vision mode",
+    )
+
+    @field_validator("openrouter_api_key", mode="before")
+    @classmethod
+    def get_openrouter_key(cls, v: Optional[str]) -> Optional[str]:
+        """Check multiple env vars for OpenRouter API key."""
+        import os
+
+        if v:
+            return v
+        return os.environ.get("OPENROUTER_API_KEY")
 
     # Automation Configuration
     screenshot_quality: int = Field(
