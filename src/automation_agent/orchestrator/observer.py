@@ -2,9 +2,8 @@
 
 import re
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
-from ..llm.client import OllamaClient
 from ..perception.capture import ScreenCapturer
 from .models import Coordinates, Observation
 
@@ -67,7 +66,7 @@ class ScreenObserver:
 
     def __init__(
         self,
-        vision_client: OllamaClient,
+        vision_client: Any,
         capturer: ScreenCapturer,
         model: str = "qwen3-vl",
     ):
