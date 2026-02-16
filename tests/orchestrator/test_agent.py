@@ -67,7 +67,7 @@ class TestAutomationAgentInit:
         assert agent.observer == mock_observer
         assert agent.registry == mock_registry
         assert agent.text_model == "gemma2:9b"
-        assert agent.max_iterations == 20
+        assert agent.max_iterations == 35
         assert agent.action_delay == 1.0
 
     def test_init_with_custom_settings(self, mock_parser, mock_observer, mock_registry, mock_ollama_client):

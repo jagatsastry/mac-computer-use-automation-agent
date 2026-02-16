@@ -11,13 +11,13 @@ class TestAgentConfig:
 
     def test_default_config(self):
         """Test default configuration values."""
-        config = AgentConfig()
+        config = AgentConfig(_env_file=None)
 
         assert config.model_provider == ModelProvider.OLLAMA
         assert config.ollama_host == "http://localhost:11434"
-        assert config.vision_model == "qwen2-vl"
+        assert config.vision_model == "qwen3-vl"
         assert config.text_model == "gemma2:9b"
-        assert config.ollama_timeout == 120
+        assert config.ollama_timeout == 300
         assert config.log_level == LogLevel.INFO
         assert config.action_delay == 0.5
         assert config.max_retries == 3
@@ -32,7 +32,7 @@ class TestAgentConfig:
             "log_level": "DEBUG",
             "action_delay": 1.0,
         }
-        config = AgentConfig(**data)
+        config = AgentConfig(_env_file=None, **data)
 
         assert config.ollama_host == "http://192.168.1.100:11434"
         assert config.vision_model == "custom-vision"
@@ -44,46 +44,46 @@ class TestAgentConfig:
     def test_ollama_host_validation(self):
         """Test ollama_host validation."""
         # Valid hosts
-        config1 = AgentConfig(ollama_host="http://localhost:11434")
+        config1 = AgentConfig(_env_file=None, ollama_host="http://localhost:11434")
         assert config1.ollama_host == "http://localhost:11434"
 
-        config2 = AgentConfig(ollama_host="https://example.com:11434")
+        config2 = AgentConfig(_env_file=None, ollama_host="https://example.com:11434")
         assert config2.ollama_host == "https://example.com:11434"
 
         # Invalid host (no http/https)
         with pytest.raises(ValueError, match="must start with http"):
-            AgentConfig(ollama_host="localhost:11434")
+            AgentConfig(_env_file=None, ollama_host="localhost:11434")
 
         print("✓ Ollama host validation works")
 
     def test_timeout_validation(self):
         """Test timeout validation."""
         # Valid timeout
-        config = AgentConfig(ollama_timeout=60)
+        config = AgentConfig(_env_file=None, ollama_timeout=60)
         assert config.ollama_timeout == 60
 
         # Invalid timeouts
         with pytest.raises(ValueError):
-            AgentConfig(ollama_timeout=0)
+            AgentConfig(_env_file=None, ollama_timeout=0)
 
         with pytest.raises(ValueError):
-            AgentConfig(ollama_timeout=-1)
+            AgentConfig(_env_file=None, ollama_timeout=-1)
 
         print("✓ Timeout validation works")
 
     def test_screenshot_quality_validation(self):
         """Test screenshot quality validation."""
         # Valid quality
-        config = AgentConfig(screenshot_quality=50)
+        config = AgentConfig(_env_file=None, screenshot_quality=50)
         assert config.screenshot_quality == 50
 
         # Invalid quality (too low)
         with pytest.raises(ValueError):
-            AgentConfig(screenshot_quality=0)
+            AgentConfig(_env_file=None, screenshot_quality=0)
 
         # Invalid quality (too high)
         with pytest.raises(ValueError):
-            AgentConfig(screenshot_quality=101)
+            AgentConfig(_env_file=None, screenshot_quality=101)
 
         print("✓ Screenshot quality validation works")
 
@@ -96,7 +96,7 @@ class TestAgentConfig:
         log_dir = temp_dir / "test_logs"
 
         try:
-            config = AgentConfig(log_dir=log_dir)
+            config = AgentConfig(_env_file=None, log_dir=log_dir)
             assert log_dir.exists()
             assert log_dir.is_dir()
             print("✓ Log directory created automatically")
@@ -105,7 +105,7 @@ class TestAgentConfig:
 
     def test_get_log_file_path(self):
         """Test log file path generation."""
-        config = AgentConfig(log_dir=Path("/tmp/test_logs"))
+        config = AgentConfig(_env_file=None, log_dir=Path("/tmp/test_logs"))
         path = config.get_log_file_path()
 
         assert path == Path("/tmp/test_logs/automation_agent.log")
