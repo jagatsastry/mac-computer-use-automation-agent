@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from typing import List, Optional
 
 from ..llm.client import OllamaClient
@@ -370,6 +371,10 @@ class AutomationAgent:
 
     async def _pause_for_user_login(self) -> None:
         """Pause automation for manual user login and resume."""
+        if not sys.stdin or not sys.stdin.isatty():
+            print("\n[INFO] Login prompt detected, but stdin is non-interactive. Continuing.")
+            return
+
         print("\n[PAUSED] Login prompt detected. Please complete login manually.")
         await asyncio.to_thread(input, "Press Enter after login is complete...")
 

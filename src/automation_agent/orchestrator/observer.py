@@ -35,7 +35,24 @@ If you cannot find the element, respond with:
 IMPORTANT:
 - Be precise with coordinates
 - The box should tightly contain the element
-- Return ONLY the box tag, no other text"""
+- Return ONLY the box tag, no other text
+
+## Special Cases
+
+### Time Slots
+When asked to find a time slot closest to a specific time:
+1. Look at ALL available time slots on the screen
+2. Find the one CLOSEST to the requested time
+3. If exact time not available, prefer the next available time AFTER the requested time
+4. Return the bounding box of that specific time slot button
+
+Example: "Find time slot closest to 7:00 PM"
+- If 7:00 PM available → return that
+- If not, but 7:15 PM and 6:45 PM available → return 7:15 PM (next after)
+- If only earlier times → return the latest one before 7:00 PM
+
+### Buttons with Text
+For buttons, include the full clickable area, not just the text."""
 
 
 class ScreenObserver:
@@ -52,7 +69,7 @@ class ScreenObserver:
         self,
         vision_client: OllamaClient,
         capturer: ScreenCapturer,
-        model: str = "qwen2-vl",
+        model: str = "qwen3-vl",
     ):
         """
         Initialize screen observer.
@@ -60,7 +77,7 @@ class ScreenObserver:
         Args:
             vision_client: Ollama client for vision model inference
             capturer: Screen capture utility
-            model: Vision model name (default: qwen2-vl)
+            model: Vision model name (default: qwen3-vl)
         """
         self.vision = vision_client
         self.capturer = capturer
@@ -68,9 +85,28 @@ class ScreenObserver:
         self._screen_size: Optional[Tuple[int, int]] = None
 
     def _get_screen_size(self) -> Tuple[int, int]:
-        """Get and cache screen dimensions."""
+        """
+        Get and cache screen dimensions.
+
+        IMPORTANT: Returns SCREENSHOT dimensions (not logical screen size).
+        This ensures coordinates are in the same space as what Claude sees,
+        and ClickAction can properly scale them for Retina displays.
+        """
         if self._screen_size is None:
-            self._screen_size = self.capturer.get_screen_size()
+            # Prefer screenshot-space dimensions when available (Retina-safe).
+            screenshot_size: Optional[Tuple[int, int]] = None
+            try:
+                screenshot = self.capturer.capture_screen()
+                if hasattr(screenshot, "size") and screenshot.size:
+                    screenshot_size = screenshot.size
+            except Exception:
+                screenshot_size = None
+
+            # Test fixtures and some capturers expose logical size only.
+            if screenshot_size is not None and len(screenshot_size) == 2:
+                self._screen_size = screenshot_size
+            else:
+                self._screen_size = self.capturer.get_screen_size()
         return self._screen_size
 
     async def observe(self, question: Optional[str] = None) -> Observation:
@@ -158,21 +194,65 @@ class ScreenObserver:
         if not match:
             return None
 
-        # Parse normalized coordinates (0-1000)
-        x1_norm = int(match.group(1))
-        y1_norm = int(match.group(2))
-        x2_norm = int(match.group(3))
-        y2_norm = int(match.group(4))
+        x1_raw = int(match.group(1))
+        y1_raw = int(match.group(2))
+        x2_raw = int(match.group(3))
+        y2_raw = int(match.group(4))
 
-        # Convert to actual screen coordinates
         screen_width, screen_height = self._get_screen_size()
+        coord_space = self._infer_coordinate_space(
+            response=response,
+            x1=x1_raw,
+            y1=y1_raw,
+            x2=x2_raw,
+            y2=y2_raw,
+            screen_width=screen_width,
+            screen_height=screen_height,
+        )
 
-        x1 = int(x1_norm * screen_width / 1000)
-        y1 = int(y1_norm * screen_height / 1000)
-        x2 = int(x2_norm * screen_width / 1000)
-        y2 = int(y2_norm * screen_height / 1000)
+        if coord_space == "pixel":
+            x1, y1, x2, y2 = x1_raw, y1_raw, x2_raw, y2_raw
+        else:
+            x1 = int(x1_raw * screen_width / 1000)
+            y1 = int(y1_raw * screen_height / 1000)
+            x2 = int(x2_raw * screen_width / 1000)
+            y2 = int(y2_raw * screen_height / 1000)
 
         return Coordinates.from_bbox(x1, y1, x2, y2)
+
+    def _infer_coordinate_space(
+        self,
+        response: str,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        screen_width: int,
+        screen_height: int,
+    ) -> str:
+        """
+        Infer whether coordinates are normalized (0-1000) or pixel-space.
+
+        Heuristics:
+        1) Explicit response hints ("normalized"/"pixel")
+        2) Values > 1000 are treated as pixel-space
+        3) On high-resolution screens, <=1000 defaults to normalized
+        4) On small screens, <=1000 is treated as pixel-space
+        """
+        response_lower = response.lower()
+        if "normalized" in response_lower:
+            return "normalized"
+        if "pixel" in response_lower:
+            return "pixel"
+
+        max_val = max(x1, y1, x2, y2)
+        if max_val > 1000:
+            return "pixel"
+
+        if screen_width > 1000 or screen_height > 1000:
+            return "normalized"
+
+        return "pixel"
 
     async def check_condition(self, condition: str) -> bool:
         """

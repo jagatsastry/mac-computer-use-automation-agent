@@ -1,7 +1,6 @@
 """Command-line interface for the automation agent."""
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Optional, List
@@ -78,6 +77,11 @@ Examples:
         "--restaurant-only",
         action="store_true",
         help="Run interactive restaurant reservation workflow (OpenTable/Yelp/Google)",
+    )
+    parser.add_argument(
+        "--molmo",
+        action="store_true",
+        help="Use Molmo for vision-based coordinate identification (Ollama)",
     )
 
     return parser

@@ -50,7 +50,7 @@ def e2e_screen_capturer():
 def e2e_agent(e2e_ollama_client, e2e_screen_capturer):
     """Create a fully configured agent for E2E tests."""
     parser = IntentParser(e2e_ollama_client, model="gemma2:9b")
-    observer = ScreenObserver(e2e_ollama_client, e2e_screen_capturer, model="qwen2-vl")
+    observer = ScreenObserver(e2e_ollama_client, e2e_screen_capturer, model="qwen3-vl")
     registry = ActionRegistry()
 
     agent = AutomationAgent(
@@ -681,3 +681,37 @@ class TestE2EPerformance:
 
             assert result.success is True
             assert execution_order == ["activate", "type", "key"]
+
+
+class TestE2ECoordinateRangeDetection:
+    """Integration-style tests for coordinate range inference."""
+
+    @pytest.mark.asyncio
+    async def test_find_element_uses_pixel_space_when_bbox_exceeds_1000(
+        self, e2e_ollama_client, e2e_screen_capturer
+    ):
+        """Coordinates above 1000 should be treated as screenshot pixels."""
+        e2e_ollama_client.generate_vision = AsyncMock(return_value="<box>(1200,500,1500,700)</box>")
+        observer = ScreenObserver(e2e_ollama_client, e2e_screen_capturer, model="molmo")
+
+        coords = await observer.find_element("reserve button")
+
+        assert coords is not None
+        assert coords.x == 1200
+        assert coords.y == 500
+        assert coords.width == 300
+        assert coords.height == 200
+
+    @pytest.mark.asyncio
+    async def test_find_element_uses_normalized_space_when_bbox_within_1000(
+        self, e2e_ollama_client, e2e_screen_capturer
+    ):
+        """0-1000 coordinates on large screens should map from normalized space."""
+        e2e_ollama_client.generate_vision = AsyncMock(return_value="<box>(500,500,600,600)</box>")
+        observer = ScreenObserver(e2e_ollama_client, e2e_screen_capturer, model="molmo")
+
+        coords = await observer.find_element("reserve button")
+
+        assert coords is not None
+        assert coords.x == 960
+        assert coords.y == 540

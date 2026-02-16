@@ -49,6 +49,11 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
     if args.log_dir:
         config.log_dir = args.log_dir
 
+    # Molmo mode: force Ollama vision model for coordinate grounding
+    if hasattr(args, "molmo") and args.molmo:
+        config.model_provider = ModelProvider.OLLAMA
+        config.vision_model = "molmo"
+
 
 def _is_restaurant_prompt(prompt: str) -> bool:
     """Best-effort intent check for restaurant reservation workflows."""

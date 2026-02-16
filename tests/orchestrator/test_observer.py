@@ -16,7 +16,7 @@ class TestScreenObserverInit:
 
         assert observer.vision == mock_ollama_client
         assert observer.capturer == mock_screen_capturer
-        assert observer.model == "qwen2-vl"
+        assert observer.model == "qwen3-vl"
 
     def test_init_with_custom_model(self, mock_ollama_client, mock_screen_capturer):
         """Test observer initialization with custom model."""
@@ -318,3 +318,32 @@ class TestScreenObserverCoordinateParsing:
         # 500/1000 * 720 = 360
         assert coords.x == 640
         assert coords.y == 360
+
+    @pytest.mark.asyncio
+    async def test_coordinate_range_detection_pixel_space(self, mock_ollama_client, mock_screen_capturer):
+        """Test auto-detection of pixel-space coordinates."""
+        mock_ollama_client.generate_vision = AsyncMock(return_value="<box>(1200,500,1500,700)</box>")
+        mock_screen_capturer.get_screen_size.return_value = (1920, 1080)
+        observer = ScreenObserver(mock_ollama_client, mock_screen_capturer, model="molmo")
+
+        coords = await observer.find_element("reserve button")
+
+        assert coords is not None
+        assert coords.x == 1200
+        assert coords.y == 500
+        assert coords.width == 300
+        assert coords.height == 200
+
+    @pytest.mark.asyncio
+    async def test_coordinate_range_detection_normalized_space(self, mock_ollama_client, mock_screen_capturer):
+        """Test auto-detection of normalized coordinates."""
+        mock_ollama_client.generate_vision = AsyncMock(return_value="<box>(500,500,600,600)</box>")
+        mock_screen_capturer.get_screen_size.return_value = (1920, 1080)
+        observer = ScreenObserver(mock_ollama_client, mock_screen_capturer, model="molmo")
+
+        coords = await observer.find_element("reserve button")
+
+        assert coords is not None
+        # Normalized -> pixel conversion on 1920x1080
+        assert coords.x == 960
+        assert coords.y == 540

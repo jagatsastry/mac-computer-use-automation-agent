@@ -37,6 +37,14 @@ class TestParseArgs:
         assert args.dry_run is True
         print("✓ Dry-run flag works")
 
+    def test_parse_with_molmo_flag(self):
+        """Test parsing with --molmo flag."""
+        args = parse_args(["--molmo", "Find the reserve button"])
+
+        assert args.molmo is True
+        assert args.prompt == "Find the reserve button"
+        print("✓ Molmo flag parsing works")
+
     def test_parse_with_verbose(self):
         """Test parsing with --verbose flag."""
         args = parse_args(["--verbose", "Test"])
