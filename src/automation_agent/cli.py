@@ -1,11 +1,12 @@
 """Command-line interface for the automation agent."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Optional, List
 
-from .config import LogLevel
+from .config import LogLevel, ModelProvider
 from .version import __description__, __version__
 
 
@@ -30,11 +31,33 @@ Examples:
     # Configuration
     parser.add_argument("--config", type=Path, metavar="FILE", help="Path to JSON config file")
 
+    # Provider selection
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=[p.value for p in ModelProvider],
+        help="LLM provider to use (ollama or anthropic)",
+    )
+
     # Ollama settings
     parser.add_argument("--ollama-host", type=str, metavar="URL", help="Ollama server host URL")
     parser.add_argument("--ollama-model", type=str, metavar="MODEL", help="Ollama model to use")
     parser.add_argument(
         "--ollama-timeout", type=int, metavar="SECONDS", help="Timeout for Ollama API calls"
+    )
+
+    # Anthropic settings
+    parser.add_argument(
+        "--anthropic-api-key",
+        type=str,
+        metavar="KEY",
+        help="Anthropic API key (or set AGENT_ANTHROPIC_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--anthropic-model",
+        type=str,
+        metavar="MODEL",
+        help="Anthropic model to use (default: claude-sonnet-4-20250514)",
     )
 
     # Logging
@@ -50,6 +73,11 @@ Examples:
     # Execution
     parser.add_argument(
         "--dry-run", action="store_true", help="Analyze and plan without executing"
+    )
+    parser.add_argument(
+        "--restaurant-only",
+        action="store_true",
+        help="Run interactive restaurant reservation workflow (OpenTable/Yelp/Google)",
     )
 
     return parser

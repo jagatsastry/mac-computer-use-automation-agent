@@ -62,6 +62,22 @@ automation-agent --verbose "Complex task"
 automation-agent --ollama-host http://192.168.1.100:11434 "Task"
 ```
 
+### Restaurant-Focused Workflow
+
+For a higher-success reservation flow, run restaurant mode:
+
+```bash
+automation-agent --restaurant-only "Find me dinner in San Jose"
+```
+
+This mode:
+- Asks clarifying questions (cuisine, location, date/time, party size)
+- Aggregates options from OpenTable, Yelp, and Google
+- Asks you to pick a preferred option/provider
+- Continues with reservation automation
+- Pauses for manual login if a sign-in screen appears
+- Persists preferences in `MEMORY.md` for future runs
+
 ## macOS Permissions
 
 The agent requires:

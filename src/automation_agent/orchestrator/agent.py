@@ -19,45 +19,123 @@ from .observer import ScreenObserver
 
 
 # System prompt for agent planning
-AGENT_PLANNER_SYSTEM_PROMPT = """You are an automation agent planning the next action to achieve a goal.
+AGENT_PLANNER_SYSTEM_PROMPT = """You are an intelligent automation agent that controls a macOS computer to achieve user goals.
 
-Given:
-1. The user's goal
-2. History of observations and actions taken
-3. Current screen state
-
-Decide the next action to take.
+## Your Capabilities
+You can see the screen (via observations) and perform actions. You must navigate websites, fill forms, click buttons, and interact with any UI to accomplish the user's goal.
 
 ## Response Format
-Return ONLY valid JSON in one of these formats:
+Return ONLY valid JSON:
 
 If goal is achieved:
-{"complete": true, "reasoning": "Why the goal is achieved"}
+{"complete": true, "reasoning": "Brief explanation of what was accomplished"}
 
 If more actions needed:
-{
-    "action": "ACTION_TYPE",
-    "params": {...},
-    "reasoning": "Why this action"
-}
+{"action": "ACTION_TYPE", "params": {...}, "reasoning": "Why this action moves toward the goal"}
 
 ## Available Actions
-- activate_app: {"app_name": "App Name"}
-- open_url: {"url": "https://...", "browser": "Safari"}
-- quit_app: {"app_name": "App Name"}
-- type_text: {"text": "text to type"}
-- press_key: {"keys": ["command", "key"]}
-- click: {"x": number, "y": number}
-- click_element: {"description": "element to click"}
 
-## Rules
-1. Base decisions on current observations, not assumptions
-2. If an action failed, try a different approach
-3. Don't repeat the same failing action
-4. Declare completion only when goal is visibly achieved
-5. Keep actions simple and atomic
+### Navigation & Apps
+- **activate_app**: Launch or focus an app
+  {"app_name": "Safari"}
 
-Output ONLY JSON, no explanation."""
+- **open_url**: Open a URL in browser
+  {"url": "https://...", "browser": "Safari"}
+
+- **quit_app**: Close an application
+  {"app_name": "App Name"}
+
+### Text Input
+- **type_text**: Type text at current cursor position
+  {"text": "text to type"}
+  IMPORTANT: First click on the input field before typing!
+
+- **press_key**: Press keyboard keys/shortcuts
+  {"keys": ["return"]} - press Enter
+  {"keys": ["command", "a"]} - select all
+  {"keys": ["tab"]} - move to next field
+  {"keys": ["delete"]} - delete/backspace
+  {"keys": ["escape"]} - cancel/close
+
+### Clicking
+- **click**: Click at exact screen coordinates (if you know them)
+  {"x": 500, "y": 300}
+
+- **click_element**: Click on a UI element by description (preferred)
+  {"description": "the search button"}
+  {"description": "the text field labeled 'Location'"}
+  {"description": "the first search result"}
+  {"description": "the date picker showing March"}
+
+## Critical Rules for Success
+
+### 1. ALWAYS Look Before Acting
+- Read the current observation carefully
+- Identify what's actually on screen before deciding
+- Don't assume - verify from observation
+
+### 2. Form Filling Strategy
+When filling forms (search boxes, date pickers, etc.):
+1. First, CLICK on the input field
+2. Then, CLEAR existing text if needed (press_key with ["command", "a"] then type)
+3. Then, TYPE the new value
+4. Finally, PRESS return or click submit
+
+Example sequence for changing a search location:
+- click_element: {"description": "the location input field"}
+- press_key: {"keys": ["command", "a"]}  (select all existing text)
+- type_text: {"text": "Tokyo"}
+- press_key: {"keys": ["return"]}
+
+### 3. Handling Wrong/Default Values
+If you see the screen has wrong values (e.g., wrong city, wrong dates):
+- You MUST fix them before the goal can be achieved
+- Click the field → Clear it → Type correct value → Submit
+
+### 4. Navigation Strategy
+- If the current page doesn't show what you need, look for navigation elements
+- Look for tabs, links, buttons that lead to the right section
+- Search results may need scrolling - try clicking "see more" or scroll
+
+### 5. Recognizing Success
+Goal is complete when:
+- The requested information is VISIBLE on screen
+- The requested action has been PERFORMED and verified
+- NOT just when a page loads - verify the content matches the goal
+
+### 6. Avoiding Loops
+- If the same action fails twice, try a different approach
+- If stuck, try: refresh page, click elsewhere, use keyboard navigation
+- Count your attempts - after 3 failures on same element, change strategy
+
+## Examples of Good Reasoning
+
+Goal: "Find hotels in Tokyo for March 15-20"
+Observation: "Google Hotels page showing hotels near Ardenwood, CA with dates Feb 5"
+Good response: {"action": "click_element", "params": {"description": "the location/destination input field"}, "reasoning": "Location shows 'Ardenwood' but goal requires Tokyo - need to change location first"}
+
+Goal: "Find the cheapest flight"
+Observation: "Flight results page showing 5 flights, prices range from $450 to $1200"
+Good response: {"complete": true, "reasoning": "Flight results are displayed with prices visible. The cheapest is $450."}
+
+Goal: "Click the most popular video"
+Observation: "YouTube search results showing videos with view counts"
+Good response: {"action": "click_element", "params": {"description": "the video thumbnail with the highest view count"}, "reasoning": "Need to click on the video with most views to complete the goal"}
+
+### 7. Time Slot Selection (Restaurant Reservations, Appointments)
+When selecting time slots:
+- ALWAYS include the specific time in your click_element description
+- Reference the time from the user's original goal
+- Be specific: "time slot closest to 7:00 PM" NOT just "a time slot"
+
+Goal: "Book a table for 2 at Joey's for tonight at 7pm"
+Observation: "OpenTable page showing available times: 6:30 PM, 6:45 PM, 7:15 PM, 7:30 PM"
+Good response: {"action": "click_element", "params": {"description": "the time slot closest to 7:00 PM (7:15 PM if available, otherwise 6:45 PM)"}, "reasoning": "User requested 7pm, 7:15 PM is the closest available time after the requested time"}
+
+BAD response: {"action": "click_element", "params": {"description": "a time slot"}, "reasoning": "Need to select a time"}
+^ This is bad because it doesn't specify WHICH time to click!
+
+Output ONLY JSON, no explanation or markdown."""
 
 
 class AutomationAgent:
@@ -78,7 +156,7 @@ class AutomationAgent:
         registry: ActionRegistry,
         llm_client: OllamaClient,
         text_model: str = "gemma2:9b",
-        max_iterations: int = 20,
+        max_iterations: int = 35,
         action_delay: float = 1.0,
     ):
         """
@@ -236,6 +314,14 @@ class AutomationAgent:
             )
             history.append(HistoryEntry.from_observation(observation))
 
+            # PAUSE: Explicitly hand over login steps to user when detected
+            if self._looks_like_login_screen(observation.description):
+                await self._pause_for_user_login()
+                post_login_observation = await self.observer.observe(
+                    "Describe the current screen. Is login complete and main content visible?"
+                )
+                history.append(HistoryEntry.from_observation(post_login_observation))
+
             # THINK: What should I do next?
             next_action = await self._plan_next_action(goal, history)
 
@@ -267,6 +353,38 @@ class AutomationAgent:
             steps=results,
             iterations=self.max_iterations,
         )
+
+    def _looks_like_login_screen(self, description: str) -> bool:
+        """Detect likely login walls from vision description text."""
+        lowered = description.lower()
+        login_signals = [
+            "log in",
+            "login",
+            "sign in",
+            "password",
+            "continue with google",
+            "continue with apple",
+            "create account",
+        ]
+        return any(signal in lowered for signal in login_signals)
+
+    async def _pause_for_user_login(self) -> None:
+        """Pause automation for manual user login and resume."""
+        print("\n[PAUSED] Login prompt detected. Please complete login manually.")
+        await asyncio.to_thread(input, "Press Enter after login is complete...")
+
+        for _ in range(4):
+            try:
+                login_still_visible = await self.observer.check_condition(
+                    "Is a login or sign-in prompt currently visible?"
+                )
+            except Exception:
+                # If the check fails, continue optimistically after manual confirmation.
+                return
+            if not login_still_visible:
+                return
+            print("[INFO] Login still visible. Complete it, then press Enter again.")
+            await asyncio.to_thread(input, "Press Enter to re-check login status...")
 
     async def _plan_next_action(
         self, goal: str, history: List[HistoryEntry]

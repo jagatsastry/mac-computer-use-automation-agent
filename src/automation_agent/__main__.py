@@ -2,12 +2,15 @@
 
 import asyncio
 import sys
+from pathlib import Path
 
 from .cli import parse_args, validate_args
-from .config import AgentConfig, LogLevel, load_config
+from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
 from .llm.client import OllamaClient
+from .llm import AnthropicClient, ANTHROPIC_AVAILABLE
 from .perception.capture import ScreenCapturer
+from .workflows import run_restaurant_workflow
 from .orchestrator import (
     AutomationAgent,
     IntentParser,
@@ -18,6 +21,11 @@ from .orchestrator import (
 
 def apply_cli_overrides(config: AgentConfig, args) -> None:
     """Apply command-line argument overrides to configuration."""
+    # Provider selection
+    if hasattr(args, 'provider') and args.provider:
+        config.model_provider = ModelProvider(args.provider)
+
+    # Ollama settings
     if args.ollama_host:
         config.ollama_host = args.ollama_host
     if args.ollama_model:
@@ -25,6 +33,14 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
     if args.ollama_timeout:
         config.ollama_timeout = args.ollama_timeout
 
+    # Anthropic settings
+    if hasattr(args, 'anthropic_api_key') and args.anthropic_api_key:
+        config.anthropic_api_key = args.anthropic_api_key
+    if hasattr(args, 'anthropic_model') and args.anthropic_model:
+        config.anthropic_model = args.anthropic_model
+        config.anthropic_vision_model = args.anthropic_model
+
+    # Logging settings
     if args.log_level:
         level = LogLevel(args.log_level)
         config.log_level = level
@@ -34,7 +50,29 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.log_dir = args.log_dir
 
 
-async def run_agent(prompt: str, config: AgentConfig, dry_run: bool = False) -> int:
+def _is_restaurant_prompt(prompt: str) -> bool:
+    """Best-effort intent check for restaurant reservation workflows."""
+    lowered = prompt.lower()
+    keywords = [
+        "restaurant",
+        "reservation",
+        "reserve",
+        "book a table",
+        "opentable",
+        "yelp",
+        "dinner",
+        "lunch",
+        "cuisine",
+    ]
+    return any(token in lowered for token in keywords)
+
+
+async def run_agent(
+    prompt: str,
+    config: AgentConfig,
+    dry_run: bool = False,
+    restaurant_only: bool = False,
+) -> int:
     """
     Run the automation agent with the given prompt.
 
@@ -48,23 +86,59 @@ async def run_agent(prompt: str, config: AgentConfig, dry_run: bool = False) -> 
     """
     logger = get_logger(__name__)
 
-    # Initialize LLM client
-    llm_client = OllamaClient(
-        host=config.ollama_host,
-        timeout=config.ollama_timeout,
-    )
+    # Initialize LLM client based on provider
+    if config.model_provider == ModelProvider.ANTHROPIC:
+        if not ANTHROPIC_AVAILABLE:
+            logger.error("anthropic_not_installed")
+            print("\n[ERROR] Anthropic provider selected but 'anthropic' package not installed")
+            print("Install with: pip install anthropic")
+            return 1
 
-    # Test connection
-    if not await llm_client.test_connection():
-        logger.error("ollama_connection_failed", host=config.ollama_host)
-        print(f"\n[ERROR] Could not connect to Ollama at {config.ollama_host}")
-        print("Make sure Ollama is running: ollama serve")
-        return 1
+        if not config.anthropic_api_key:
+            logger.error("anthropic_api_key_missing")
+            print("\n[ERROR] Anthropic API key not configured")
+            print("Set AGENT_ANTHROPIC_API_KEY environment variable or add to config")
+            return 1
+
+        llm_client = AnthropicClient(
+            api_key=config.anthropic_api_key,
+            timeout=config.ollama_timeout,
+            model=config.anthropic_model,
+            vision_model=config.anthropic_vision_model,
+        )
+        text_model = config.anthropic_model
+        vision_model = config.anthropic_vision_model
+
+        # Test connection
+        if not await llm_client.test_connection():
+            logger.error("anthropic_connection_failed")
+            print("\n[ERROR] Could not connect to Anthropic API")
+            print("Check your API key and network connection")
+            return 1
+
+        logger.info("using_anthropic_provider", model=config.anthropic_model)
+        print(f"[INFO] Using Anthropic Claude ({config.anthropic_model})")
+
+    else:
+        # Default: Ollama
+        llm_client = OllamaClient(
+            host=config.ollama_host,
+            timeout=config.ollama_timeout,
+        )
+        text_model = config.text_model
+        vision_model = config.vision_model
+
+        # Test connection
+        if not await llm_client.test_connection():
+            logger.error("ollama_connection_failed", host=config.ollama_host)
+            print(f"\n[ERROR] Could not connect to Ollama at {config.ollama_host}")
+            print("Make sure Ollama is running: ollama serve")
+            return 1
 
     # Initialize components
     capturer = ScreenCapturer(config)
-    parser = IntentParser(llm_client, model=config.text_model)
-    observer = ScreenObserver(llm_client, capturer, model=config.vision_model)
+    parser = IntentParser(llm_client, model=text_model)
+    observer = ScreenObserver(llm_client, capturer, model=vision_model)
     registry = ActionRegistry()
 
     # Create agent
@@ -73,7 +147,7 @@ async def run_agent(prompt: str, config: AgentConfig, dry_run: bool = False) -> 
         observer=observer,
         registry=registry,
         llm_client=llm_client,
-        text_model=config.text_model,
+        text_model=text_model,
         max_iterations=20,
         action_delay=config.action_delay,
     )
@@ -95,6 +169,29 @@ async def run_agent(prompt: str, config: AgentConfig, dry_run: bool = False) -> 
             logger.error("intent_parsing_failed", error=str(e))
             print(f"\n[ERROR] Failed to parse intent: {e}")
             return 1
+
+    if restaurant_only or _is_restaurant_prompt(prompt):
+        logger.info("restaurant_workflow_enabled")
+        print("\n[INFO] Running restaurant-focused workflow")
+        try:
+            result = await run_restaurant_workflow(
+                prompt=prompt,
+                agent=agent,
+                repo_root=Path.cwd(),
+            )
+        except Exception as e:
+            logger.exception("restaurant_workflow_failed", error=str(e))
+            print(f"\n[ERROR] Restaurant workflow failed: {e}")
+            return 1
+
+        if result.success:
+            print(f"\n[SUCCESS] {result.message}")
+            return 0
+
+        print(f"\n[FAILED] {result.message}")
+        if result.error:
+            print(f"Error: {result.error}")
+        return 1
 
     # Execute the command
     logger.info("executing_prompt", prompt=prompt)
@@ -164,7 +261,14 @@ def main() -> None:
 
     try:
         # Run the async agent
-        exit_code = asyncio.run(run_agent(args.prompt, config, args.dry_run))
+        exit_code = asyncio.run(
+            run_agent(
+                args.prompt,
+                config,
+                args.dry_run,
+                getattr(args, "restaurant_only", False),
+            )
+        )
         logger.info("automation_agent_completed", success=(exit_code == 0))
         sys.exit(exit_code)
 
