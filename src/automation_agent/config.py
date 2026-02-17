@@ -102,6 +102,14 @@ class AgentConfig(BaseSettings):
         default="allenai/molmo-2-8b:free",
         description="Molmo model identifier for OpenRouter vision mode",
     )
+    molmo_local_model: str = Field(
+        default="allenai/MolmoE-1B-0924",
+        description="Local HuggingFace Molmo model identifier",
+    )
+    use_hammerspoon: bool = Field(
+        default=False,
+        description="Use Hammerspoon for action execution",
+    )
 
     @field_validator("openrouter_api_key", mode="before")
     @classmethod

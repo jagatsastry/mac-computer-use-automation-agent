@@ -9,7 +9,7 @@ from .cli import parse_args, validate_args
 from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
 from .llm.client import OllamaClient
-from .llm import AnthropicClient, ANTHROPIC_AVAILABLE, MolmoVisionClient
+from .llm import AnthropicClient, ANTHROPIC_AVAILABLE, MolmoVisionClient, MolmoLocalClient
 from .perception.capture import ScreenCapturer
 from .workflows import run_restaurant_workflow
 from .orchestrator import (
@@ -59,6 +59,9 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.model_provider = ModelProvider.OLLAMA
         config.vision_model = "molmo"
 
+    if hasattr(args, "hammerspoon") and args.hammerspoon:
+        config.use_hammerspoon = True
+
 
 async def _resolve_molmo_vision_backend(
     config: AgentConfig,
@@ -71,7 +74,8 @@ async def _resolve_molmo_vision_backend(
     Priority:
     1) OpenRouter Molmo via API key
     2) Local Ollama model named "molmo"
-    3) Fallback to local qwen3-vl
+    3) Local HuggingFace Molmo model
+    4) Fallback to local qwen3-vl
     """
     # 1) OpenRouter Molmo
     if config.openrouter_api_key:
@@ -94,6 +98,17 @@ async def _resolve_molmo_vision_backend(
             logger.info("using_molmo_ollama", model="molmo")
             print("[INFO] Using local Ollama Molmo model (molmo)")
             return text_llm_client, "molmo"
+
+        if MolmoLocalClient.dependencies_available():
+            local_molmo = MolmoLocalClient(
+                model_name=config.molmo_local_model,
+                timeout=max(config.ollama_timeout, 1200),
+            )
+            if await local_molmo.test_connection():
+                logger.info("using_molmo_local_hf", model=config.molmo_local_model)
+                print(f"[INFO] Using local HuggingFace Molmo ({config.molmo_local_model})")
+                return local_molmo, config.molmo_local_model
+            logger.warning("molmo_local_hf_unavailable")
 
         if await text_llm_client.check_model_available("qwen3-vl"):
             logger.warning("molmo_not_found_fallback_qwen3_vl")
@@ -206,6 +221,21 @@ async def run_agent(
     parser = IntentParser(llm_client, model=text_model)
     observer = ScreenObserver(vision_client, capturer, model=observer_vision_model)
     registry = ActionRegistry()
+
+    if config.use_hammerspoon:
+        from .actions.hammerspoon import (
+            ClickAction, TypeTextAction, PressKeyAction,
+            ActivateAppAction, QuitAppAction, OpenURLAction
+        )
+        # Register Hammerspoon actions, overriding AppleScript/Simple defaults
+        registry.register("click", ClickAction)
+        registry.register("type_text", TypeTextAction)
+        registry.register("press_key", PressKeyAction)
+        registry.register("activate_app", ActivateAppAction)
+        registry.register("quit_app", QuitAppAction)
+        registry.register("open_url", OpenURLAction)
+        logger.info("using_hammerspoon_actions")
+        print("[INFO] Using Hammerspoon for actions")
 
     # Create agent
     agent = AutomationAgent(
