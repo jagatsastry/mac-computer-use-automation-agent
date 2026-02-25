@@ -1,15 +1,30 @@
-"""Actuator component — executes desktop actions via Hammerspoon or AppleScript fallback."""
+"""Actuator component — executes desktop actions via Hammerspoon, HTTP bridge, or AppleScript.
+
+Priority order:
+1. HammerspoonBridgeActuator (HTTP server in hs.claude — fastest, most capable)
+2. HammerspoonActuator (hs CLI — requires working IPC)
+3. AppleScriptActuator (osascript — always available on macOS)
+"""
 
 from automation_agent.actuator.actuator import HammerspoonActuator
 from automation_agent.actuator.applescript_actuator import AppleScriptActuator
+from automation_agent.actuator.bridge_actuator import HammerspoonBridgeActuator
 from automation_agent.actuator.models import ActuatorResult
 
 
 def create_actuator(config=None):
-    """Create the best available actuator. Hammerspoon preferred, AppleScript fallback."""
+    """Create the best available actuator.
+
+    Priority: HTTP bridge > hs CLI > AppleScript.
+    """
+    # Try hs.claude HTTP bridge first (fastest, most capable)
+    bridge = HammerspoonBridgeActuator(config)
+    if bridge.is_available():
+        return bridge
+
+    # Try hs CLI
     hs = HammerspoonActuator(config)
     if hs.is_available():
-        # Quick liveness check — try to get state within 3s
         import subprocess
         try:
             result = subprocess.run(
@@ -27,4 +42,10 @@ def create_actuator(config=None):
     return AppleScriptActuator(config)
 
 
-__all__ = ["HammerspoonActuator", "AppleScriptActuator", "ActuatorResult", "create_actuator"]
+__all__ = [
+    "HammerspoonActuator",
+    "HammerspoonBridgeActuator",
+    "AppleScriptActuator",
+    "ActuatorResult",
+    "create_actuator",
+]
