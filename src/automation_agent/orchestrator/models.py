@@ -1,8 +1,25 @@
-"""Data models for the orchestrator."""
+"""Orchestrator data models.
+
+Provides backward compatibility with old orchestrator model types while
+re-exporting the new shared models used by the component architecture.
+"""
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+# Re-export shared models for backward compatibility
+from automation_agent.shared_models import (
+    ActionStep as NewActionStep,
+    ActionPlan,
+    StepResult,
+    ExecutionResult as NewExecutionResult,
+)
+
+
+# --------------------------------------------------------------------------
+# Legacy model types preserved for backward compatibility
+# --------------------------------------------------------------------------
 
 
 @dataclass
@@ -36,9 +53,9 @@ class Coordinates:
 
 @dataclass
 class ActionStep:
-    """A single action step parsed from user intent."""
+    """A single action step parsed from user intent (legacy model)."""
 
-    action: str  # "activate_app", "open_url", "type_text", etc.
+    action: str
     params: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -98,7 +115,7 @@ class ActionResult:
 
 @dataclass
 class ExecutionResult:
-    """Result of executing an entire task."""
+    """Result of executing an entire task (legacy model)."""
 
     success: bool
     message: str = ""

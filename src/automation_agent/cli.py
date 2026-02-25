@@ -91,6 +91,11 @@ Examples:
         action="store_true",
         help="Use Molmo for vision-based coordinate identification",
     )
+    parser.add_argument(
+        "--hammerspoon",
+        action="store_true",
+        help="Use Hammerspoon for action execution",
+    )
 
     return parser
 

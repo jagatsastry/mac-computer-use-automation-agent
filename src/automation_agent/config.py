@@ -2,7 +2,7 @@
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -101,6 +101,43 @@ class AgentConfig(BaseSettings):
     molmo_model: str = Field(
         default="allenai/molmo-2-8b:free",
         description="Molmo model identifier for OpenRouter vision mode",
+    )
+    molmo_local_model: str = Field(
+        default="allenai/MolmoE-1B-0924",
+        description="Local HuggingFace Molmo model identifier",
+    )
+    use_hammerspoon: bool = Field(
+        default=False,
+        description="Use Hammerspoon for action execution",
+    )
+    hammerspoon_cli_path: Optional[str] = Field(
+        default=None,
+        description="Path to Hammerspoon 'hs' CLI. Auto-detected from PATH if not set.",
+    )
+
+    # Screenshot / Vision Configuration
+    screenshot_resolution: Tuple[int, int] = Field(
+        default=(1024, 768),
+        description="Target resolution (width, height) for screenshots sent to vision models",
+    )
+
+    # Skill Library Configuration
+    skill_library_path: Optional[Path] = Field(
+        default=None,
+        description="Path to skill library directory. Defaults to bundled skills.",
+    )
+
+    # Event Logger Configuration
+    event_log_dir: Path = Field(
+        default=Path("logs/runs"),
+        description="Directory for structured event logs (per-run JSONL + traces)",
+    )
+
+    # Orchestrator Configuration
+    max_iterations: int = Field(
+        default=20,
+        description="Maximum number of iterations (steps + retries) before aborting",
+        gt=0,
     )
 
     @field_validator("openrouter_api_key", mode="before")

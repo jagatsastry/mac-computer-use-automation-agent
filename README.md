@@ -67,6 +67,9 @@ automation-agent --ollama-host http://192.168.1.100:11434 "Task"
 Use Molmo for vision-based coordinate grounding:
 
 ```bash
+# Install local Molmo runtime dependencies (optional but recommended)
+pip install -e ".[molmo]"
+
 # Uses Molmo backend when available
 automation-agent --molmo "Book a table for 2 in San Jose tonight at 7pm"
 ```
@@ -74,6 +77,7 @@ automation-agent --molmo "Book a table for 2 in San Jose tonight at 7pm"
 Molmo backend resolution order:
 - OpenRouter Molmo when `AGENT_OPENROUTER_API_KEY` (or `OPENROUTER_API_KEY`) is set
 - Local Ollama `molmo` model if installed
+- Local HuggingFace Molmo model (`allenai/MolmoE-1B-0924`) when transformers dependencies are installed
 - Automatic fallback to `qwen3-vl` if Molmo is unavailable
 
 ### Restaurant-Focused Workflow
@@ -91,6 +95,20 @@ This mode:
 - Continues with reservation automation
 - Pauses for manual login if a sign-in screen appears
 - Persists preferences in `MEMORY.md` for future runs
+
+### Hammerspoon Integration (Beta)
+
+Use Hammerspoon for more robust action execution (clicking, typing):
+
+1. Install Hammerspoon: `brew install --cask hammerspoon`
+2. Ensure Hammerspoon is running and accessible in PATH (`hs` command).
+3. Run with flag:
+
+```bash
+automation-agent --hammerspoon "Open Safari"
+```
+
+This generates Lua scripts and executes them via `hs` CLI, offering better reliability than default AppleScript/PyAutoGUI actions.
 
 ## macOS Permissions
 

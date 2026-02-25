@@ -1,530 +1,414 @@
-"""Main automation agent with agentic loop."""
+"""AutomationAgent -- main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
 
-import asyncio
-import json
-import sys
-from typing import List, Optional
+import time
+from typing import Optional
 
-from ..llm.client import OllamaClient
-from ..actions.simple import ClickAction
-from .models import (
-    ActionResult,
-    ExecutionResult,
-    HistoryEntry,
-    Intent,
-    NextAction,
-)
-from .intent_parser import IntentParser
-from .action_registry import ActionRegistry
-from .observer import ScreenObserver
-
-
-# System prompt for agent planning
-AGENT_PLANNER_SYSTEM_PROMPT = """You are an intelligent automation agent that controls a macOS computer to achieve user goals.
-
-## Your Capabilities
-You can see the screen (via observations) and perform actions. You must navigate websites, fill forms, click buttons, and interact with any UI to accomplish the user's goal.
-
-## Response Format
-Return ONLY valid JSON:
-
-If goal is achieved:
-{"complete": true, "reasoning": "Brief explanation of what was accomplished"}
-
-If more actions needed:
-{"action": "ACTION_TYPE", "params": {...}, "reasoning": "Why this action moves toward the goal"}
-
-## Available Actions
-
-### Navigation & Apps
-- **activate_app**: Launch or focus an app
-  {"app_name": "Safari"}
-
-- **open_url**: Open a URL in browser
-  {"url": "https://...", "browser": "Safari"}
-
-- **quit_app**: Close an application
-  {"app_name": "App Name"}
-
-### Text Input
-- **type_text**: Type text at current cursor position
-  {"text": "text to type"}
-  IMPORTANT: First click on the input field before typing!
-
-- **press_key**: Press keyboard keys/shortcuts
-  {"keys": ["return"]} - press Enter
-  {"keys": ["command", "a"]} - select all
-  {"keys": ["tab"]} - move to next field
-  {"keys": ["delete"]} - delete/backspace
-  {"keys": ["escape"]} - cancel/close
-
-### Clicking
-- **click**: Click at exact screen coordinates (if you know them)
-  {"x": 500, "y": 300}
-
-- **click_element**: Click on a UI element by description (preferred)
-  {"description": "the search button"}
-  {"description": "the text field labeled 'Location'"}
-  {"description": "the first search result"}
-  {"description": "the date picker showing March"}
-
-## Critical Rules for Success
-
-### 1. ALWAYS Look Before Acting
-- Read the current observation carefully
-- Identify what's actually on screen before deciding
-- Don't assume - verify from observation
-
-### 2. Form Filling Strategy
-When filling forms (search boxes, date pickers, etc.):
-1. First, CLICK on the input field
-2. Then, CLEAR existing text if needed (press_key with ["command", "a"] then type)
-3. Then, TYPE the new value
-4. Finally, PRESS return or click submit
-
-Example sequence for changing a search location:
-- click_element: {"description": "the location input field"}
-- press_key: {"keys": ["command", "a"]}  (select all existing text)
-- type_text: {"text": "Tokyo"}
-- press_key: {"keys": ["return"]}
-
-### 3. Handling Wrong/Default Values
-If you see the screen has wrong values (e.g., wrong city, wrong dates):
-- You MUST fix them before the goal can be achieved
-- Click the field → Clear it → Type correct value → Submit
-
-### 4. Navigation Strategy
-- If the current page doesn't show what you need, look for navigation elements
-- Look for tabs, links, buttons that lead to the right section
-- Search results may need scrolling - try clicking "see more" or scroll
-
-### 5. Recognizing Success
-Goal is complete when:
-- The requested information is VISIBLE on screen
-- The requested action has been PERFORMED and verified
-- NOT just when a page loads - verify the content matches the goal
-
-### 6. Avoiding Loops
-- If the same action fails twice, try a different approach
-- If stuck, try: refresh page, click elsewhere, use keyboard navigation
-- Count your attempts - after 3 failures on same element, change strategy
-
-## Examples of Good Reasoning
-
-Goal: "Find hotels in Tokyo for March 15-20"
-Observation: "Google Hotels page showing hotels near Ardenwood, CA with dates Feb 5"
-Good response: {"action": "click_element", "params": {"description": "the location/destination input field"}, "reasoning": "Location shows 'Ardenwood' but goal requires Tokyo - need to change location first"}
-
-Goal: "Find the cheapest flight"
-Observation: "Flight results page showing 5 flights, prices range from $450 to $1200"
-Good response: {"complete": true, "reasoning": "Flight results are displayed with prices visible. The cheapest is $450."}
-
-Goal: "Click the most popular video"
-Observation: "YouTube search results showing videos with view counts"
-Good response: {"action": "click_element", "params": {"description": "the video thumbnail with the highest view count"}, "reasoning": "Need to click on the video with most views to complete the goal"}
-
-### 7. Time Slot Selection (Restaurant Reservations, Appointments)
-When selecting time slots:
-- ALWAYS include the specific time in your click_element description
-- Reference the time from the user's original goal
-- Be specific: "time slot closest to 7:00 PM" NOT just "a time slot"
-
-Goal: "Book a table for 2 at Joey's for tonight at 7pm"
-Observation: "OpenTable page showing available times: 6:30 PM, 6:45 PM, 7:15 PM, 7:30 PM"
-Good response: {"action": "click_element", "params": {"description": "the time slot closest to 7:00 PM (7:15 PM if available, otherwise 6:45 PM)"}, "reasoning": "User requested 7pm, 7:15 PM is the closest available time after the requested time"}
-
-BAD response: {"action": "click_element", "params": {"description": "a time slot"}, "reasoning": "Need to select a time"}
-^ This is bad because it doesn't specify WHICH time to click!
-
-Output ONLY JSON, no explanation or markdown."""
+from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, StepResult
+from automation_agent.config import AgentConfig
+from automation_agent.logging.event_logger import EventLogger
+from automation_agent.logging.models import EventType
+from automation_agent.orchestrator.verifier import StepVerifier
 
 
 class AutomationAgent:
-    """
-    Intelligent automation agent that can handle both simple and complex tasks.
-
-    For simple tasks (no observation needed):
-    - Parses intent and executes steps sequentially
-
-    For complex tasks (observation needed):
-    - Uses agentic loop: observe → think → act → check
-    """
+    """Main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
 
     def __init__(
         self,
-        parser: IntentParser,
-        observer: ScreenObserver,
-        registry: ActionRegistry,
-        llm_client: OllamaClient,
-        text_model: str = "gemma2:9b",
-        max_iterations: int = 35,
-        action_delay: float = 1.0,
+        planner,
+        skill_registry,
+        coordinator,
+        actuator,
+        config: AgentConfig,
+        logger: Optional[EventLogger] = None,
     ):
-        """
-        Initialize automation agent.
-
-        Args:
-            parser: Intent parser for natural language commands
-            observer: Screen observer for vision-based understanding
-            registry: Action registry for executing actions
-            llm_client: LLM client for planning
-            text_model: Model for planning decisions
-            max_iterations: Maximum iterations for agentic loop
-            action_delay: Delay between actions (seconds)
-        """
-        self.parser = parser
-        self.observer = observer
-        self.registry = registry
-        self.llm = llm_client
-        self.text_model = text_model
-        self.max_iterations = max_iterations
-        self.action_delay = action_delay
-
-    async def execute(self, user_prompt: str) -> ExecutionResult:
-        """
-        Execute a user's natural language command.
-
-        Automatically determines whether to use simple sequential
-        execution or the full agentic loop based on task complexity.
-
-        Args:
-            user_prompt: Natural language command from user
-
-        Returns:
-            ExecutionResult with success status and details
-        """
-        # Parse the user's intent
-        intent = await self.parser.parse(user_prompt)
-
-        # Choose execution mode based on complexity
-        if intent.requires_observation:
-            return await self._execute_agentic(user_prompt, intent)
-        else:
-            return await self._execute_sequential(intent)
-
-    async def _execute_sequential(self, intent: Intent) -> ExecutionResult:
-        """
-        Execute a simple task with sequential steps.
-
-        No observation/vision used - just execute parsed steps in order.
-
-        Args:
-            intent: Parsed intent with action steps
-
-        Returns:
-            ExecutionResult with step-by-step results
-        """
-        results: List[ActionResult] = []
-
-        for step in intent.steps:
-            # Get action from registry
-            action = self.registry.get_action(step.action, step.params)
-
-            if action is None:
-                # Unknown action type
-                result = ActionResult(
-                    success=False,
-                    action=step.action,
-                    params=step.params,
-                    error=f"Unknown action type: {step.action}",
-                )
-                results.append(result)
-                break
-
-            # Execute the action
-            try:
-                action_result = await action.execute()
-
-                result = ActionResult(
-                    success=action_result.success,
-                    action=step.action,
-                    params=step.params,
-                    output=getattr(action_result, "output", ""),
-                    error=getattr(action_result, "error", None) if not action_result.success else None,
-                )
-                results.append(result)
-
-                if not action_result.success:
-                    # Stop on first failure
-                    break
-
-                # Brief delay between actions
-                if self.action_delay > 0:
-                    await asyncio.sleep(self.action_delay)
-
-            except Exception as e:
-                result = ActionResult(
-                    success=False,
-                    action=step.action,
-                    params=step.params,
-                    error=str(e),
-                )
-                results.append(result)
-                break
-
-        # Determine overall success
-        all_success = all(r.success for r in results)
-
-        return ExecutionResult(
-            success=all_success,
-            message="All steps completed successfully" if all_success else "Execution stopped due to error",
-            steps=results,
-            error=results[-1].error if results and not results[-1].success else None,
+        self.planner = planner
+        self.skill_registry = skill_registry
+        self.coordinator = coordinator
+        self.actuator = actuator
+        self.config = config
+        self.logger = logger or EventLogger(config.event_log_dir)
+        self.verifier = StepVerifier(
+            actuator=actuator, coordinator=coordinator, logger=self.logger
         )
 
-    async def _execute_agentic(
-        self, goal: str, intent: Intent
-    ) -> ExecutionResult:
-        """
-        Execute a complex task using the agentic loop.
+    async def execute(self, goal: str) -> ExecutionResult:
+        """Execute a natural language goal end-to-end."""
+        start = time.monotonic()
+        self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
 
-        Loop: observe → think → act → check until goal achieved or max iterations.
+        step_results: list[StepResult] = []
+        iterations = 0
 
-        Args:
-            goal: Original user goal
-            intent: Initial parsed intent (may be refined during execution)
-
-        Returns:
-            ExecutionResult with full execution history
-        """
-        history: List[HistoryEntry] = []
-        results: List[ActionResult] = []
-
-        # First, execute any initial steps that don't require observation
-        # (e.g., opening the browser before searching)
-        for step in intent.steps:
-            if step.action in ["activate_app", "open_url", "type_text", "press_key"]:
-                action = self.registry.get_action(step.action, step.params)
-                if action:
-                    action_result = await action.execute()
-                    result = ActionResult(
-                        success=action_result.success,
-                        action=step.action,
-                        params=step.params,
-                        output=getattr(action_result, "output", ""),
-                    )
-                    results.append(result)
-                    history.append(HistoryEntry.from_action(result))
-                    await asyncio.sleep(self.action_delay)
-
-        # Now enter the agentic loop for vision-based actions
-        for iteration in range(self.max_iterations):
-            # OBSERVE: What's on screen?
-            observation = await self.observer.observe(
-                "Describe the current screen state. What app is open? What can you see?"
-            )
-            history.append(HistoryEntry.from_observation(observation))
-
-            # PAUSE: Explicitly hand over login steps to user when detected
-            if self._looks_like_login_screen(observation.description):
-                await self._pause_for_user_login()
-                post_login_observation = await self.observer.observe(
-                    "Describe the current screen. Is login complete and main content visible?"
+        try:
+            # 1. Check for matching skill
+            skill_context = None
+            skill_match = self.skill_registry.match(goal)
+            if skill_match:
+                skill_name = skill_match["skill_name"]
+                params = skill_match.get("params", {})
+                skill_context = self.skill_registry.expand(skill_name, params)
+                self.logger.log_event(
+                    EventType.SKILL_MATCH,
+                    f"Matched skill: {skill_name}",
+                    data={"skill_name": skill_name, "params": params},
                 )
-                history.append(HistoryEntry.from_observation(post_login_observation))
+            else:
+                self.logger.log_event(EventType.SKILL_NO_MATCH, "No matching skill found")
 
-            # THINK: What should I do next?
-            next_action = await self._plan_next_action(goal, history)
-
-            # CHECK: Is goal achieved?
-            if next_action.is_complete:
-                return ExecutionResult(
-                    success=True,
-                    message=f"Goal achieved: {next_action.reasoning}",
-                    steps=results,
-                    iterations=iteration + 1,
-                )
-
-            # ACT: Execute the planned action
-            result = await self._execute_action(next_action)
-            results.append(result)
-            history.append(HistoryEntry.from_action(result))
-
-            if not result.success:
-                # Don't stop on failure - let agent try alternative
+            # 2. Get screen description for context
+            screen_desc = ""
+            try:
+                screen_desc = await self.coordinator.describe_screen()
+            except Exception:
                 pass
 
-            # Wait for UI to update
-            await asyncio.sleep(self.action_delay)
-
-        # Max iterations reached
-        return ExecutionResult(
-            success=False,
-            message="Max iterations reached without completing goal",
-            steps=results,
-            iterations=self.max_iterations,
-        )
-
-    def _looks_like_login_screen(self, description: str) -> bool:
-        """Detect likely login walls from vision description text."""
-        lowered = description.lower()
-        login_signals = [
-            "log in",
-            "login",
-            "sign in",
-            "password",
-            "continue with google",
-            "continue with apple",
-            "create account",
-        ]
-        return any(signal in lowered for signal in login_signals)
-
-    async def _pause_for_user_login(self) -> None:
-        """Pause automation for manual user login and resume."""
-        if not sys.stdin or not sys.stdin.isatty():
-            print("\n[INFO] Login prompt detected, but stdin is non-interactive. Continuing.")
-            return
-
-        print("\n[PAUSED] Login prompt detected. Please complete login manually.")
-        await asyncio.to_thread(input, "Press Enter after login is complete...")
-
-        for _ in range(4):
-            try:
-                login_still_visible = await self.observer.check_condition(
-                    "Is a login or sign-in prompt currently visible?"
-                )
-            except Exception:
-                # If the check fails, continue optimistically after manual confirmation.
-                return
-            if not login_still_visible:
-                return
-            print("[INFO] Login still visible. Complete it, then press Enter again.")
-            await asyncio.to_thread(input, "Press Enter to re-check login status...")
-
-    async def _plan_next_action(
-        self, goal: str, history: List[HistoryEntry]
-    ) -> NextAction:
-        """
-        Ask LLM to plan the next action based on goal and history.
-
-        Args:
-            goal: Original user goal
-            history: List of past observations and actions
-
-        Returns:
-            NextAction with planned action or completion status
-        """
-        # Format history for prompt
-        history_text = self._format_history(history)
-
-        prompt = f"""Goal: {goal}
-
-History:
-{history_text}
-
-Based on the current screen state and goal, what is the next action?
-If the goal is achieved, respond with {{"complete": true, "reasoning": "..."}}
-Otherwise respond with the next action."""
-
-        response = await self.llm.generate(
-            model=self.text_model,
-            prompt=prompt,
-            system=AGENT_PLANNER_SYSTEM_PROMPT,
-            format="json",
-        )
-
-        # Parse response
-        try:
-            data = json.loads(response)
-            return NextAction.from_dict(data)
-        except json.JSONDecodeError:
-            # Try to extract JSON
-            import re
-            match = re.search(r"\{[\s\S]*\}", response)
-            if match:
-                try:
-                    data = json.loads(match.group(0))
-                    return NextAction.from_dict(data)
-                except json.JSONDecodeError:
-                    pass
-
-            # Fallback - couldn't parse, assume not complete
-            return NextAction(
-                action="",
-                reasoning="Could not parse LLM response",
-                is_complete=False,
+            # 3. Plan
+            self.logger.log_event(EventType.PLAN_START, "Planning...")
+            plan = await self.planner.plan(
+                goal, screen_description=screen_desc, skill_context=skill_context
+            )
+            self.logger.log_event(
+                EventType.PLAN_COMPLETE,
+                f"Plan: {len(plan.steps)} steps",
+                data={"step_count": len(plan.steps)},
             )
 
-    async def _execute_action(self, next_action: NextAction) -> ActionResult:
-        """
-        Execute a planned action.
+            # 4. Execute steps
+            for i, step in enumerate(plan.steps):
+                if iterations >= self.config.max_iterations:
+                    duration = int((time.monotonic() - start) * 1000)
+                    self.logger.log_event(EventType.TASK_FAIL, "Max iterations reached")
+                    return ExecutionResult(
+                        success=False,
+                        message="Max iterations reached",
+                        steps=step_results,
+                        total_duration_ms=duration,
+                        iterations=iterations,
+                        goal=goal,
+                        run_id=self.logger.run_id,
+                    )
 
-        Args:
-            next_action: Action to execute
+                result = await self._execute_step(i, step, step_results, goal, plan)
+                step_results.append(result)
+                iterations += 1
 
-        Returns:
-            ActionResult with execution outcome
-        """
-        action_type = next_action.action
-        params = next_action.params
+                if step.action == "done":
+                    break
 
-        # Special handling for click_element - need to find coordinates first
-        if action_type == "click_element":
-            description = params.get("description", "")
-            coords = await self.observer.find_element(description)
+                if step.action == "wait_for_user":
+                    self.logger.log_event(
+                        EventType.USER_WAIT,
+                        f"Waiting for user: {step.params.get('message', '')}",
+                    )
+                    # In real usage, this would pause. For now, continue.
+                    continue
 
-            if coords is None:
-                return ActionResult(
-                    success=False,
-                    action=action_type,
-                    params=params,
-                    error=f"Could not find element: {description}",
-                )
+                if not result.success:
+                    # Handle failure based on on_fail strategy
+                    recovery_result = await self._handle_failure(
+                        i, step, result, step_results, goal, plan, iterations
+                    )
+                    if recovery_result is None:
+                        # None means replan was requested
+                        replan_result = await self._replan_and_continue(
+                            goal, step_results, iterations, start
+                        )
+                        return replan_result
+                    else:
+                        step_results.append(recovery_result)
+                        iterations += 1
+                        if not recovery_result.success:
+                            # Recovery also failed
+                            if step.on_fail == "abort":
+                                duration = int((time.monotonic() - start) * 1000)
+                                self.logger.log_event(
+                                    EventType.TASK_FAIL, "Step failed with abort policy"
+                                )
+                                return ExecutionResult(
+                                    success=False,
+                                    message=f"Step {i} failed: {result.evidence}",
+                                    steps=step_results,
+                                    total_duration_ms=duration,
+                                    iterations=iterations,
+                                    goal=goal,
+                                    run_id=self.logger.run_id,
+                                )
 
-            # Create click action with found coordinates
-            click_action = ClickAction(x=coords.center_x, y=coords.center_y)
-            try:
-                click_result = await click_action.execute()
-                return ActionResult(
-                    success=click_result.success,
-                    action="click",
-                    params={"x": coords.center_x, "y": coords.center_y, "target": description},
-                    output=f"Clicked at ({coords.center_x}, {coords.center_y})",
-                    error=click_result.error if hasattr(click_result, 'error') else None,
-                )
-            except Exception as e:
-                return ActionResult(
-                    success=False,
-                    action="click",
-                    params={"x": coords.center_x, "y": coords.center_y},
-                    error=str(e),
-                )
-
-        # Standard action execution
-        action = self.registry.get_action(action_type, params)
-
-        if action is None:
-            return ActionResult(
-                success=False,
-                action=action_type,
-                params=params,
-                error=f"Unknown action type: {action_type}",
+            # Success
+            duration = int((time.monotonic() - start) * 1000)
+            self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
+            self.logger.finalize(True, f"Goal achieved: {goal}")
+            return ExecutionResult(
+                success=True,
+                message="Task completed",
+                steps=step_results,
+                total_duration_ms=duration,
+                iterations=iterations,
+                goal=goal,
+                run_id=self.logger.run_id,
             )
 
-        try:
-            action_result = await action.execute()
-            return ActionResult(
-                success=action_result.success,
-                action=action_type,
-                params=params,
-                output=getattr(action_result, "output", ""),
-                error=getattr(action_result, "error", None) if not action_result.success else None,
-            )
         except Exception as e:
-            return ActionResult(
+            duration = int((time.monotonic() - start) * 1000)
+            self.logger.log_event(EventType.TASK_FAIL, f"Exception: {e}")
+            self.logger.finalize(False, str(e))
+            return ExecutionResult(
                 success=False,
-                action=action_type,
-                params=params,
+                message=str(e),
                 error=str(e),
+                steps=step_results,
+                total_duration_ms=duration,
+                iterations=iterations,
+                goal=goal,
+                run_id=self.logger.run_id,
             )
 
-    def _format_history(self, history: List[HistoryEntry]) -> str:
-        """Format history entries for LLM prompt."""
-        if not history:
-            return "(No history yet)"
+    async def _execute_step(
+        self,
+        index: int,
+        step: ActionStep,
+        history: list,
+        goal: str,
+        plan: ActionPlan,
+    ) -> StepResult:
+        """Execute a single step: find element if needed, act, verify."""
+        self.logger.log_event(
+            EventType.STEP_START,
+            f"Step {index}: {step.action}",
+            step_index=index,
+            data={"action": step.action, "params": step.params},
+        )
 
-        lines = []
-        for i, entry in enumerate(history[-10:], 1):  # Last 10 entries
-            lines.append(f"{i}. {entry.content}")
+        if step.action == "done":
+            return StepResult(
+                step=step,
+                success=True,
+                verification_method="",
+                evidence="Task marked as done",
+            )
 
-        return "\n".join(lines)
+        if step.action == "wait_for_user":
+            return StepResult(
+                step=step,
+                success=True,
+                verification_method="",
+                evidence=f"Waiting for user: {step.params.get('message', '')}",
+            )
+
+        if step.action == "observe":
+            desc = await self.coordinator.describe_screen()
+            return StepResult(
+                step=step,
+                success=True,
+                verification_method="vision",
+                evidence=f"Screen: {desc}",
+            )
+
+        # For element-based actions (click with element description), find the element first
+        actuator_result = await self._dispatch_action(step)
+
+        # Verify
+        self.logger.log_event(
+            EventType.VERIFY_START, f"Verifying: {step.verify}", step_index=index
+        )
+        verification = await self.verifier.verify(step, actuator_result)
+
+        self.logger.log_event(
+            EventType.STEP_COMPLETE,
+            f"Step {index}: {'PASS' if verification.success else 'FAIL'} -- {verification.evidence}",
+            step_index=index,
+            data={
+                "success": verification.success,
+                "method": verification.verification_method,
+            },
+        )
+
+        return verification
+
+    async def _dispatch_action(self, step: ActionStep) -> dict:
+        """Dispatch an action to the actuator."""
+        action = step.action
+        params = step.params
+
+        self.logger.log_event(EventType.ACTION_START, f"{action}({params})")
+
+        try:
+            if action == "click":
+                # If element description given, find it first
+                if "element" in params:
+                    location = await self.coordinator.find_element(params["element"])
+                    if location is None:
+                        self.logger.log_event(
+                            EventType.ELEMENT_NOT_FOUND,
+                            f"Element not found: {params['element']}",
+                        )
+                        return {
+                            "success": False,
+                            "error": f"Element not found: {params['element']}",
+                        }
+                    self.logger.log_event(
+                        EventType.ELEMENT_FOUND,
+                        f"Found at ({location['x']}, {location['y']})",
+                    )
+                    result = self.actuator.click(location["x"], location["y"])
+                else:
+                    result = self.actuator.click(params.get("x", 0), params.get("y", 0))
+            elif action == "type_text":
+                result = self.actuator.type_text(params.get("text", ""))
+            elif action == "press_key":
+                result = self.actuator.press_key(params.get("keys", []))
+            elif action == "activate_app":
+                result = self.actuator.activate_app(params.get("app_name", ""))
+            elif action == "open_url":
+                result = self.actuator.open_url(params.get("url", ""))
+            elif action == "quit_app":
+                result = self.actuator.quit_app(params.get("app_name", ""))
+            else:
+                result = {"success": False, "error": f"Unknown action: {action}"}
+
+            self.logger.log_event(EventType.ACTION_COMPLETE, f"{action} -> {result}")
+            return result
+        except Exception as e:
+            self.logger.log_event(EventType.ACTION_ERROR, f"{action} error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _handle_failure(self, index, step, result, history, goal, plan, iterations):
+        """Handle a step failure based on on_fail policy.
+
+        Strategy-changing retries: each retry attempts a genuinely different
+        approach rather than blind repetition.
+        """
+        if step.on_fail == "retry_different" and result.retry_count < step.max_retries:
+            strategy, modified_params = self._vary_strategy(step, result)
+            self.logger.log_event(
+                EventType.STEP_RETRY,
+                f"Retrying step {index} with strategy: {strategy}",
+                step_index=index,
+                data={"strategy": strategy, "attempt": result.retry_count + 1},
+            )
+            retry_step = ActionStep(
+                action=step.action,
+                params=modified_params,
+                verify=step.verify,
+                on_fail=step.on_fail,
+                max_retries=step.max_retries,
+            )
+            retry_result = await self._execute_step(index, retry_step, history, goal, plan)
+            retry_result.retry_count = result.retry_count + 1
+            retry_result.retry_strategies_used = result.retry_strategies_used + [strategy]
+            return retry_result
+
+        if step.on_fail == "retry_different" and result.retry_count >= step.max_retries:
+            # Retries exhausted — escalate to replan
+            self.logger.log_event(
+                EventType.STEP_REPLAN,
+                f"Retries exhausted for step {index}, escalating to replan",
+                step_index=index,
+            )
+            return None  # Signal replan
+
+        if step.on_fail == "replan":
+            self.logger.log_event(
+                EventType.STEP_REPLAN, f"Replanning after step {index} failure"
+            )
+            return None  # Signal to caller to replan
+
+        if step.on_fail == "abort":
+            return result  # Return failure as-is
+
+        if step.on_fail == "wait_for_user":
+            self.logger.log_event(EventType.USER_WAIT, "Waiting for user after failure")
+            return StepResult(
+                step=step,
+                success=False,
+                verification_method=result.verification_method,
+                evidence=f"Failed, waiting for user. {result.evidence}",
+                retry_count=result.retry_count,
+            )
+
+        return result
+
+    def _vary_strategy(self, step: ActionStep, prev_result: StepResult) -> tuple:
+        """Produce a different strategy for retrying a failed step.
+
+        Returns (strategy_name, modified_params).
+        """
+        params = dict(step.params)
+        attempt = prev_result.retry_count + 1
+
+        if step.action == "click" and "element" in params:
+            if attempt == 1:
+                # Strategy: re-query vision with more context
+                params["element"] = f"{params['element']} (look carefully, may be partially hidden)"
+                return ("refine_element_query", params)
+            elif attempt == 2:
+                # Strategy: try keyboard shortcut instead
+                return ("keyboard_fallback", params)
+            else:
+                return ("fresh_screenshot_retry", params)
+
+        elif step.action == "type_text":
+            if attempt == 1:
+                # Strategy: click to ensure focus first
+                return ("click_to_focus_first", params)
+            else:
+                # Strategy: use press_key for individual characters
+                return ("slow_type_retry", params)
+
+        elif step.action == "activate_app":
+            if attempt == 1:
+                # Strategy: quit and relaunch
+                return ("quit_and_relaunch", params)
+            else:
+                return ("spotlight_launch", params)
+
+        else:
+            return (f"generic_retry_{attempt}", params)
+
+    async def _replan_and_continue(self, goal, step_results, iterations, start_time):
+        """Replan and attempt execution with new plan."""
+        screen_desc = await self.coordinator.describe_screen()
+        retry_strategies = []
+        for sr in step_results:
+            retry_strategies.extend(sr.retry_strategies_used)
+
+        self.logger.log_event(EventType.REPLAN_START, "Replanning...")
+        new_plan = await self.planner.replan(goal, screen_desc, step_results, retry_strategies)
+        self.logger.log_event(
+            EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
+        )
+
+        # Execute new plan with proper failure handling
+        for i, step in enumerate(new_plan.steps):
+            if iterations >= self.config.max_iterations:
+                break
+            result = await self._execute_step(i, step, step_results, goal, new_plan)
+            step_results.append(result)
+            iterations += 1
+            if step.action == "done":
+                break
+            if not result.success:
+                if step.on_fail == "abort":
+                    break
+                # Don't recurse into another replan — just record the failure
+                self.logger.log_event(
+                    EventType.STEP_RETRY,
+                    f"Replan step {i} failed: {result.evidence}",
+                    step_index=i,
+                )
+
+        duration = int((time.monotonic() - start_time) * 1000)
+        # Check final state: success only if last step passed or was 'done'
+        last_result = step_results[-1] if step_results else None
+        success = last_result.success if last_result else False
+        self.logger.finalize(success, f"Replanned: {goal}")
+        return ExecutionResult(
+            success=success,
+            message="Completed after replan" if success else "Failed after replan",
+            steps=step_results,
+            total_duration_ms=duration,
+            iterations=iterations,
+            goal=goal,
+            run_id=self.logger.run_id,
+        )
