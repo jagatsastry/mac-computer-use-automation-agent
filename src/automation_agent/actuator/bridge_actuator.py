@@ -15,6 +15,7 @@ API surface:
   - GET  /task/{id}        → poll async task result
 """
 
+import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
@@ -36,10 +37,23 @@ class HammerspoonBridgeActuator:
     POLL_INTERVAL = 0.5   # seconds between task polls
     POLL_TIMEOUT = 30     # max seconds to wait for async task
 
+    # AppleScript key code map for special keys
+    _KEY_CODES = {
+        "return": 36, "enter": 76, "tab": 48, "space": 49,
+        "delete": 51, "escape": 53, "up": 126, "down": 125,
+        "left": 123, "right": 124,
+    }
+    _MOD_MAP = {
+        "cmd": "command down", "command": "command down",
+        "shift": "shift down", "alt": "option down", "option": "option down",
+        "ctrl": "control down", "control": "control down",
+    }
+
     def __init__(self, config: Optional[AgentConfig] = None, port: int = 0):
         self._port = port or self.DEFAULT_PORT
         self._base_url = f"http://localhost:{self._port}"
         self._timeout = self.TIMEOUT_SECONDS
+        self._accessibility: Optional[bool] = None  # cached
 
     def is_available(self) -> bool:
         """Check if the hs.claude HTTP bridge is running."""
@@ -50,6 +64,92 @@ class HammerspoonBridgeActuator:
                 return data.get("status") == "ok"
         except Exception:
             return False
+
+    def has_accessibility(self) -> bool:
+        """Check if Hammerspoon has accessibility permissions (cached)."""
+        if self._accessibility is not None:
+            return self._accessibility
+        try:
+            with httpx.Client(timeout=3) as client:
+                resp = client.get(f"{self._base_url}/health")
+                data = resp.json()
+                self._accessibility = data.get("accessibility", False)
+        except Exception:
+            self._accessibility = False
+        return self._accessibility
+
+    def _osascript(self, script: str) -> bool:
+        """Run an AppleScript via /usr/bin/osascript subprocess."""
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=10,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _osascript_type_text(self, text: str) -> Dict[str, Any]:
+        """Type text via AppleScript System Events (fallback)."""
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        ok = self._osascript(
+            f'tell application "System Events" to keystroke "{escaped}"'
+        )
+        return {"success": ok, "error": None if ok else "osascript keystroke failed"}
+
+    # Shift+digit produces these symbols on US keyboard layout
+    _SHIFT_DIGIT = {
+        "1": "!", "2": "@", "3": "#", "4": "$", "5": "%",
+        "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+    }
+
+    def _osascript_press_key(self, key: str, modifiers: List[str]) -> Dict[str, Any]:
+        """Press a key via AppleScript System Events (fallback)."""
+        # If shift + single digit, convert to the actual symbol and type it directly.
+        # AppleScript keystroke "8" using {shift down} doesn't always produce "*"
+        # in apps like Calculator that handle key events at a low level.
+        if (
+            "shift" in modifiers
+            and key in self._SHIFT_DIGIT
+            and all(m == "shift" for m in modifiers)
+        ):
+            symbol = self._SHIFT_DIGIT[key]
+            return self._osascript_type_text(symbol)
+
+        mod_parts = [self._MOD_MAP[m] for m in modifiers if m in self._MOD_MAP]
+        mod_str = f" using {{{', '.join(mod_parts)}}}" if mod_parts else ""
+
+        key_code = self._KEY_CODES.get(key.lower())
+        if key_code is not None:
+            script = f'tell application "System Events" to key code {key_code}{mod_str}'
+        else:
+            escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+            script = f'tell application "System Events" to keystroke "{escaped}"{mod_str}'
+
+        ok = self._osascript(script)
+        return {"success": ok, "error": None if ok else "osascript key press failed"}
+
+    def _fallback_click(self, x: int, y: int) -> Dict[str, Any]:
+        """Click at coordinates via cliclick or osascript (fallback)."""
+        # Prefer cliclick (handles absolute coordinates reliably)
+        try:
+            result = subprocess.run(
+                ["cliclick", f"c:{x},{y}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                return {"success": True}
+        except FileNotFoundError:
+            pass  # cliclick not installed, try osascript
+        except Exception:
+            pass
+
+        # Fallback to osascript mouse click
+        script = f'''
+            do shell script "cliclick c:{x},{y}"
+        '''
+        ok = self._osascript(script)
+        return {"success": ok, "error": None if ok else "click fallback failed"}
 
     def _action(self, action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a synchronous action via POST /action.
@@ -128,7 +228,10 @@ class HammerspoonBridgeActuator:
         return {"success": False, "error": f"Task {task_id} timed out after {self.POLL_TIMEOUT}s"}
 
     def click(self, x: int, y: int) -> Dict[str, Any]:
-        result = self._action("click", {"x": x, "y": y})
+        if not self.has_accessibility():
+            result = self._fallback_click(x, y)
+        else:
+            result = self._action("click", {"x": x, "y": y})
         return ActuatorResult(
             success=result.get("success", False),
             output=str(result.get("result", "")),
@@ -136,7 +239,10 @@ class HammerspoonBridgeActuator:
         ).to_dict()
 
     def type_text(self, text: str) -> Dict[str, Any]:
-        result = self._action("type_text", {"text": text})
+        if not self.has_accessibility():
+            result = self._osascript_type_text(text)
+        else:
+            result = self._action("type_text", {"text": text})
         return ActuatorResult(
             success=result.get("success", False),
             output=str(result.get("result", "")),
@@ -159,7 +265,10 @@ class HammerspoonBridgeActuator:
                 success=False, error="No key specified, only modifiers"
             ).to_dict()
 
-        result = self._action("press_key", {"key": key, "modifiers": modifiers})
+        if not self.has_accessibility():
+            result = self._osascript_press_key(key, modifiers)
+        else:
+            result = self._action("press_key", {"key": key, "modifiers": modifiers})
         return ActuatorResult(
             success=result.get("success", False),
             output=str(result.get("result", "")),

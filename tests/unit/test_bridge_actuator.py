@@ -38,6 +38,7 @@ class TestIsAvailable:
 
 class TestClick:
     def test_click_sends_correct_action(self, bridge):
+        bridge._accessibility = True  # simulate accessibility granted
         with patch.object(bridge, "_action", return_value={"success": True, "result": {"action": "click"}}) as mock:
             result = bridge.click(500, 300)
 
@@ -45,24 +46,41 @@ class TestClick:
         assert result["success"] is True
 
     def test_click_failure(self, bridge):
+        bridge._accessibility = True
         with patch.object(bridge, "_action", return_value={"success": False, "error": "out of bounds"}):
             result = bridge.click(-1, -1)
 
         assert result["success"] is False
         assert "out of bounds" in result["error"]
 
+    def test_click_uses_fallback_without_accessibility(self, bridge):
+        bridge._accessibility = False
+        with patch.object(bridge, "_fallback_click", return_value={"success": True}) as mock:
+            result = bridge.click(100, 200)
+        mock.assert_called_once_with(100, 200)
+        assert result["success"] is True
+
 
 class TestTypeText:
     def test_type_text_sends_text(self, bridge):
+        bridge._accessibility = True
         with patch.object(bridge, "_action", return_value={"success": True, "result": {}}) as mock:
             result = bridge.type_text("hello world")
 
         mock.assert_called_once_with("type_text", {"text": "hello world"})
         assert result["success"] is True
 
+    def test_type_text_uses_osascript_without_accessibility(self, bridge):
+        bridge._accessibility = False
+        with patch.object(bridge, "_osascript_type_text", return_value={"success": True}) as mock:
+            result = bridge.type_text("hello")
+        mock.assert_called_once_with("hello")
+        assert result["success"] is True
+
 
 class TestPressKey:
     def test_press_key_with_modifiers(self, bridge):
+        bridge._accessibility = True
         with patch.object(bridge, "_action", return_value={"success": True, "result": {}}) as mock:
             result = bridge.press_key(["cmd", "c"])
 
@@ -75,10 +93,26 @@ class TestPressKey:
         assert "No key" in result["error"]
 
     def test_press_key_single_key(self, bridge):
+        bridge._accessibility = True
         with patch.object(bridge, "_action", return_value={"success": True, "result": {}}) as mock:
             result = bridge.press_key(["Return"])
 
         mock.assert_called_once_with("press_key", {"key": "Return", "modifiers": []})
+
+    def test_press_key_uses_osascript_without_accessibility(self, bridge):
+        bridge._accessibility = False
+        with patch.object(bridge, "_osascript_press_key", return_value={"success": True}) as mock:
+            result = bridge.press_key(["Return"])
+        mock.assert_called_once_with("Return", [])
+        assert result["success"] is True
+
+    def test_press_key_shift_digit_osascript_converts_to_symbol(self, bridge):
+        bridge._accessibility = False
+        with patch.object(bridge, "_osascript_type_text", return_value={"success": True}) as mock:
+            result = bridge.press_key(["shift", "8"])
+        # shift+8 should be converted to "*" and typed as text
+        mock.assert_called_once_with("*")
+        assert result["success"] is True
 
 
 class TestActivateApp:
