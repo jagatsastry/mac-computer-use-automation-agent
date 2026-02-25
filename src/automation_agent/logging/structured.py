@@ -1,33 +1,23 @@
-"""Logging infrastructure for the automation agent."""
+"""Structured logging setup using structlog (migrated from logging.py)."""
 
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Any, Optional
+from typing import Optional
 
 import structlog
-from structlog.types import EventDict
 
-from .config import AgentConfig
+from automation_agent.config import AgentConfig
 
 
 def configure_logging(config: AgentConfig) -> None:
-    """
-    Configure logging infrastructure.
-
-    Sets up both console and file logging with structured logging support.
-
-    Args:
-        config: Agent configuration with logging settings
-    """
-    # Configure standard library logging
+    """Configure logging infrastructure with console and file handlers."""
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=logging.DEBUG,
     )
 
-    # Set up file handler with rotation
     log_file = config.get_log_file_path()
     file_handler = RotatingFileHandler(
         filename=log_file,
@@ -37,18 +27,15 @@ def configure_logging(config: AgentConfig) -> None:
     )
     file_handler.setLevel(getattr(logging, config.log_file_level.value))
 
-    # Set up console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, config.log_console_level.value))
 
-    # Configure root logger
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
     root_logger.setLevel(logging.DEBUG)
 
-    # Configure structlog
     shared_processors = [
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -77,7 +64,6 @@ def configure_logging(config: AgentConfig) -> None:
         cache_logger_on_first_use=True,
     )
 
-    # Configure formatters
     file_formatter = structlog.stdlib.ProcessorFormatter(
         processors=file_processors,
         foreign_pre_chain=shared_processors,
@@ -92,13 +78,5 @@ def configure_logging(config: AgentConfig) -> None:
 
 
 def get_logger(name: Optional[str] = None) -> structlog.stdlib.BoundLogger:
-    """
-    Get a structured logger instance.
-
-    Args:
-        name: Logger name (typically __name__ of the module)
-
-    Returns:
-        Configured structlog logger
-    """
+    """Get a structured logger instance."""
     return structlog.get_logger(name)
