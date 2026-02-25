@@ -45,9 +45,7 @@ class BridgeCoordinator:
     async def capture_screenshot(self) -> str:
         """Capture screenshot via bridge.
 
-        Falls back to empty string if bridge doesn't support raw capture.
+        The hs.claude.server does not support raw screenshot capture.
+        Returns empty string — use describe_screen() for vision instead.
         """
-        result = self._bridge._call("captureScreen")
-        if result.get("success"):
-            return result.get("result", "")
         return ""
