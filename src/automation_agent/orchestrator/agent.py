@@ -1,5 +1,6 @@
 """AutomationAgent -- main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
 
+import asyncio
 import time
 from typing import Optional
 
@@ -207,6 +208,10 @@ class AutomationAgent:
 
         # For element-based actions (click with element description), find the element first
         actuator_result = await self._dispatch_action(step)
+
+        # Brief delay after actions that need time to take effect (app launch, URL open)
+        if step.action in ("activate_app", "open_url", "quit_app"):
+            await asyncio.sleep(self.config.action_delay)
 
         # Verify
         self.logger.log_event(

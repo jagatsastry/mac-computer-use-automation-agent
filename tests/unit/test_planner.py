@@ -364,3 +364,133 @@ class TestPlannerIntegration:
         plan = await planner.plan("Open Calculator")
 
         assert plan.planning_duration_ms >= 0
+
+
+class TestActionAliases:
+    """Tests for LLM action name auto-correction."""
+
+    def test_key_press_corrected_to_press_key(self):
+        """key_press (common Haiku misspelling) corrected to press_key."""
+        step = ActionStep.from_dict({
+            "action": "key_press",
+            "params": {"keys": ["cmd", "c"]},
+            "verify": "Text copied",
+        })
+        assert step.action == "press_key"
+
+    def test_open_app_corrected_to_activate_app(self):
+        """open_app corrected to activate_app."""
+        step = ActionStep.from_dict({
+            "action": "open_app",
+            "params": {"app_name": "Safari"},
+            "verify": "Safari open",
+        })
+        assert step.action == "activate_app"
+
+    def test_type_corrected_to_type_text(self):
+        """bare 'type' corrected to type_text."""
+        step = ActionStep.from_dict({
+            "action": "type",
+            "params": {"text": "hello"},
+            "verify": "Text visible",
+        })
+        assert step.action == "type_text"
+
+    def test_navigate_corrected_to_open_url(self):
+        """navigate corrected to open_url."""
+        step = ActionStep.from_dict({
+            "action": "navigate",
+            "params": {"url": "https://example.com"},
+            "verify": "Page loaded",
+        })
+        assert step.action == "open_url"
+
+    def test_close_app_corrected_to_quit_app(self):
+        """close_app corrected to quit_app."""
+        step = ActionStep.from_dict({
+            "action": "close_app",
+            "params": {"app_name": "Safari"},
+            "verify": "Safari closed",
+        })
+        assert step.action == "quit_app"
+
+    def test_finish_corrected_to_done(self):
+        """finish corrected to done."""
+        step = ActionStep.from_dict({
+            "action": "finish",
+            "params": {},
+            "verify": "",
+        })
+        assert step.action == "done"
+
+    def test_valid_action_unchanged(self):
+        """Valid action names are not modified."""
+        step = ActionStep.from_dict({
+            "action": "click",
+            "params": {"x": 100, "y": 200},
+            "verify": "Button clicked",
+        })
+        assert step.action == "click"
+
+    def test_unknown_action_still_raises(self):
+        """Truly unknown action (not in aliases) still raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown action"):
+            ActionStep.from_dict({
+                "action": "hover_over",
+                "params": {},
+                "verify": "Hovering",
+            })
+
+    async def test_plan_with_aliased_actions_accepted(self, planner):
+        """Plan with aliased action names parses successfully."""
+        steps_data = [
+            {
+                "action": "key_press",
+                "params": {"keys": ["cmd", "space"]},
+                "verify": "Spotlight open",
+            },
+            {"action": "done", "params": {}, "verify": ""},
+        ]
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(steps_data))
+
+        plan = await planner.plan("Open Spotlight")
+        assert plan.steps[0].action == "press_key"
+
+
+class TestAPIRetry:
+    """Tests for API retry with exponential backoff."""
+
+    async def test_retry_on_529_overloaded(self, planner):
+        """_call_llm retries on 529 (overloaded) errors."""
+        import anthropic
+        import httpx
+
+        # Build a realistic mock response for the APIStatusError
+        mock_request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = httpx.Response(529, request=mock_request)
+        error_529 = anthropic.APIStatusError(
+            message="Overloaded",
+            response=mock_response,
+            body=None,
+        )
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise error_529
+            return type("Message", (), {
+                "content": [type("Block", (), {"text": json.dumps({"steps": VALID_STEPS})})()],
+                "usage": type("Usage", (), {"input_tokens": 100, "output_tokens": 50})(),
+            })()
+
+        with patch("anthropic.AsyncAnthropic") as MockClient:
+            mock_instance = MockClient.return_value
+            mock_instance.messages.create = mock_create
+
+            result = await planner._call_llm("test prompt")
+
+        assert "content" in result
+        assert call_count == 3  # 2 failures + 1 success

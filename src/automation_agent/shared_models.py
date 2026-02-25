@@ -4,6 +4,28 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+# Common LLM misspellings → correct action name.
+# Used by ActionStep.from_dict() to auto-correct invalid action names.
+_ACTION_ALIASES: Dict[str, str] = {
+    "key_press": "press_key",
+    "keypress": "press_key",
+    "send_keys": "press_key",
+    "send_key": "press_key",
+    "typetext": "type_text",
+    "type": "type_text",
+    "enter_text": "type_text",
+    "launch_app": "activate_app",
+    "open_app": "activate_app",
+    "start_app": "activate_app",
+    "close_app": "quit_app",
+    "navigate": "open_url",
+    "goto_url": "open_url",
+    "go_to_url": "open_url",
+    "wait": "wait_for_user",
+    "finish": "done",
+    "complete": "done",
+}
+
 
 @dataclass
 class ActionStep:
@@ -43,9 +65,15 @@ class ActionStep:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ActionStep":
-        """Create ActionStep from dictionary (e.g., parsed LLM JSON)."""
+        """Create ActionStep from dictionary (e.g., parsed LLM JSON).
+
+        Automatically corrects common LLM action name misspellings
+        (e.g., 'key_press' → 'press_key').
+        """
+        raw_action = data.get("action", "")
+        action = _ACTION_ALIASES.get(raw_action, raw_action)
         return cls(
-            action=data.get("action", ""),
+            action=action,
             params=data.get("params", {}),
             verify=data.get("verify", ""),
             on_fail=data.get("on_fail", "retry_different"),

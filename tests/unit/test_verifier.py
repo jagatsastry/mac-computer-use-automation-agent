@@ -286,3 +286,59 @@ class TestStandalone:
         assert isinstance(result, StepResult)
         assert result.evidence != ""
         assert result.verification_method in ("hammerspoon_state", "vision", "")
+
+
+class TestTier1ImprovedAppDetection:
+    """Tests for improved Tier 1 verification that handles activate_app actions
+    regardless of verify text phrasing."""
+
+    async def test_activate_app_tier1_resolves_without_frontmost_keyword(
+        self, mock_act, logger
+    ):
+        """Tier 1 resolves activate_app even when verify says 'is open' instead of 'frontmost'."""
+        step = ActionStep(
+            action="activate_app",
+            params={"app_name": "Calculator"},
+            verify="Calculator is open and ready",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+        assert result.verification_method == "hammerspoon_state"
+
+    async def test_activate_app_tier1_resolves_generic_verify(
+        self, mock_act, logger
+    ):
+        """Tier 1 resolves activate_app even with generic verify text."""
+        step = ActionStep(
+            action="activate_app",
+            params={"app_name": "Calculator"},
+            verify="Calculator should be visible on screen",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        # The activate_app action with app_name triggers Tier 1 regardless of verify text
+        assert result.success is True
+        assert result.verification_method == "hammerspoon_state"
+
+    async def test_tier1_is_open_keyword_matches(self, mock_act, logger):
+        """Tier 1 matches 'is open' keyword in verify text."""
+        step = ActionStep(
+            action="click",
+            params={"app_name": "Safari"},
+            verify="Safari is open in foreground",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "app_bundle": "com.apple.Safari",
+        }
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+        assert result.verification_method == "hammerspoon_state"

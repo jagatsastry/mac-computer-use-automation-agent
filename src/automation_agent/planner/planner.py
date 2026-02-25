@@ -86,7 +86,10 @@ class ActionPlannerImpl:
         return plan
 
     async def _call_llm(self, prompt: str) -> dict:
-        """Call Anthropic Claude API.
+        """Call Anthropic Claude API with retry and exponential backoff.
+
+        Retries on overloaded (529) and rate-limit (429) errors up to 4 times
+        with exponential backoff (1s, 2s, 4s, 8s).
 
         Args:
             prompt: The prompt to send to the LLM.
@@ -94,21 +97,35 @@ class ActionPlannerImpl:
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
         """
+        import asyncio
+
         import anthropic
 
         client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
-        message = await client.messages.create(
-            model=self.config.anthropic_model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return {
-            "content": message.content[0].text,
-            "usage": {
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-            },
-        }
+
+        max_retries = 4
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                message = await client.messages.create(
+                    model=self.config.anthropic_model,
+                    max_tokens=4096,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                return {
+                    "content": message.content[0].text,
+                    "usage": {
+                        "input_tokens": message.usage.input_tokens,
+                        "output_tokens": message.usage.output_tokens,
+                    },
+                }
+            except anthropic.APIStatusError as e:
+                if e.status_code in (429, 529) and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     def _build_plan_prompt(
         self,

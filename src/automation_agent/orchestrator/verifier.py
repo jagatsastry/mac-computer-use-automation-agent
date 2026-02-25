@@ -133,31 +133,51 @@ class StepVerifier:
         state = actuator.get_state()
         verify_lower = step.verify.lower()
 
-        # Check app-related conditions
-        if (
-            "frontmost" in verify_lower
-            or "foreground" in verify_lower
-            or "is frontmost" in verify_lower
-        ):
-            for app_keyword in ["app", "application"]:
-                if app_keyword in verify_lower:
-                    # Extract expected app name from verify condition or step params
-                    expected_app = step.params.get("app_name", "")
-                    actual_app = state.get("app_name", "")
-                    if expected_app and actual_app:
-                        if (
-                            expected_app.lower() in actual_app.lower()
-                            or actual_app.lower() in expected_app.lower()
-                        ):
-                            return (
-                                True,
-                                f"Frontmost app is '{actual_app}' (expected '{expected_app}')",
-                            )
-                        else:
-                            return (
-                                False,
-                                f"Frontmost app is '{actual_app}', expected '{expected_app}'",
-                            )
+        # For activate_app actions, always check frontmost app via state
+        if step.action == "activate_app" and step.params.get("app_name"):
+            expected_app = step.params["app_name"]
+            actual_app = state.get("app_name", "")
+            if actual_app:
+                if (
+                    expected_app.lower() in actual_app.lower()
+                    or actual_app.lower() in expected_app.lower()
+                ):
+                    return (
+                        True,
+                        f"Frontmost app is '{actual_app}' (expected '{expected_app}')",
+                    )
+                else:
+                    return (
+                        False,
+                        f"Frontmost app is '{actual_app}', expected '{expected_app}'",
+                    )
+
+        # Check app-related conditions mentioned in verify text
+        app_keywords = ["frontmost", "foreground", "is the active", "is open", "is running"]
+        if any(kw in verify_lower for kw in app_keywords):
+            expected_app = step.params.get("app_name", "")
+            actual_app = state.get("app_name", "")
+            if expected_app and actual_app:
+                if (
+                    expected_app.lower() in actual_app.lower()
+                    or actual_app.lower() in expected_app.lower()
+                ):
+                    return (
+                        True,
+                        f"Frontmost app is '{actual_app}' (expected '{expected_app}')",
+                    )
+                else:
+                    return (
+                        False,
+                        f"Frontmost app is '{actual_app}', expected '{expected_app}'",
+                    )
+
+        # Check window title conditions
+        if "title" in verify_lower or "window" in verify_lower:
+            window_title = state.get("window_title", "")
+            if window_title:
+                # Can't conclusively verify — but provide context for tier 2
+                pass
 
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2
         return None

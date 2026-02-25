@@ -174,7 +174,9 @@ class ScreenCoordinatorImpl:
             return response.json()["response"]
 
     async def _call_anthropic_vision(self, prompt: str, screenshot_b64: str) -> str:
-        """Call Anthropic vision model.
+        """Call Anthropic vision model with retry on overloaded/rate-limit errors.
+
+        Retries on 429/529 errors up to 4 times with exponential backoff.
 
         Args:
             prompt: The text prompt.
@@ -183,33 +185,51 @@ class ScreenCoordinatorImpl:
         Returns:
             The model's text response.
         """
+        import asyncio
+
         import anthropic
 
         client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
-        message = await client.messages.create(
-            model=self.config.anthropic_vision_model,
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
+
+        max_retries = 4
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                message = await client.messages.create(
+                    model=self.config.anthropic_vision_model,
+                    max_tokens=1024,
+                    messages=[
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": screenshot_b64,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/jpeg",
+                                        "data": screenshot_b64,
+                                    },
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt,
+                                },
+                            ],
+                        }
                     ],
-                }
-            ],
-        )
-        return message.content[0].text
+                )
+                return message.content[0].text
+            except anthropic.APIStatusError as e:
+                if e.status_code in (429, 529) and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        "Anthropic API %d error (attempt %d/%d), retrying in %.1fs",
+                        e.status_code, attempt + 1, max_retries, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     def _parse_coordinates(self, response: str) -> Optional[Tuple[float, float]]:
         """Parse coordinates from a vision model response.
