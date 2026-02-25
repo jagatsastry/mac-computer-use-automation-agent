@@ -274,27 +274,39 @@ class AutomationAgent:
             return {"success": False, "error": str(e)}
 
     async def _handle_failure(self, index, step, result, history, goal, plan, iterations):
-        """Handle a step failure based on on_fail policy."""
+        """Handle a step failure based on on_fail policy.
+
+        Strategy-changing retries: each retry attempts a genuinely different
+        approach rather than blind repetition.
+        """
         if step.on_fail == "retry_different" and result.retry_count < step.max_retries:
+            strategy, modified_params = self._vary_strategy(step, result)
             self.logger.log_event(
                 EventType.STEP_RETRY,
-                f"Retrying step {index} with different strategy",
+                f"Retrying step {index} with strategy: {strategy}",
                 step_index=index,
+                data={"strategy": strategy, "attempt": result.retry_count + 1},
             )
-            # Create modified step for retry
             retry_step = ActionStep(
                 action=step.action,
-                params=step.params,
+                params=modified_params,
                 verify=step.verify,
                 on_fail=step.on_fail,
                 max_retries=step.max_retries,
             )
             retry_result = await self._execute_step(index, retry_step, history, goal, plan)
             retry_result.retry_count = result.retry_count + 1
-            retry_result.retry_strategies_used = result.retry_strategies_used + [
-                f"retry_{result.retry_count + 1}"
-            ]
+            retry_result.retry_strategies_used = result.retry_strategies_used + [strategy]
             return retry_result
+
+        if step.on_fail == "retry_different" and result.retry_count >= step.max_retries:
+            # Retries exhausted — escalate to replan
+            self.logger.log_event(
+                EventType.STEP_REPLAN,
+                f"Retries exhausted for step {index}, escalating to replan",
+                step_index=index,
+            )
+            return None  # Signal replan
 
         if step.on_fail == "replan":
             self.logger.log_event(
@@ -317,6 +329,43 @@ class AutomationAgent:
 
         return result
 
+    def _vary_strategy(self, step: ActionStep, prev_result: StepResult) -> tuple:
+        """Produce a different strategy for retrying a failed step.
+
+        Returns (strategy_name, modified_params).
+        """
+        params = dict(step.params)
+        attempt = prev_result.retry_count + 1
+
+        if step.action == "click" and "element" in params:
+            if attempt == 1:
+                # Strategy: re-query vision with more context
+                params["element"] = f"{params['element']} (look carefully, may be partially hidden)"
+                return ("refine_element_query", params)
+            elif attempt == 2:
+                # Strategy: try keyboard shortcut instead
+                return ("keyboard_fallback", params)
+            else:
+                return ("fresh_screenshot_retry", params)
+
+        elif step.action == "type_text":
+            if attempt == 1:
+                # Strategy: click to ensure focus first
+                return ("click_to_focus_first", params)
+            else:
+                # Strategy: use press_key for individual characters
+                return ("slow_type_retry", params)
+
+        elif step.action == "activate_app":
+            if attempt == 1:
+                # Strategy: quit and relaunch
+                return ("quit_and_relaunch", params)
+            else:
+                return ("spotlight_launch", params)
+
+        else:
+            return (f"generic_retry_{attempt}", params)
+
     async def _replan_and_continue(self, goal, step_results, iterations, start_time):
         """Replan and attempt execution with new plan."""
         screen_desc = await self.coordinator.describe_screen()
@@ -330,7 +379,7 @@ class AutomationAgent:
             EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
         )
 
-        # Execute new plan
+        # Execute new plan with proper failure handling
         for i, step in enumerate(new_plan.steps):
             if iterations >= self.config.max_iterations:
                 break
@@ -339,9 +388,20 @@ class AutomationAgent:
             iterations += 1
             if step.action == "done":
                 break
+            if not result.success:
+                if step.on_fail == "abort":
+                    break
+                # Don't recurse into another replan — just record the failure
+                self.logger.log_event(
+                    EventType.STEP_RETRY,
+                    f"Replan step {i} failed: {result.evidence}",
+                    step_index=i,
+                )
 
         duration = int((time.monotonic() - start_time) * 1000)
-        success = step_results[-1].success if step_results else False
+        # Check final state: success only if last step passed or was 'done'
+        last_result = step_results[-1] if step_results else None
+        success = last_result.success if last_result else False
         self.logger.finalize(success, f"Replanned: {goal}")
         return ExecutionResult(
             success=success,

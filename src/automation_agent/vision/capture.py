@@ -34,6 +34,9 @@ class ScreenCapture:
 
             img = Image.open(tmp_path)
             img = img.resize(self.target_resolution, Image.LANCZOS)
+            # Convert RGBA to RGB for JPEG compatibility
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)
