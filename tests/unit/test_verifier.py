@@ -342,3 +342,25 @@ class TestTier1ImprovedAppDetection:
 
         assert result.success is True
         assert result.verification_method == "hammerspoon_state"
+
+    async def test_activate_app_tier1_inconclusive_when_hammerspoon_down(
+        self, mock_coord, logger
+    ):
+        """Tier 1 is inconclusive when Hammerspoon returns empty state (not running)."""
+        mock_act = MagicMock()
+        mock_act.get_state.return_value = {
+            "app_name": "",
+            "app_bundle": "",
+            "window_title": "",
+        }
+        step = ActionStep(
+            action="activate_app",
+            params={"app_name": "Safari"},
+            verify="Safari is the frontmost application",
+        )
+        verifier = StepVerifier(actuator=mock_act, coordinator=mock_coord, logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        # Should escalate to Tier 2 (not falsely deny)
+        assert result.verification_method == "vision"

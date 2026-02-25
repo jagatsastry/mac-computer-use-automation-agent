@@ -456,6 +456,61 @@ class TestActionAliases:
         plan = await planner.plan("Open Spotlight")
         assert plan.steps[0].action == "press_key"
 
+    def test_find_element_corrected_to_click(self):
+        """find_element (LLM invention) corrected to click."""
+        step = ActionStep.from_dict({
+            "action": "find_element",
+            "params": {"element": "search bar"},
+            "verify": "Search bar found",
+        })
+        assert step.action == "click"
+
+
+class TestResilientParsing:
+    """Tests for graceful handling of invalid LLM-generated actions."""
+
+    async def test_invalid_steps_skipped_valid_kept(self, planner):
+        """Plan with mix of valid and invalid steps keeps valid ones."""
+        steps_data = [
+            {
+                "action": "activate_app",
+                "params": {"app_name": "Safari"},
+                "verify": "Safari open",
+            },
+            {
+                "action": "hover_over",  # invalid, not aliased
+                "params": {"element": "link"},
+                "verify": "Link highlighted",
+            },
+            {"action": "done", "params": {}, "verify": ""},
+        ]
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(steps_data))
+
+        plan = await planner.plan("Open Safari")
+        # hover_over should have been skipped
+        assert len(plan.steps) == 2
+        assert plan.steps[0].action == "activate_app"
+        assert plan.steps[1].action == "done"
+
+    async def test_all_invalid_steps_raises(self, planner):
+        """Plan with only invalid steps raises ValueError."""
+        steps_data = [
+            {
+                "action": "hover_over",
+                "params": {},
+                "verify": "Hovering",
+            },
+            {
+                "action": "drag_and_drop",
+                "params": {},
+                "verify": "Dropped",
+            },
+        ]
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(steps_data))
+
+        with pytest.raises(ValueError, match="only invalid steps"):
+            await planner.plan("Do something")
+
 
 class TestAPIRetry:
     """Tests for API retry with exponential backoff."""

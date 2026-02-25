@@ -243,8 +243,20 @@ class ActionPlannerImpl:
                 f"LLM response missing 'steps' key: {content[:500]}"
             )
 
-        steps = [ActionStep.from_dict(s) for s in data["steps"]]
+        steps = []
+        skipped = []
+        for s in data["steps"]:
+            try:
+                steps.append(ActionStep.from_dict(s))
+            except ValueError as e:
+                # LLM returned an invalid action — skip it rather than crash
+                skipped.append(f"{s.get('action', '?')}: {e}")
+
         if not steps:
+            if skipped:
+                raise ValueError(
+                    f"LLM returned only invalid steps: {'; '.join(skipped)}"
+                )
             raise ValueError("LLM returned empty steps list")
 
         return ActionPlan(

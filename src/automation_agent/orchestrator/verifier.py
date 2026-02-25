@@ -137,20 +137,22 @@ class StepVerifier:
         if step.action == "activate_app" and step.params.get("app_name"):
             expected_app = step.params["app_name"]
             actual_app = state.get("app_name", "")
-            if actual_app:
-                if (
-                    expected_app.lower() in actual_app.lower()
-                    or actual_app.lower() in expected_app.lower()
-                ):
-                    return (
-                        True,
-                        f"Frontmost app is '{actual_app}' (expected '{expected_app}')",
-                    )
-                else:
-                    return (
-                        False,
-                        f"Frontmost app is '{actual_app}', expected '{expected_app}'",
-                    )
+            if not actual_app:
+                # Hammerspoon not responding — inconclusive, escalate
+                return None
+            if (
+                expected_app.lower() in actual_app.lower()
+                or actual_app.lower() in expected_app.lower()
+            ):
+                return (
+                    True,
+                    f"Frontmost app is '{actual_app}' (expected '{expected_app}')",
+                )
+            else:
+                return (
+                    False,
+                    f"Frontmost app is '{actual_app}', expected '{expected_app}'",
+                )
 
         # Check app-related conditions mentioned in verify text
         app_keywords = ["frontmost", "foreground", "is the active", "is open", "is running"]
@@ -171,13 +173,6 @@ class StepVerifier:
                         False,
                         f"Frontmost app is '{actual_app}', expected '{expected_app}'",
                     )
-
-        # Check window title conditions
-        if "title" in verify_lower or "window" in verify_lower:
-            window_title = state.get("window_title", "")
-            if window_title:
-                # Can't conclusively verify — but provide context for tier 2
-                pass
 
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2
         return None

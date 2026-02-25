@@ -21,6 +21,7 @@ _ACTION_ALIASES: Dict[str, str] = {
     "navigate": "open_url",
     "goto_url": "open_url",
     "go_to_url": "open_url",
+    "find_element": "click",
     "wait": "wait_for_user",
     "finish": "done",
     "complete": "done",
