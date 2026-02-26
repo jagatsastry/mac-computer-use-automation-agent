@@ -54,13 +54,6 @@ def sample_complex_intent_json():
 
 
 @pytest.fixture
-def mock_applescript_result():
-    """Create a mock AppleScriptResult."""
-    from automation_agent.actions.applescript import AppleScriptResult
-    return AppleScriptResult(success=True, output="", error="")
-
-
-@pytest.fixture
 def mock_action_result():
     """Create a mock ActionResult for testing."""
     from automation_agent.orchestrator.models import ActionResult

@@ -1,9 +1,22 @@
-"""Tests for automation agent component."""
+"""Tests for the legacy orchestrator agent (old architecture).
+
+These tests cover the old AutomationAgent that used IntentParser,
+ActionRegistry, and ScreenObserver. The new architecture uses planner,
+coordinator, actuator, and skill_registry instead. These tests are
+skipped because the legacy modules they depend on have been removed.
+"""
 
 import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+
+# Skip entire module -- these legacy orchestrator modules no longer exist.
+pytest.importorskip(
+    "automation_agent.orchestrator.intent_parser",
+    reason="IntentParser removed in component-redesign; new planner replaces it",
+)
+
 from automation_agent.orchestrator.agent import AutomationAgent
 from automation_agent.orchestrator.models import (
     Intent,

@@ -1,8 +1,20 @@
-"""Tests for intent parser component."""
+"""Tests for the legacy intent parser component.
+
+The IntentParser was part of the old orchestrator architecture. The new
+architecture uses the planner component instead. These tests are skipped
+because the IntentParser module has been removed.
+"""
 
 import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock
+
+# Skip entire module -- IntentParser no longer exists.
+pytest.importorskip(
+    "automation_agent.orchestrator.intent_parser",
+    reason="IntentParser removed in component-redesign; planner replaces it",
+)
+
 from automation_agent.orchestrator.intent_parser import IntentParser
 
 

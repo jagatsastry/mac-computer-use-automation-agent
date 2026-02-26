@@ -10,14 +10,12 @@ from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
 from .llm.client import OllamaClient
 from .llm import AnthropicClient, ANTHROPIC_AVAILABLE, MolmoVisionClient, MolmoLocalClient
-from .perception.capture import ScreenCapturer
 from .workflows import run_restaurant_workflow
-from .orchestrator import (
-    AutomationAgent,
-    IntentParser,
-    ActionRegistry,
-    ScreenObserver,
-)
+from .orchestrator import AutomationAgent
+from .actuator import create_actuator
+from .planner import ActionPlannerImpl
+from .skills import SkillRegistryImpl
+from .vision import ScreenCoordinatorImpl
 
 
 def apply_cli_overrides(config: AgentConfig, args) -> None:
@@ -217,53 +215,36 @@ async def run_agent(
         )
 
     # Initialize components
-    capturer = ScreenCapturer(config)
-    parser = IntentParser(llm_client, model=text_model)
-    observer = ScreenObserver(vision_client, capturer, model=observer_vision_model)
-    registry = ActionRegistry()
-
-    if config.use_hammerspoon:
-        from .actions.hammerspoon import (
-            ClickAction, TypeTextAction, PressKeyAction,
-            ActivateAppAction, QuitAppAction, OpenURLAction
-        )
-        # Register Hammerspoon actions, overriding AppleScript/Simple defaults
-        registry.register("click", ClickAction)
-        registry.register("type_text", TypeTextAction)
-        registry.register("press_key", PressKeyAction)
-        registry.register("activate_app", ActivateAppAction)
-        registry.register("quit_app", QuitAppAction)
-        registry.register("open_url", OpenURLAction)
-        logger.info("using_hammerspoon_actions")
-        print("[INFO] Using Hammerspoon for actions")
+    planner = ActionPlannerImpl(config)
+    skill_registry = SkillRegistryImpl()
+    coordinator = ScreenCoordinatorImpl(config)
+    actuator = create_actuator(config)
+    logger.info("using_actuator", actuator=type(actuator).__name__)
+    print(f"[INFO] Using actuator: {type(actuator).__name__}")
 
     # Create agent
     agent = AutomationAgent(
-        parser=parser,
-        observer=observer,
-        registry=registry,
-        llm_client=llm_client,
-        text_model=text_model,
-        max_iterations=20,
-        action_delay=config.action_delay,
+        planner=planner,
+        skill_registry=skill_registry,
+        coordinator=coordinator,
+        actuator=actuator,
+        config=config,
     )
 
     if dry_run:
-        # Dry run - just parse the intent
+        # Dry run - just plan without executing
         logger.info("dry_run_parsing", prompt=prompt)
-        print(f"\n[DRY RUN] Parsing: {prompt}")
+        print(f"\n[DRY RUN] Planning: {prompt}")
 
         try:
-            intent = await parser.parse(prompt)
-            print(f"\nParsed Intent:")
-            print(f"  Requires Observation: {intent.requires_observation}")
-            print(f"  Steps:")
-            for i, step in enumerate(intent.steps, 1):
+            plan = await planner.plan(prompt)
+            print(f"\nPlanned Steps:")
+            for i, step in enumerate(plan.steps, 1):
                 print(f"    {i}. {step.action}: {step.params}")
             return 0
         except Exception as e:
-            logger.error("intent_parsing_failed", error=str(e))
-            print(f"\n[ERROR] Failed to parse intent: {e}")
+            logger.error("planning_failed", error=str(e))
+            print(f"\n[ERROR] Failed to plan: {e}")
             return 1
 
     if restaurant_only or _is_restaurant_prompt(prompt):
@@ -302,9 +283,9 @@ async def run_agent(
 
             if result.steps:
                 print(f"\nActions executed:")
-                for i, step in enumerate(result.steps, 1):
-                    status = "OK" if step.success else "FAIL"
-                    print(f"  {i}. [{status}] {step.action}: {step.params}")
+                for i, sr in enumerate(result.steps, 1):
+                    status = "OK" if sr.success else "FAIL"
+                    print(f"  {i}. [{status}] {sr.step.action}: {sr.step.params}")
 
             if result.iterations > 0:
                 print(f"\nCompleted in {result.iterations} iteration(s)")
@@ -319,11 +300,11 @@ async def run_agent(
 
             if result.steps:
                 print(f"\nActions attempted:")
-                for i, step in enumerate(result.steps, 1):
-                    status = "OK" if step.success else "FAIL"
-                    print(f"  {i}. [{status}] {step.action}: {step.params}")
-                    if step.error:
-                        print(f"      Error: {step.error}")
+                for i, sr in enumerate(result.steps, 1):
+                    status = "OK" if sr.success else "FAIL"
+                    print(f"  {i}. [{status}] {sr.step.action}: {sr.step.params}")
+                    if sr.error:
+                        print(f"      Error: {sr.error}")
 
             return 1
 

@@ -89,6 +89,7 @@ markers = [
     "integration: Integration tests (may use real local services)",
     "e2e: End-to-end tests (real everything, requires macOS desktop)",
     "manual: Manual/interactive tests (require human observation)",
+    "legacy: Tests for the old actions/ package (retained until removal)",
 ]
 
 [tool.black]

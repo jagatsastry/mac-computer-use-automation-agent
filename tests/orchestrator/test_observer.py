@@ -1,8 +1,20 @@
-"""Tests for screen observer component."""
+"""Tests for the legacy screen observer component.
+
+The ScreenObserver was part of the old orchestrator architecture. The new
+architecture uses the coordinator component instead. These tests are skipped
+because the ScreenObserver module has been removed.
+"""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime
+
+# Skip entire module -- ScreenObserver no longer exists.
+pytest.importorskip(
+    "automation_agent.orchestrator.observer",
+    reason="ScreenObserver removed in component-redesign; coordinator replaces it",
+)
+
 from automation_agent.orchestrator.observer import ScreenObserver
 from automation_agent.orchestrator.models import Coordinates, Observation
 
