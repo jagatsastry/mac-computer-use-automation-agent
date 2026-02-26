@@ -117,7 +117,8 @@ The redesign fixes all of these. Additionally:
 │                              │     verified? ──yes──▶ next   │        │
 │                              │          │no                  │        │
 │                              │          ▼                    │        │
-│                              │  on_fail: retry/replan/abort  │        │
+│                              │  on_fail: retry_different/    │        │
+│                              │           replan/abort        │        │
 │                              │                               │        │
 │                              └───────────────────────────────┘        │
 │                                                                       │
