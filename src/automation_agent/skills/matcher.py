@@ -82,17 +82,17 @@ def extract_params(prompt: str, skill: Skill) -> Dict[str, str]:
     # Strategy 2: For skills with a single required param, try to extract
     # the meaningful part of the prompt after removing trigger keywords
     if len(required_params) == 1:
-        remaining = prompt.lower()
+        remaining = prompt
         for keyword in skill.trigger_keywords:
-            remaining = remaining.replace(keyword.lower(), "")
-        # Remove common filler words
+            remaining = re.sub(re.escape(keyword), "", remaining, flags=re.IGNORECASE)
+        # Remove common filler words (case-insensitive)
         filler = [
             "please", "can you", "could you", "i want to", "i need to",
             "i'd like to", "help me", "my", "the", "a", "an", "on", "for",
             "from", "to", "in", "with",
         ]
         for word in filler:
-            remaining = re.sub(rf"\b{re.escape(word)}\b", "", remaining)
+            remaining = re.sub(rf"\b{re.escape(word)}\b", "", remaining, flags=re.IGNORECASE)
         remaining = re.sub(r"\s+", " ", remaining).strip()
         if remaining:
             params[required_params[0]] = remaining

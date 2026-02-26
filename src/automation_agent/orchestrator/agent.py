@@ -75,6 +75,25 @@ class AutomationAgent:
                 data={"step_count": len(plan.steps)},
             )
 
+            # BUG 5 FIX: Validate plan before execution — reject empty verify fields
+            validation_errors = plan.validate()
+            if validation_errors:
+                duration = int((time.monotonic() - start) * 1000)
+                error_msg = "; ".join(validation_errors)
+                self.logger.log_event(
+                    EventType.TASK_FAIL, f"Plan validation failed: {error_msg}"
+                )
+                return ExecutionResult(
+                    success=False,
+                    message=f"Plan validation failed: {error_msg}",
+                    error=error_msg,
+                    steps=step_results,
+                    total_duration_ms=duration,
+                    iterations=iterations,
+                    goal=goal,
+                    run_id=self.logger.run_id,
+                )
+
             # 4. Execute steps
             for i, step in enumerate(plan.steps):
                 if iterations >= self.config.max_iterations:
@@ -209,6 +228,23 @@ class AutomationAgent:
         # For element-based actions (click with element description), find the element first
         actuator_result = await self._dispatch_action(step)
 
+        # BUG 1 FIX: If the actuator action failed (e.g. element not found), skip
+        # verification and return failure immediately. Vision verification must not
+        # override a real action failure.
+        if not actuator_result.get("success", False):
+            self.logger.log_event(
+                EventType.STEP_COMPLETE,
+                f"Step {index}: FAIL -- actuator failed: {actuator_result.get('error', 'unknown')}",
+                step_index=index,
+                data={"success": False, "method": "actuator"},
+            )
+            return StepResult(
+                step=step,
+                success=False,
+                verification_method="",
+                evidence=f"Action failed: {actuator_result.get('error', 'unknown error')}",
+            )
+
         # Brief delay after actions that need time to take effect (app launch, URL open)
         if step.action in ("activate_app", "open_url", "quit_app"):
             await asyncio.sleep(self.config.action_delay)
@@ -282,29 +318,34 @@ class AutomationAgent:
         """Handle a step failure based on on_fail policy.
 
         Strategy-changing retries: each retry attempts a genuinely different
-        approach rather than blind repetition.
+        approach rather than blind repetition.  BUG 4 FIX: This now loops
+        through ALL available retries rather than returning after just one.
         """
-        if step.on_fail == "retry_different" and result.retry_count < step.max_retries:
-            strategy, modified_params = self._vary_strategy(step, result)
-            self.logger.log_event(
-                EventType.STEP_RETRY,
-                f"Retrying step {index} with strategy: {strategy}",
-                step_index=index,
-                data={"strategy": strategy, "attempt": result.retry_count + 1},
-            )
-            retry_step = ActionStep(
-                action=step.action,
-                params=modified_params,
-                verify=step.verify,
-                on_fail=step.on_fail,
-                max_retries=step.max_retries,
-            )
-            retry_result = await self._execute_step(index, retry_step, history, goal, plan)
-            retry_result.retry_count = result.retry_count + 1
-            retry_result.retry_strategies_used = result.retry_strategies_used + [strategy]
-            return retry_result
+        if step.on_fail == "retry_different":
+            current_result = result
+            while current_result.retry_count < step.max_retries:
+                strategy, modified_params = self._vary_strategy(step, current_result)
+                self.logger.log_event(
+                    EventType.STEP_RETRY,
+                    f"Retrying step {index} with strategy: {strategy}",
+                    step_index=index,
+                    data={"strategy": strategy, "attempt": current_result.retry_count + 1},
+                )
+                retry_step = ActionStep(
+                    action=step.action,
+                    params=modified_params,
+                    verify=step.verify,
+                    on_fail=step.on_fail,
+                    max_retries=step.max_retries,
+                )
+                retry_result = await self._execute_step(index, retry_step, history, goal, plan)
+                retry_result.retry_count = current_result.retry_count + 1
+                retry_result.retry_strategies_used = current_result.retry_strategies_used + [strategy]
 
-        if step.on_fail == "retry_different" and result.retry_count >= step.max_retries:
+                if retry_result.success:
+                    return retry_result
+                current_result = retry_result
+
             # Retries exhausted — escalate to replan
             self.logger.log_event(
                 EventType.STEP_REPLAN,
@@ -361,15 +402,52 @@ class AutomationAgent:
                 # Strategy: use press_key for individual characters
                 return ("slow_type_retry", params)
 
+        elif step.action == "press_key":
+            if attempt == 1:
+                # Strategy: add modifier key variation (e.g., try with Cmd)
+                keys = list(params.get("keys", []))
+                if keys and "cmd" not in [k.lower() for k in keys]:
+                    params["keys"] = keys  # same keys but with a pre-delay
+                    params["_pre_delay"] = 0.5
+                    return ("delayed_key_press", params)
+                else:
+                    params["_pre_delay"] = 0.5
+                    return ("delayed_key_press", params)
+            else:
+                params["_pre_delay"] = 1.0 * attempt
+                return (f"extended_delay_key_press_{attempt}", params)
+
+        elif step.action == "open_url":
+            if attempt == 1:
+                params["_pre_delay"] = 1.0
+                return ("delayed_open_url", params)
+            else:
+                params["_pre_delay"] = 2.0 * attempt
+                return (f"extended_delay_open_url_{attempt}", params)
+
         elif step.action == "activate_app":
             if attempt == 1:
                 # Strategy: quit and relaunch
+                params["_quit_first"] = True
                 return ("quit_and_relaunch", params)
             else:
+                params["_spotlight"] = True
+                params["_pre_delay"] = 1.0 * attempt
                 return ("spotlight_launch", params)
 
+        elif step.action == "quit_app":
+            if attempt == 1:
+                params["_force"] = True
+                return ("force_quit", params)
+            else:
+                params["_force"] = True
+                params["_pre_delay"] = 1.0 * attempt
+                return (f"force_quit_with_delay_{attempt}", params)
+
         else:
-            return (f"generic_retry_{attempt}", params)
+            # Generic fallback: add increasing delay
+            params["_pre_delay"] = 0.5 * attempt
+            return (f"generic_retry_with_delay_{attempt}", params)
 
     async def _replan_and_continue(self, goal, step_results, iterations, start_time):
         """Replan and attempt execution with new plan."""
@@ -393,6 +471,13 @@ class AutomationAgent:
             iterations += 1
             if step.action == "done":
                 break
+            # BUG 3 FIX: Handle wait_for_user in replan loop (matching main execute loop)
+            if step.action == "wait_for_user":
+                self.logger.log_event(
+                    EventType.USER_WAIT,
+                    f"Waiting for user: {step.params.get('message', '')}",
+                )
+                continue
             if not result.success:
                 if step.on_fail == "abort":
                     break

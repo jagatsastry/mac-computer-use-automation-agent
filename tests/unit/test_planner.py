@@ -216,6 +216,35 @@ class TestReplan:
         assert "click_center" in prompt
         assert "keyboard_shortcut" in prompt
 
+    async def test_replan_measures_planning_duration(self, planner):
+        """replan() sets planning_duration_ms on the returned plan."""
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(VALID_STEPS))
+
+        history = [
+            StepResult(
+                step=ActionStep(
+                    action="click",
+                    params={"element": "button"},
+                    verify="Button clicked",
+                ),
+                success=False,
+                evidence="Button not found",
+                verification_method="vision",
+            ),
+        ]
+
+        # Patch time.monotonic to simulate elapsed time so duration_ms > 0
+        tick = iter([100.0, 100.05])  # 50ms gap
+        with patch("automation_agent.planner.planner.time.monotonic", side_effect=tick):
+            plan = await planner.replan(
+                "Click the button",
+                "Screen with form",
+                history,
+                ["click_center"],
+            )
+
+        assert plan.planning_duration_ms > 0
+
 
 class TestParsingErrors:
     """Tests for error handling in LLM response parsing."""
@@ -315,6 +344,9 @@ class TestCLI:
             captured = capsys.readouterr()
             assert "TEST PROMPT CONTENT" in captured.out
             assert "DRY RUN" in captured.out
+
+            # Verify _build_plan_prompt WAS called
+            mock_instance._build_plan_prompt.assert_called_once()
 
             # Verify _call_llm was NOT called
             mock_instance._call_llm.assert_not_called()
@@ -549,3 +581,66 @@ class TestAPIRetry:
 
         assert "content" in result
         assert call_count == 3  # 2 failures + 1 success
+
+    async def test_retry_on_429_rate_limit(self, planner):
+        """_call_llm retries on 429 (rate limit) errors."""
+        import anthropic
+        import httpx
+
+        mock_request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = httpx.Response(429, request=mock_request)
+        error_429 = anthropic.APIStatusError(
+            message="Rate limited",
+            response=mock_response,
+            body=None,
+        )
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                raise error_429
+            return type("Message", (), {
+                "content": [type("Block", (), {"text": json.dumps({"steps": VALID_STEPS})})()],
+                "usage": type("Usage", (), {"input_tokens": 100, "output_tokens": 50})(),
+            })()
+
+        with patch("anthropic.AsyncAnthropic") as MockClient:
+            mock_instance = MockClient.return_value
+            mock_instance.messages.create = mock_create
+
+            result = await planner._call_llm("test prompt")
+
+        assert "content" in result
+        assert call_count == 2  # 1 failure + 1 success
+
+    async def test_retry_exhaustion_propagates_error(self, planner):
+        """_call_llm propagates error after exhausting all retries."""
+        import anthropic
+        import httpx
+
+        mock_request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        mock_response = httpx.Response(529, request=mock_request)
+        error_529 = anthropic.APIStatusError(
+            message="Overloaded",
+            response=mock_response,
+            body=None,
+        )
+
+        call_count = 0
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise error_529
+
+        with patch("anthropic.AsyncAnthropic") as MockClient:
+            mock_instance = MockClient.return_value
+            mock_instance.messages.create = mock_create
+
+            with pytest.raises(anthropic.APIStatusError, match="Overloaded"):
+                await planner._call_llm("test prompt")
+
+        assert call_count == 5  # 1 initial + 4 retries

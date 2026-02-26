@@ -68,7 +68,9 @@ class ScreenCoordinator(Protocol):
         ...
 
     async def describe_screen(
-        self, screenshot_b64: Optional[str] = None
+        self,
+        screenshot_b64: Optional[str] = None,
+        hammerspoon_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Describe the current screen state in natural language."""
         ...

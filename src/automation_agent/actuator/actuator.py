@@ -20,6 +20,11 @@ class HammerspoonActuator:
         else:
             self._hs_path = shutil.which("hs")
 
+    @property
+    def hs_path(self) -> Optional[str]:
+        """Public access to the resolved hs CLI path."""
+        return self._hs_path
+
     def is_available(self) -> bool:
         return self._hs_path is not None
 
@@ -45,8 +50,9 @@ class HammerspoonActuator:
                 timeout=self.TIMEOUT_SECONDS,
             )
             if result.returncode != 0:
+                error = result.stderr.strip() or f"hs CLI exited with code {result.returncode}"
                 return ActuatorResult(
-                    success=False, output=result.stdout, error=result.stderr.strip()
+                    success=False, output=result.stdout, error=error
                 )
             return ActuatorResult(success=True, output=result.stdout.strip())
         except subprocess.TimeoutExpired:
@@ -85,20 +91,29 @@ class HammerspoonActuator:
             ).to_dict()
 
         mods_lua = "{" + ", ".join(f'"{m}"' for m in modifiers) + "}"
-        lua = self._render_template("press_key.lua", {"modifiers": mods_lua, "key": key})
+        safe_key = self._escape_lua_string(key)
+        lua = self._render_template("press_key.lua", {"modifiers": mods_lua, "key": safe_key})
         return self._execute_lua(lua).to_dict()
 
     def activate_app(self, app_name: str) -> Dict[str, Any]:
-        lua = self._render_template("activate_app.lua", {"app_name": app_name})
+        safe_name = self._escape_lua_string(app_name)
+        lua = self._render_template("activate_app.lua", {"app_name": safe_name})
         return self._execute_lua(lua).to_dict()
 
     def open_url(self, url: str) -> Dict[str, Any]:
-        lua = self._render_template("open_url.lua", {"url": url})
+        safe_url = self._escape_lua_string(url)
+        lua = self._render_template("open_url.lua", {"url": safe_url})
         return self._execute_lua(lua).to_dict()
 
     def quit_app(self, app_name: str) -> Dict[str, Any]:
-        lua = self._render_template("quit_app.lua", {"app_name": app_name})
-        return self._execute_lua(lua).to_dict()
+        safe_name = self._escape_lua_string(app_name)
+        lua = self._render_template("quit_app.lua", {"app_name": safe_name})
+        result = self._execute_lua(lua)
+        if result.success and result.output.strip() == "not_found":
+            return ActuatorResult(
+                success=True, output=f"App '{app_name}' was not running"
+            ).to_dict()
+        return result.to_dict()
 
     def get_state(self) -> Dict[str, Any]:
         lua = self._render_template("get_state.lua", {})
@@ -108,7 +123,10 @@ class HammerspoonActuator:
                 "app_name": "",
                 "app_bundle": "",
                 "window_title": "",
-                "window_frame": "",
+                "window_x": 0,
+                "window_y": 0,
+                "window_w": 0,
+                "window_h": 0,
             }
         try:
             return json.loads(result.output)
@@ -117,16 +135,18 @@ class HammerspoonActuator:
                 "app_name": "",
                 "app_bundle": "",
                 "window_title": "",
-                "window_frame": "",
+                "window_x": 0,
+                "window_y": 0,
+                "window_w": 0,
+                "window_h": 0,
                 "raw": result.output,
             }
 
     @staticmethod
     def _escape_lua_string(text: str) -> str:
-        """Escape text for safe embedding in a Lua string literal."""
+        """Escape text for safe embedding in a double-quoted Lua string literal."""
         text = text.replace("\\", "\\\\")
         text = text.replace('"', '\\"')
-        text = text.replace("'", "\\'")
         text = text.replace("\n", "\\n")
         text = text.replace("\r", "\\r")
         text = text.replace("\t", "\\t")

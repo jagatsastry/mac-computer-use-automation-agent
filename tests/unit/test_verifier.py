@@ -288,6 +288,43 @@ class TestStandalone:
         assert result.verification_method in ("hammerspoon_state", "vision", "")
 
 
+class TestVerifierRejectsEmptyVerify:
+    """Tests that verifier rejects empty verify on non-terminal actions."""
+
+    async def test_verifier_rejects_empty_verify(self, logger):
+        """BUG 5: Verifier returns error StepResult when step.verify is empty for non-terminal action."""
+        step = ActionStep(
+            action="click",
+            params={"x": 100, "y": 200},
+            verify="",  # Empty verify on a click action
+        )
+        verifier = StepVerifier(logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is False
+        assert result.error == "empty_verify"
+        assert "no verify condition" in result.evidence.lower()
+
+    async def test_verifier_allows_empty_verify_for_done(self, logger):
+        """done steps are allowed to have empty verify."""
+        step = ActionStep(action="done", params={}, verify="")
+        verifier = StepVerifier(logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": "done"})
+
+        assert result.success is True
+
+    async def test_verifier_allows_empty_verify_for_wait_for_user(self, logger):
+        """wait_for_user steps are allowed to have empty verify."""
+        step = ActionStep(action="wait_for_user", params={"message": "Check"}, verify="")
+        verifier = StepVerifier(logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+
+
 class TestTier1ImprovedAppDetection:
     """Tests for improved Tier 1 verification that handles activate_app actions
     regardless of verify text phrasing."""

@@ -611,3 +611,192 @@ class TestExceptionHandling:
         assert "LLM connection failed" in result.message
         assert result.error is not None
         assert "LLM connection failed" in result.error
+
+
+class TestBugFixes:
+    """Tests verifying fixes for bugs found in adversary review."""
+
+    async def test_element_not_found_triggers_replan(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """BUG 1: When find_element returns None, replan is called (not just failure returned)."""
+        mock_coordinator.find_element = AsyncMock(return_value=None)
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"element": "nonexistent button"},
+                    verify="Button clicked",
+                    on_fail="replan",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+        mock_planner.replan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Click nonexistent")
+
+        # The actuator click should NOT have been called (element wasn't found)
+        mock_actuator.click.assert_not_called()
+        # Replan should have been triggered
+        mock_planner.replan.assert_awaited_once()
+
+    async def test_retry_params_differ_from_original(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """BUG 6: retry_different actually produces different params/strategy name."""
+        call_count = 0
+        captured_params = []
+
+        original_execute_step = None
+
+        # Verification always fails to force retries
+        mock_coordinator.verify_condition = AsyncMock(return_value=False)
+
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="press_key",
+                    params={"keys": ["return"]},
+                    verify="Key pressed",
+                    on_fail="retry_different",
+                    max_retries=2,
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+        # Replan returns done to terminate
+        mock_planner.replan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Press enter")
+
+        # Extract retry events and their strategies
+        retry_events = [
+            e for e in logger.events if e.event_type == EventType.STEP_RETRY
+        ]
+        strategies = [e.data.get("strategy", "") for e in retry_events]
+
+        # Strategies should be non-empty and differ from each other
+        assert len(strategies) >= 2
+        assert strategies[0] != strategies[1], (
+            f"Retry strategies should differ: {strategies}"
+        )
+
+    async def test_verify_start_and_action_start_events_logged(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """VERIFY_START and ACTION_START events are in the event log."""
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"x": 100, "y": 200},
+                    verify="Element visible",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        await agent.execute("Click something")
+
+        event_types = {e.event_type for e in logger.events}
+        assert EventType.VERIFY_START in event_types, (
+            f"VERIFY_START missing from events: {event_types}"
+        )
+        assert EventType.ACTION_START in event_types, (
+            f"ACTION_START missing from events: {event_types}"
+        )
+
+    async def test_max_retries_actually_retries_multiple_times(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """BUG 4: With max_retries=3, the step is attempted 3+ times before escalating."""
+        # Verification always fails to force retries
+        mock_coordinator.verify_condition = AsyncMock(return_value=False)
+
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"x": 500, "y": 300},
+                    verify="Button clicked",
+                    on_fail="retry_different",
+                    max_retries=3,
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+        # Replan returns done to terminate
+        mock_planner.replan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        config = _make_config(max_iterations=20)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger, config
+        )
+
+        result = await agent.execute("Click button")
+
+        # Count retry events
+        retry_events = [
+            e for e in logger.events if e.event_type == EventType.STEP_RETRY
+        ]
+        # Should have 3 retry attempts (matching max_retries=3)
+        assert len(retry_events) >= 3, (
+            f"Expected at least 3 retries but got {len(retry_events)}: "
+            f"{[e.data for e in retry_events]}"
+        )
+        # After retries exhausted, should have escalated to replan
+        mock_planner.replan.assert_awaited_once()
+
+    async def test_empty_verify_rejected_at_execution(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """BUG 5: Plan with empty verify on non-terminal step -> execute() returns error."""
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"x": 100, "y": 200},
+                    verify="",  # EMPTY verify on non-terminal action
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Click something")
+
+        assert result.success is False
+        assert "validation failed" in result.message.lower() or "verify" in result.message.lower()

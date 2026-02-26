@@ -155,7 +155,7 @@ def _parse_requirements(raw: Optional[dict]) -> SkillRequirements:
         return SkillRequirements()
     return SkillRequirements(
         apps=raw.get("apps", []) or [],
-        os=raw.get("os", "darwin"),
+        os=raw.get("os", ""),
     )
 
 

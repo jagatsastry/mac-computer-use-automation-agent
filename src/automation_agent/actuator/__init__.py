@@ -28,7 +28,7 @@ def create_actuator(config=None):
         import subprocess
         try:
             result = subprocess.run(
-                [hs._hs_path, "-c", 'print("ok")'],
+                [hs.hs_path, "-c", 'print("ok")'],
                 capture_output=True,
                 text=True,
                 timeout=3,

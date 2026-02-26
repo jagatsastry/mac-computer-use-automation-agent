@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from automation_agent.actuator.bridge_actuator import HammerspoonBridgeActuator
+from automation_agent.actuator import create_actuator
 
 
 @pytest.fixture
@@ -147,7 +148,12 @@ class TestGetState:
             mock_resp = MagicMock()
             mock_resp.json.return_value = {
                 "success": True,
-                "result": {"frontmostApp": "Safari", "frontmostAppError": None, "screen": {}}
+                "result": {
+                    "frontmostApp": "Safari",
+                    "bundleId": "com.apple.Safari",
+                    "windowTitle": "Google",
+                    "windowFrame": {"x": 0, "y": 25, "w": 1440, "h": 875},
+                }
             }
             mock_resp.raise_for_status = MagicMock()
             MockClient.return_value.__enter__ = MagicMock(return_value=MockClient.return_value)
@@ -157,6 +163,12 @@ class TestGetState:
             state = bridge.get_state()
 
         assert state["app_name"] == "Safari"
+        assert state["app_bundle"] == "com.apple.Safari"
+        assert state["window_title"] == "Google"
+        assert state["window_x"] == 0
+        assert state["window_y"] == 25
+        assert state["window_w"] == 1440
+        assert state["window_h"] == 875
 
     def test_get_state_failure_returns_empty(self, bridge):
         with patch("httpx.Client") as MockClient:
@@ -170,6 +182,7 @@ class TestGetState:
             state = bridge.get_state()
 
         assert state["app_name"] == ""
+        assert state["window_x"] == 0
 
     def test_get_state_connection_error(self, bridge):
         with patch("httpx.Client") as MockClient:
@@ -181,6 +194,28 @@ class TestGetState:
 
         assert state["app_name"] == ""
         assert state["app_bundle"] == ""
+        assert state["window_x"] == 0
+
+    def test_get_state_missing_window_frame_defaults_to_zero(self, bridge):
+        """When /state response has no windowFrame, window_x/y/w/h default to 0."""
+        with patch("httpx.Client") as MockClient:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "success": True,
+                "result": {"frontmostApp": "Finder"}
+            }
+            mock_resp.raise_for_status = MagicMock()
+            MockClient.return_value.__enter__ = MagicMock(return_value=MockClient.return_value)
+            MockClient.return_value.__exit__ = MagicMock(return_value=False)
+            MockClient.return_value.get.return_value = mock_resp
+
+            state = bridge.get_state()
+
+        assert state["app_name"] == "Finder"
+        assert state["window_x"] == 0
+        assert state["window_y"] == 0
+        assert state["window_w"] == 0
+        assert state["window_h"] == 0
 
 
 class TestActionEndpoint:
@@ -396,3 +431,105 @@ class TestConnectionErrors:
 
         assert result["success"] is False
         assert "connect" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Test: _osascript_type_text escapes newlines (BUG 4)
+# ---------------------------------------------------------------------------
+
+class TestOsascriptTypeTextEscapesNewlines:
+    def test_newline_escaped(self, bridge):
+        """Text containing \\n is escaped so it doesn't break the AppleScript string."""
+        with patch.object(bridge, "_osascript", return_value=True) as mock_osa:
+            result = bridge._osascript_type_text("line1\nline2")
+
+        script_arg = mock_osa.call_args[0][0]
+        assert "\\n" in script_arg
+        # Literal newline must not appear in the keystroke argument
+        assert "\n" not in script_arg.split("keystroke")[1]
+        assert result["success"] is True
+
+    def test_carriage_return_escaped(self, bridge):
+        """Text containing \\r is escaped."""
+        with patch.object(bridge, "_osascript", return_value=True) as mock_osa:
+            bridge._osascript_type_text("a\rb")
+
+        script_arg = mock_osa.call_args[0][0]
+        assert "\\r" in script_arg
+
+    def test_tab_escaped(self, bridge):
+        """Text containing \\t is escaped."""
+        with patch.object(bridge, "_osascript", return_value=True) as mock_osa:
+            bridge._osascript_type_text("a\tb")
+
+        script_arg = mock_osa.call_args[0][0]
+        assert "\\t" in script_arg
+
+
+# ---------------------------------------------------------------------------
+# Test: Accessibility cache expires after TTL (BUG 8)
+# ---------------------------------------------------------------------------
+
+class TestAccessibilityCacheExpires:
+    def test_cache_expires_after_ttl(self, bridge):
+        """After ACCESSIBILITY_CACHE_TTL seconds, has_accessibility re-checks."""
+        # First call: caches True
+        with patch("httpx.Client") as MockClient:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"status": "ok", "accessibility": True}
+            MockClient.return_value.__enter__ = MagicMock(return_value=MockClient.return_value)
+            MockClient.return_value.__exit__ = MagicMock(return_value=False)
+            MockClient.return_value.get.return_value = mock_resp
+
+            assert bridge.has_accessibility() is True
+
+        # Simulate time passing beyond TTL
+        bridge._accessibility_checked_at = time.monotonic() - 61
+
+        # Second call: should re-check and now get False
+        with patch("httpx.Client") as MockClient:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"status": "ok", "accessibility": False}
+            MockClient.return_value.__enter__ = MagicMock(return_value=MockClient.return_value)
+            MockClient.return_value.__exit__ = MagicMock(return_value=False)
+            MockClient.return_value.get.return_value = mock_resp
+
+            assert bridge.has_accessibility() is False
+
+    def test_cache_valid_within_ttl(self, bridge):
+        """Within TTL, has_accessibility returns cached value without HTTP call."""
+        bridge._accessibility = True
+        bridge._accessibility_checked_at = time.monotonic()
+
+        # Should not make any HTTP call
+        assert bridge.has_accessibility() is True
+
+
+# ---------------------------------------------------------------------------
+# Test: create_actuator priority order
+# ---------------------------------------------------------------------------
+
+class TestCreateActuatorPriority:
+    def test_returns_bridge_when_available(self):
+        """create_actuator returns HammerspoonBridgeActuator when bridge is up."""
+        with patch.object(HammerspoonBridgeActuator, "is_available", return_value=True):
+            actuator = create_actuator()
+        assert isinstance(actuator, HammerspoonBridgeActuator)
+
+    def test_returns_hs_when_bridge_down(self):
+        """create_actuator returns HammerspoonActuator when bridge is down but hs works."""
+        from automation_agent.actuator.actuator import HammerspoonActuator
+        with patch.object(HammerspoonBridgeActuator, "is_available", return_value=False), \
+             patch("automation_agent.actuator.actuator.shutil.which", return_value="/usr/local/bin/hs"), \
+             patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="ok\n", stderr="")
+            actuator = create_actuator()
+        assert isinstance(actuator, HammerspoonActuator)
+
+    def test_returns_applescript_when_all_down(self):
+        """create_actuator returns AppleScriptActuator as last resort."""
+        from automation_agent.actuator.applescript_actuator import AppleScriptActuator
+        with patch.object(HammerspoonBridgeActuator, "is_available", return_value=False), \
+             patch("automation_agent.actuator.actuator.shutil.which", return_value=None):
+            actuator = create_actuator()
+        assert isinstance(actuator, AppleScriptActuator)

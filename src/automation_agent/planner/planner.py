@@ -5,8 +5,12 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import structlog
+
 from automation_agent.config import AgentConfig
 from automation_agent.shared_models import ActionPlan, ActionStep, StepResult
+
+logger = structlog.get_logger(__name__)
 
 
 class ActionPlannerImpl:
@@ -39,12 +43,20 @@ class ActionPlannerImpl:
             ValueError: If the LLM response cannot be parsed or validation fails.
         """
         prompt = self._build_plan_prompt(goal, screen_description, skill_context)
+        logger.info("planning_started", goal=goal)
         start = time.monotonic()
         response = await self._call_llm(prompt)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         plan = self._parse_plan_response(response, goal)
         plan.planning_duration_ms = duration_ms
+
+        logger.info(
+            "planning_complete",
+            duration_ms=duration_ms,
+            input_tokens=response.get("usage", {}).get("input_tokens"),
+            output_tokens=response.get("usage", {}).get("output_tokens"),
+        )
 
         errors = plan.validate()
         if errors:
@@ -76,8 +88,20 @@ class ActionPlannerImpl:
         prompt = self._build_replan_prompt(
             goal, screen_description, history, retry_strategies_used
         )
+        logger.info("replanning_started", goal=goal)
+        start = time.monotonic()
         response = await self._call_llm(prompt)
+        duration_ms = int((time.monotonic() - start) * 1000)
+
         plan = self._parse_plan_response(response, goal)
+        plan.planning_duration_ms = duration_ms
+
+        logger.info(
+            "replanning_complete",
+            duration_ms=duration_ms,
+            input_tokens=response.get("usage", {}).get("input_tokens"),
+            output_tokens=response.get("usage", {}).get("output_tokens"),
+        )
 
         errors = plan.validate()
         if errors:

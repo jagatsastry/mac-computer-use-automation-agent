@@ -99,7 +99,7 @@ class ActionPlan:
         if not self.steps:
             errors.append("Plan has no steps")
         for i, step in enumerate(self.steps):
-            if not step.verify and step.action not in ("done", "wait_for_user"):
+            if not step.verify and step.action not in ("done", "wait_for_user", "observe"):
                 errors.append(
                     f"Step {i} ({step.action}) has empty 'verify' field — "
                     "every step must have a postcondition"

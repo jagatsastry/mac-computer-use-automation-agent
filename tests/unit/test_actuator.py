@@ -92,6 +92,16 @@ class TestTypeText:
         lua_code = mock_run_success.call_args[0][0][2]
         assert "line1\\nline2" in lua_code
 
+    def test_type_text_preserves_apostrophes(self, actuator, mock_run_success):
+        """Single quotes in text are NOT escaped in double-quoted Lua strings."""
+        actuator.type_text("it's a test")
+
+        lua_code = mock_run_success.call_args[0][0][2]
+        # Apostrophe should pass through unescaped
+        assert "it's a test" in lua_code
+        # Must NOT have a backslash before the apostrophe
+        assert "it\\'s" not in lua_code
+
 
 # ---------------------------------------------------------------------------
 # Tests 6-7: press_key — modifier mapping
@@ -185,7 +195,10 @@ class TestGetState:
             "app_name": "Finder",
             "app_bundle": "com.apple.finder",
             "window_title": "Documents",
-            "window_frame": '{"x":0,"y":25,"w":1440,"h":875}',
+            "window_x": 0,
+            "window_y": 25,
+            "window_w": 1440,
+            "window_h": 875,
         })
         with patch("automation_agent.actuator.actuator.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
@@ -196,7 +209,10 @@ class TestGetState:
         assert result["app_name"] == "Finder"
         assert result["app_bundle"] == "com.apple.finder"
         assert result["window_title"] == "Documents"
-        assert "window_frame" in result
+        assert result["window_x"] == 0
+        assert result["window_y"] == 25
+        assert result["window_w"] == 1440
+        assert result["window_h"] == 875
 
     def test_get_state_empty_response_returns_defaults(self, actuator):
         """get_state() with failed hs call returns safe defaults."""
@@ -209,7 +225,10 @@ class TestGetState:
         assert result["app_name"] == ""
         assert result["app_bundle"] == ""
         assert result["window_title"] == ""
-        assert result["window_frame"] == ""
+        assert result["window_x"] == 0
+        assert result["window_y"] == 0
+        assert result["window_w"] == 0
+        assert result["window_h"] == 0
 
     def test_get_state_invalid_json_returns_raw(self, actuator):
         """get_state() with non-JSON output returns defaults with raw field."""
@@ -342,3 +361,61 @@ class TestActuatorResult:
         r = ActuatorResult(success=True, output="ok")
         d = r.to_dict()
         assert "error" not in d
+
+
+# ---------------------------------------------------------------------------
+# Test: Lua injection prevented (BUG 1)
+# ---------------------------------------------------------------------------
+
+class TestLuaInjectionPrevented:
+    def test_activate_app_escapes_injection(self, actuator, mock_run_success):
+        """Malicious app_name with Lua injection is escaped before template rendering."""
+        malicious = 'Safari"); hs.execute("rm -rf /'
+        actuator.activate_app(malicious)
+
+        lua_code = mock_run_success.call_args[0][0][2]
+        # The malicious closing quote should be escaped
+        assert '"); hs.execute("rm -rf /' not in lua_code
+        assert '\\"' in lua_code  # quotes are escaped
+
+    def test_quit_app_escapes_injection(self, actuator, mock_run_success):
+        """Malicious app_name in quit_app is escaped."""
+        malicious = 'Safari") os.execute("id'
+        actuator.quit_app(malicious)
+
+        lua_code = mock_run_success.call_args[0][0][2]
+        assert '") os.execute("id' not in lua_code
+
+    def test_open_url_escapes_injection(self, actuator, mock_run_success):
+        """Malicious URL with Lua injection is escaped."""
+        malicious = 'https://x"); os.execute("whoami'
+        actuator.open_url(malicious)
+
+        lua_code = mock_run_success.call_args[0][0][2]
+        assert '"); os.execute("whoami' not in lua_code
+
+    def test_press_key_escapes_injection(self, actuator, mock_run_success):
+        """Malicious key name with Lua injection is escaped."""
+        malicious = 'a"); os.execute("id'
+        actuator.press_key([malicious])
+
+        lua_code = mock_run_success.call_args[0][0][2]
+        assert '"); os.execute("id' not in lua_code
+
+
+# ---------------------------------------------------------------------------
+# Test: Empty stderr on failure still has error message (BUG 2)
+# ---------------------------------------------------------------------------
+
+class TestEmptyStderrOnFailure:
+    def test_nonzero_exit_empty_stderr_has_error(self, actuator):
+        """Non-zero exit code with empty stderr still includes a meaningful error."""
+        with patch("automation_agent.actuator.actuator.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=42, stdout="", stderr=""
+            )
+            result = actuator.click(100, 200)
+
+        assert result["success"] is False
+        assert "error" in result
+        assert "42" in result["error"]  # mentions the exit code

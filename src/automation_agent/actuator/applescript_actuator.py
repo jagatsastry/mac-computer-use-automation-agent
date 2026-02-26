@@ -137,6 +137,15 @@ class AppleScriptActuator:
         return self._run_osascript(script).to_dict()
 
     def get_state(self) -> Dict[str, Any]:
+        default_state = {
+            "app_name": "",
+            "app_bundle": "",
+            "window_title": "",
+            "window_x": 0,
+            "window_y": 0,
+            "window_w": 0,
+            "window_h": 0,
+        }
         script = '''
 tell application "System Events"
     set frontApp to name of first application process whose frontmost is true
@@ -146,19 +155,35 @@ tell application "System Events"
     on error
         set winTitle to ""
     end try
+    try
+        set winPos to position of front window of (first application process whose frontmost is true)
+        set winSize to size of front window of (first application process whose frontmost is true)
+        set winX to item 1 of winPos
+        set winY to item 2 of winPos
+        set winW to item 1 of winSize
+        set winH to item 2 of winSize
+    on error
+        set winX to 0
+        set winY to 0
+        set winW to 0
+        set winH to 0
+    end try
 end tell
-return frontApp & "|" & frontBundle & "|" & winTitle
+return frontApp & "|" & frontBundle & "|" & winTitle & "|" & winX & "|" & winY & "|" & winW & "|" & winH
 '''
         result = self._run_osascript(script)
         if not result.success:
+            return default_state
+        parts = result.output.split("|", 6)
+        try:
             return {
-                "app_name": "",
-                "app_bundle": "",
-                "window_title": "",
+                "app_name": parts[0] if len(parts) > 0 else "",
+                "app_bundle": parts[1] if len(parts) > 1 else "",
+                "window_title": parts[2] if len(parts) > 2 else "",
+                "window_x": int(parts[3]) if len(parts) > 3 and parts[3] else 0,
+                "window_y": int(parts[4]) if len(parts) > 4 and parts[4] else 0,
+                "window_w": int(parts[5]) if len(parts) > 5 and parts[5] else 0,
+                "window_h": int(parts[6]) if len(parts) > 6 and parts[6] else 0,
             }
-        parts = result.output.split("|", 2)
-        return {
-            "app_name": parts[0] if len(parts) > 0 else "",
-            "app_bundle": parts[1] if len(parts) > 1 else "",
-            "window_title": parts[2] if len(parts) > 2 else "",
-        }
+        except (ValueError, IndexError):
+            return default_state

@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures."""
 
+import base64
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock
@@ -231,7 +232,9 @@ def mock_coordinator():
     coordinator.find_element = AsyncMock(return_value={"x": 500, "y": 300})
     coordinator.describe_screen = AsyncMock(return_value="Desktop with Safari open")
     coordinator.verify_condition = AsyncMock(return_value=True)
-    coordinator.capture_screenshot = AsyncMock(return_value="base64_screenshot_data")
+    coordinator.capture_screenshot = AsyncMock(
+        return_value=base64.b64encode(b"fake_screenshot_png_data").decode()
+    )
     return coordinator
 
 

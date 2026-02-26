@@ -15,9 +15,12 @@ API surface:
   - GET  /task/{id}        → poll async task result
 """
 
+import logging
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -47,13 +50,17 @@ class HammerspoonBridgeActuator:
         "cmd": "command down", "command": "command down",
         "shift": "shift down", "alt": "option down", "option": "option down",
         "ctrl": "control down", "control": "control down",
+        "fn": "fn down",
     }
+
+    ACCESSIBILITY_CACHE_TTL = 60  # seconds before re-checking accessibility
 
     def __init__(self, config: Optional[AgentConfig] = None, port: int = 0):
         self._port = port or self.DEFAULT_PORT
         self._base_url = f"http://localhost:{self._port}"
         self._timeout = self.TIMEOUT_SECONDS
         self._accessibility: Optional[bool] = None  # cached
+        self._accessibility_checked_at: float = 0.0
 
     def is_available(self) -> bool:
         """Check if the hs.claude HTTP bridge is running."""
@@ -66,8 +73,12 @@ class HammerspoonBridgeActuator:
             return False
 
     def has_accessibility(self) -> bool:
-        """Check if Hammerspoon has accessibility permissions (cached)."""
-        if self._accessibility is not None:
+        """Check if Hammerspoon has accessibility permissions (cached with TTL)."""
+        now = time.monotonic()
+        if (
+            self._accessibility is not None
+            and (now - self._accessibility_checked_at) < self.ACCESSIBILITY_CACHE_TTL
+        ):
             return self._accessibility
         try:
             with httpx.Client(timeout=3) as client:
@@ -76,6 +87,7 @@ class HammerspoonBridgeActuator:
                 self._accessibility = data.get("accessibility", False)
         except Exception:
             self._accessibility = False
+        self._accessibility_checked_at = now
         return self._accessibility
 
     def _osascript(self, script: str) -> bool:
@@ -91,7 +103,13 @@ class HammerspoonBridgeActuator:
 
     def _osascript_type_text(self, text: str) -> Dict[str, Any]:
         """Type text via AppleScript System Events (fallback)."""
-        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = (
+            text.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
         ok = self._osascript(
             f'tell application "System Events" to keystroke "{escaped}"'
         )
@@ -116,6 +134,11 @@ class HammerspoonBridgeActuator:
             symbol = self._SHIFT_DIGIT[key]
             return self._osascript_type_text(symbol)
 
+        if "fn" in modifiers:
+            logger.warning(
+                "AppleScript System Events does not natively support the 'fn' modifier; "
+                "it may not behave as expected"
+            )
         mod_parts = [self._MOD_MAP[m] for m in modifiers if m in self._MOD_MAP]
         mod_str = f" using {{{', '.join(mod_parts)}}}" if mod_parts else ""
 
@@ -130,7 +153,7 @@ class HammerspoonBridgeActuator:
         return {"success": ok, "error": None if ok else "osascript key press failed"}
 
     def _fallback_click(self, x: int, y: int) -> Dict[str, Any]:
-        """Click at coordinates via cliclick or osascript (fallback)."""
+        """Click at coordinates via cliclick or Quartz (fallback)."""
         # Prefer cliclick (handles absolute coordinates reliably)
         try:
             result = subprocess.run(
@@ -140,16 +163,31 @@ class HammerspoonBridgeActuator:
             if result.returncode == 0:
                 return {"success": True}
         except FileNotFoundError:
-            pass  # cliclick not installed, try osascript
+            pass  # cliclick not installed, try Quartz
         except Exception:
             pass
 
-        # Fallback to osascript mouse click
-        script = f'''
-            do shell script "cliclick c:{x},{y}"
-        '''
-        ok = self._osascript(script)
-        return {"success": ok, "error": None if ok else "click fallback failed"}
+        # Fallback to Quartz CGEvent mouse click
+        try:
+            from Quartz.CoreGraphics import (
+                CGEventCreateMouseEvent,
+                CGEventPost,
+                kCGEventLeftMouseDown,
+                kCGEventLeftMouseUp,
+                kCGHIDEventTap,
+                CGPointMake,
+            )
+            point = CGPointMake(x, y)
+            event_down = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, point, 0)
+            event_up = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, point, 0)
+            CGEventPost(kCGHIDEventTap, event_down)
+            CGEventPost(kCGHIDEventTap, event_up)
+            return {"success": True}
+        except ImportError:
+            return {
+                "success": False,
+                "error": "Click fallback failed: neither cliclick nor Quartz available",
+            }
 
     def _action(self, action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a synchronous action via POST /action.
@@ -301,30 +339,36 @@ class HammerspoonBridgeActuator:
 
     def get_state(self) -> Dict[str, Any]:
         """Get current desktop state via GET /state."""
+        default_state = {
+            "app_name": "",
+            "app_bundle": "",
+            "window_title": "",
+            "window_x": 0,
+            "window_y": 0,
+            "window_w": 0,
+            "window_h": 0,
+        }
         try:
             with httpx.Client(timeout=self._timeout) as client:
                 resp = client.get(f"{self._base_url}/state")
                 resp.raise_for_status()
                 data = resp.json()
         except Exception:
-            return {
-                "app_name": "",
-                "app_bundle": "",
-                "window_title": "",
-            }
+            return default_state
 
         if not data.get("success"):
-            return {
-                "app_name": "",
-                "app_bundle": "",
-                "window_title": "",
-            }
+            return default_state
 
         result = data.get("result", {})
+        frame = result.get("windowFrame", {})
         return {
             "app_name": result.get("frontmostApp", ""),
-            "app_bundle": "",  # Not available from /state endpoint
-            "window_title": "",  # Not available from /state endpoint
+            "app_bundle": result.get("bundleId", ""),
+            "window_title": result.get("windowTitle", ""),
+            "window_x": frame.get("x", 0) if isinstance(frame, dict) else 0,
+            "window_y": frame.get("y", 0) if isinstance(frame, dict) else 0,
+            "window_w": frame.get("w", 0) if isinstance(frame, dict) else 0,
+            "window_h": frame.get("h", 0) if isinstance(frame, dict) else 0,
         }
 
     # --- Extended hs.claude capabilities (async, vision-powered) ---

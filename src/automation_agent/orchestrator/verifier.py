@@ -48,14 +48,26 @@ class StepVerifier:
         act = actuator or self.actuator
         coord = coordinator or self.coordinator
 
-        # If step has no verify condition (done, wait_for_user), just check actuator result
+        # If step has no verify condition, check whether this is a terminal action
+        # (done, wait_for_user) that legitimately has no postcondition, or a regular
+        # action that should have been given a verify string.
         if not step.verify:
             duration = int((time.monotonic() - start) * 1000)
+            if step.action in ("done", "wait_for_user"):
+                return StepResult(
+                    step=step,
+                    success=actuator_result.get("success", False),
+                    verification_method="",
+                    evidence=f"Actuator result: {actuator_result.get('output', 'no output')}",
+                    duration_ms=duration,
+                )
+            # BUG 5 FIX: Non-terminal action with empty verify is an error
             return StepResult(
                 step=step,
-                success=actuator_result.get("success", False),
+                success=False,
                 verification_method="",
-                evidence=f"Actuator result: {actuator_result.get('output', 'no output')}",
+                evidence=f"Step '{step.action}' has no verify condition — cannot verify postcondition",
+                error="empty_verify",
                 duration_ms=duration,
             )
 

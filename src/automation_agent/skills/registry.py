@@ -1,9 +1,12 @@
 """Skill registry: loads, matches, and expands skill templates."""
 
+import logging
 import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
 from automation_agent.skills.matcher import match_skill
@@ -41,6 +44,12 @@ class SkillRegistryImpl:
                 # Gate by OS requirement
                 if not _os_matches(skill.requires.os):
                     continue
+                if skill.name in self._skills:
+                    logger.warning(
+                        "Duplicate skill name '%s': '%s' overwrites previous definition",
+                        skill.name,
+                        md_file,
+                    )
                 self._skills[skill.name] = skill
             except Exception:
                 # Skip malformed files during loading; validate_all catches them
@@ -115,8 +124,22 @@ class SkillRegistryImpl:
             )
 
         text = skill.steps_text
-        for pname, pvalue in params.items():
-            text = text.replace("{{" + pname + "}}", pvalue)
+
+        # Single-pass replacement to avoid template injection
+        # (user-supplied values containing {{...}} won't be re-expanded)
+        def _replace_placeholder(m: re.Match) -> str:
+            pname = m.group(1)
+            if pname in params:
+                return params[pname]
+            # Optional param not provided — log warning and strip
+            logger.warning(
+                "Unexpanded placeholder '{{%s}}' in skill '%s' (stripped)",
+                pname,
+                skill_name,
+            )
+            return ""
+
+        text = re.sub(r"\{\{(\w+)\}\}", _replace_placeholder, text)
         return text
 
     def validate_all(self) -> List[str]:

@@ -43,21 +43,42 @@ class ScreenCoordinatorImpl:
     def _validate_model(self) -> None:
         """Ensure we know the coordinate space for our vision model.
 
-        Logs a warning if the model is not in the coordinate space registry,
-        but does not raise — the error is deferred to coordinate conversion time.
+        Raises ValueError for completely unknown models (no prefix match).
+        Logs a warning for prefix-matched but not exact-matched models.
         """
-        model = self.config.vision_model
-        if model not in COORDINATE_SPACES:
-            # Check if it matches a known model prefix
-            known = any(model.startswith(k) for k in COORDINATE_SPACES)
-            if not known:
-                logger.warning(
-                    "Vision model '%s' not in COORDINATE_SPACES registry. "
-                    "Coordinate conversion will fail unless the model is added. "
-                    "Known models: %s",
-                    model,
-                    list(COORDINATE_SPACES.keys()),
-                )
+        for model in self._get_models_to_validate():
+            if model not in COORDINATE_SPACES:
+                # Check if it matches a known model prefix
+                known = any(model.startswith(k) for k in COORDINATE_SPACES)
+                if not known:
+                    raise ValueError(
+                        f"Vision model '{model}' not in COORDINATE_SPACES registry. "
+                        f"Known models: {list(COORDINATE_SPACES.keys())}"
+                    )
+                else:
+                    logger.warning(
+                        "Vision model '%s' not exact match in COORDINATE_SPACES registry, "
+                        "but matches a known prefix. Known models: %s",
+                        model,
+                        list(COORDINATE_SPACES.keys()),
+                    )
+
+    def _get_models_to_validate(self) -> list:
+        """Return the list of model names that need validation."""
+        models = [self.config.vision_model]
+        if self.config.model_provider.value == "anthropic":
+            models.append(self.config.anthropic_vision_model)
+        return models
+
+    def _get_active_model(self) -> str:
+        """Return the model name actually used for vision calls based on provider.
+
+        When model_provider is 'anthropic', the Anthropic vision model is used.
+        Otherwise, the Ollama vision model is used.
+        """
+        if self.config.model_provider.value == "anthropic":
+            return self.config.anthropic_vision_model
+        return self.config.vision_model
 
     def _get_coordinate_space(self, model: str) -> str:
         """Get the coordinate space for a model, checking exact match then prefix match.
@@ -111,9 +132,13 @@ class ScreenCoordinatorImpl:
         space = self._get_coordinate_space(model)
 
         if space == "normalized_0_1":
-            return int(raw_x * screen_width), int(raw_y * screen_height)
+            x = min(int(raw_x * screen_width), screen_width - 1)
+            y = min(int(raw_y * screen_height), screen_height - 1)
+            return x, y
         elif space == "normalized_0_1000":
-            return int(raw_x / 1000 * screen_width), int(raw_y / 1000 * screen_height)
+            x = min(int(raw_x / 1000 * screen_width), screen_width - 1)
+            y = min(int(raw_y / 1000 * screen_height), screen_height - 1)
+            return x, y
         elif space == "pixel":
             return int(raw_x), int(raw_y)
         else:
@@ -284,19 +309,23 @@ class ScreenCoordinatorImpl:
         if raw_coords is None:
             return None
 
-        model = self.config.vision_model
+        model = self._get_active_model()
         w, h = self.config.screenshot_resolution
         x, y = self._convert_coordinates(raw_coords[0], raw_coords[1], model, w, h)
 
         return {"x": x, "y": y, "raw_response": response}
 
     async def describe_screen(
-        self, screenshot_b64: Optional[str] = None
+        self,
+        screenshot_b64: Optional[str] = None,
+        hammerspoon_state: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Describe current screen state.
+        """Describe current screen state, optionally merging Hammerspoon state.
 
         Args:
             screenshot_b64: Optional pre-captured screenshot. If None, captures one.
+            hammerspoon_state: Optional dict with keys like 'app_name', 'window_title'
+                from Hammerspoon. If provided, this info is prepended to the description.
 
         Returns:
             Natural language description of the screen.
@@ -305,7 +334,17 @@ class ScreenCoordinatorImpl:
             screenshot_b64 = self.capture.capture_b64()
 
         prompt = self._load_prompt("describe_screen.md")
-        return await self._call_vision_model(prompt, screenshot_b64)
+        vision_description = await self._call_vision_model(prompt, screenshot_b64)
+
+        if hammerspoon_state:
+            app_name = hammerspoon_state.get("app_name", "Unknown")
+            window_title = hammerspoon_state.get("window_title", "Unknown")
+            return (
+                f"Frontmost app: {app_name} (window: '{window_title}'). "
+                f"{vision_description}"
+            )
+
+        return vision_description
 
     async def verify_condition(
         self, condition: str, screenshot_b64: Optional[str] = None

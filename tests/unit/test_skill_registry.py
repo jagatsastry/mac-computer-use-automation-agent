@@ -1,13 +1,15 @@
 """Unit tests for the skill registry component."""
 
+import logging
 import textwrap
+from pathlib import Path
 
 import pytest
 
 from automation_agent.skills.loader import parse_skill_file
 from automation_agent.skills.matcher import match_skill
 from automation_agent.skills.models import Skill, SkillParam, SkillRequirements
-from automation_agent.skills.registry import SkillRegistryImpl
+from automation_agent.skills.registry import SkillRegistryImpl, validate_skill_file
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +183,40 @@ class TestExpand:
     def test_unknown_skill_returns_none(self, registry_with_sample):
         result = registry_with_sample.expand("nonexistent-skill", {"query": "test"})
         assert result is None
+
+    def test_expand_blocks_template_injection(self, tmp_path):
+        """Verify user-supplied param containing {{...}} is NOT double-substituted."""
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        content = textwrap.dedent("""\
+            ---
+            name: inject-test
+            description: Template injection test
+            trigger-keywords: [inject]
+            parameters:
+              a:
+                type: string
+                required: true
+              b:
+                type: string
+                required: true
+            requires:
+              os: darwin
+            success-condition: Done
+            ---
+
+            ## Steps
+            1. Use {{a}} and {{b}}
+               - verify: done
+        """)
+        (skill_dir / "inject.md").write_text(content)
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        # If params["a"] = "{{b}}" and params["b"] = "INJECTED",
+        # the output should contain literal "{{b}}", NOT "INJECTED"
+        expanded = registry.expand("inject-test", {"a": "{{b}}", "b": "INJECTED"})
+        assert expanded is not None
+        assert "{{b}}" in expanded
+        assert expanded.count("INJECTED") == 1  # only the direct substitution of b
 
 
 # ---------------------------------------------------------------------------
@@ -510,3 +546,197 @@ class TestLoadFromDirectory:
         skills = registry.list_skills()
         assert len(skills) == 1
         assert skills[0]["name"] == "good-skill"
+
+
+# ---------------------------------------------------------------------------
+# Test 13: Skill with no requires block loads on any platform
+# ---------------------------------------------------------------------------
+
+class TestNoRequiresBlock:
+    def test_skill_with_no_requires_block_loads_on_any_platform(self, tmp_path):
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        content = textwrap.dedent("""\
+            ---
+            name: universal-skill
+            description: Works everywhere
+            trigger-keywords: [universal]
+            parameters: {}
+            success-condition: Done
+            ---
+
+            ## Steps
+            1. Do something
+               - verify: done
+        """)
+        (skill_dir / "universal.md").write_text(content)
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        skills = registry.list_skills()
+        assert len(skills) == 1
+        assert skills[0]["name"] == "universal-skill"
+        # Also verify the parsed os field is empty (any platform)
+        skill = registry.get_skill("universal-skill")
+        assert skill is not None
+        assert skill.requires.os == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 14: Strategy 2 param extraction preserves case
+# ---------------------------------------------------------------------------
+
+class TestStrategy2PreservesCase:
+    def test_strategy2_param_extraction_preserves_case(self):
+        skill = Skill(
+            name="send-email",
+            description="Send an email",
+            trigger_keywords=["send", "email"],
+            parameters={
+                "recipient": SkillParam(type="string", required=True),
+            },
+            requires=SkillRequirements(),
+            success_condition="Email sent",
+            steps_text="1. Send to {{recipient}}",
+        )
+        result = match_skill("send email to John Smith", [skill])
+        assert result is not None
+        _, params = result
+        assert "recipient" in params
+        assert "John Smith" in params["recipient"]
+
+
+# ---------------------------------------------------------------------------
+# Test 15: validate_skill_file standalone
+# ---------------------------------------------------------------------------
+
+class TestValidateSkillFileStandalone:
+    def test_validate_skill_file_standalone(self, tmp_path):
+        # Valid skill file
+        valid_content = textwrap.dedent("""\
+            ---
+            name: valid-skill
+            description: A valid skill
+            trigger-keywords: [test]
+            parameters: {}
+            success-condition: Done
+            ---
+
+            ## Steps
+            1. Do something
+               - verify: done
+        """)
+        valid_path = tmp_path / "valid.md"
+        valid_path.write_text(valid_content)
+        errors = validate_skill_file(valid_path)
+        assert errors == []
+
+        # Invalid skill file (no frontmatter)
+        invalid_path = tmp_path / "invalid.md"
+        invalid_path.write_text("No frontmatter at all")
+        errors = validate_skill_file(invalid_path)
+        assert len(errors) > 0
+        assert any("frontmatter" in e.lower() for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Test 16: Duplicate skill name warns
+# ---------------------------------------------------------------------------
+
+class TestDuplicateSkillName:
+    def test_duplicate_skill_name_warns(self, tmp_path, caplog):
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        for filename in ["first.md", "second.md"]:
+            content = textwrap.dedent("""\
+                ---
+                name: same-name
+                description: Duplicate name skill
+                trigger-keywords: [dup]
+                parameters: {}
+                requires:
+                  os: darwin
+                success-condition: Done
+                ---
+
+                ## Steps
+                1. Do something
+                   - verify: done
+            """)
+            (skill_dir / filename).write_text(content)
+
+        with caplog.at_level(logging.WARNING, logger="automation_agent.skills.registry"):
+            registry = SkillRegistryImpl(skill_dir=skill_dir)
+        assert any("Duplicate skill name" in msg for msg in caplog.messages)
+        # Should still have the skill (the second one overwrites)
+        skills = registry.list_skills()
+        assert len(skills) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 17: expand() strips unexpanded optional placeholders
+# ---------------------------------------------------------------------------
+
+class TestExpandStripsOptionalPlaceholders:
+    def test_expand_strips_unexpanded_optional_placeholders(self, tmp_path, caplog):
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        content = textwrap.dedent("""\
+            ---
+            name: opt-skill
+            description: Skill with optional param
+            trigger-keywords: [opt]
+            parameters:
+              name:
+                type: string
+                required: true
+              title:
+                type: string
+                required: false
+                description: Optional title
+            requires:
+              os: darwin
+            success-condition: Done
+            ---
+
+            ## Steps
+            1. Greet {{name}} with title {{title}}
+               - verify: done
+        """)
+        (skill_dir / "opt.md").write_text(content)
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        with caplog.at_level(logging.WARNING, logger="automation_agent.skills.registry"):
+            expanded = registry.expand("opt-skill", {"name": "Alice"})
+        assert expanded is not None
+        assert "Alice" in expanded
+        assert "{{title}}" not in expanded
+        assert any("Unexpanded placeholder" in msg for msg in caplog.messages)
+
+
+# ---------------------------------------------------------------------------
+# Test 18: load_from_string registers skill
+# ---------------------------------------------------------------------------
+
+class TestLoadFromString:
+    def test_load_from_string_registers_skill(self):
+        registry = SkillRegistryImpl(skill_dir=Path("/nonexistent"))
+        content = textwrap.dedent("""\
+            ---
+            name: string-loaded
+            description: Loaded from string
+            trigger-keywords: [strload]
+            parameters: {}
+            success-condition: Done
+            ---
+
+            ## Steps
+            1. Do something
+               - verify: done
+        """)
+        skill = registry.load_from_string(content)
+        assert skill.name == "string-loaded"
+        # Verify retrievable via get_skill
+        retrieved = registry.get_skill("string-loaded")
+        assert retrieved is not None
+        assert retrieved.name == "string-loaded"
+        # Verify appears in list_skills
+        skills = registry.list_skills()
+        assert any(s["name"] == "string-loaded" for s in skills)

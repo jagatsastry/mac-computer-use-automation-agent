@@ -4,13 +4,14 @@ All tests are fully mocked — no real API calls or screencapture invocations.
 """
 
 import base64
+import io
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from automation_agent.config import AgentConfig
-from automation_agent.vision.capture import ScreenCapture
+from automation_agent.config import AgentConfig, ModelProvider
+from automation_agent.vision.capture import ScreenCapture, _MAX_JPEG_SIZE
 from automation_agent.vision.coordinator import COORDINATE_SPACES, ScreenCoordinatorImpl
 from automation_agent.vision.models import ElementLocation, ScreenState
 
@@ -114,15 +115,12 @@ async def test_find_element_not_found(mock_capture):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_unknown_model_raises_error(mock_capture):
-    """Unknown model in coordinate conversion raises ValueError, not silent heuristic."""
+def test_unknown_model_raises_error(mock_capture):
+    """Unknown model raises ValueError at construction time, not silently later."""
     config = _make_config(vision_model="unknown-model-xyz")
-    coord = _make_coordinator(config, mock_capture)
-    coord._call_vision_model.return_value = "FOUND: x=100, y=200"
 
-    with pytest.raises(ValueError, match="Unknown coordinate space for model"):
-        await coord.find_element("button", screenshot_b64="fakedata")
+    with pytest.raises(ValueError, match="not in COORDINATE_SPACES registry"):
+        ScreenCoordinatorImpl(config, capture=mock_capture)
 
 
 # ---------------------------------------------------------------------------
@@ -339,8 +337,8 @@ def test_coordinate_conversion_retina(mock_capture):
     assert y == 0
 
     x, y = coord._convert_coordinates(1.0, 1.0, "molmo", logical_w, logical_h)
-    assert x == logical_w
-    assert y == logical_h
+    assert x == logical_w - 1  # clamped to valid pixel index
+    assert y == logical_h - 1  # clamped to valid pixel index
 
     # Physical Retina resolution — if user passes physical resolution,
     # conversion still works mathematically
@@ -500,3 +498,156 @@ async def test_find_element_claude_pixel_coords(mock_capture):
     assert result is not None
     assert result["x"] == 350
     assert result["y"] == 200
+
+
+# ---------------------------------------------------------------------------
+# NEW TEST: find_element uses correct model for anthropic provider
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_find_element_uses_correct_model_for_anthropic(mock_capture):
+    """When provider=anthropic, find_element uses anthropic_vision_model for coordinate space, not vision_model."""
+    config = _make_config(
+        vision_model="qwen3-vl",
+        model_provider=ModelProvider.ANTHROPIC,
+        anthropic_vision_model="claude-sonnet-4-20250514",
+        anthropic_api_key="fake-key",
+    )
+    coord = _make_coordinator(config, mock_capture)
+    # Claude returns pixel coordinates (e.g., x=350, y=200)
+    coord._call_vision_model.return_value = "FOUND: x=350, y=200"
+
+    result = await coord.find_element("Save button", screenshot_b64="fakedata")
+
+    assert result is not None
+    # If it incorrectly used qwen3-vl (normalized_0_1000), it would compute:
+    # x = 350/1000 * 1024 = 358, y = 200/1000 * 768 = 153
+    # With the correct model (claude, pixel space), coords pass through as-is:
+    assert result["x"] == 350
+    assert result["y"] == 200
+
+
+# ---------------------------------------------------------------------------
+# NEW TEST: Coordinate clamping at boundary
+# ---------------------------------------------------------------------------
+
+
+def test_coordinate_clamping_at_boundary(mock_capture):
+    """Normalized value 1.0 should clamp to width-1 / height-1, not width/height."""
+    config = _make_config(vision_model="molmo")
+    coord = _make_coordinator(config, mock_capture)
+
+    # normalized_0_1: value 1.0 -> int(1.0 * 1024) = 1024, but max valid index is 1023
+    x, y = coord._convert_coordinates(1.0, 1.0, "molmo", 1024, 768)
+    assert x == 1023
+    assert y == 767
+
+    # normalized_0_1000: value 1000 -> int(1000/1000 * 1024) = 1024, clamped to 1023
+    x, y = coord._convert_coordinates(1000, 1000, "qwen3-vl", 1024, 768)
+    assert x == 1023
+    assert y == 767
+
+    # Values below boundary should not be clamped
+    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", 1024, 768)
+    assert x == 512
+    assert y == 384
+
+
+# ---------------------------------------------------------------------------
+# NEW TEST: describe_screen with Hammerspoon state
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_describe_screen_with_hammerspoon_state(mock_capture):
+    """Pass hammerspoon state dict, verify it's merged into description."""
+    config = _make_config(vision_model="molmo")
+    coord = _make_coordinator(config, mock_capture)
+    vision_text = "A web browser showing a search page."
+    coord._call_vision_model.return_value = vision_text
+
+    hs_state = {"app_name": "Safari", "window_title": "Google"}
+    result = await coord.describe_screen(
+        screenshot_b64="fakedata", hammerspoon_state=hs_state
+    )
+
+    assert result.startswith("Frontmost app: Safari (window: 'Google').")
+    assert vision_text in result
+
+
+@pytest.mark.asyncio
+async def test_describe_screen_without_hammerspoon_state(mock_capture):
+    """Without hammerspoon state, describe_screen returns raw vision output."""
+    config = _make_config(vision_model="molmo")
+    coord = _make_coordinator(config, mock_capture)
+    vision_text = "A web browser showing a search page."
+    coord._call_vision_model.return_value = vision_text
+
+    result = await coord.describe_screen(screenshot_b64="fakedata")
+
+    assert result == vision_text
+
+
+# ---------------------------------------------------------------------------
+# NEW TEST: Capture size enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_capture_size_enforcement():
+    """Mock a large image, verify quality reduction or resize happens."""
+    from PIL import Image as PILImage
+
+    with patch("automation_agent.vision.capture.subprocess.run") as mock_run, \
+         patch("automation_agent.vision.capture.Image") as mock_image_module:
+
+        mock_img = MagicMock()
+        mock_image_module.open.return_value = mock_img
+        mock_img.resize.return_value = mock_img
+        mock_img.mode = "RGB"
+        mock_img.size = (1024, 768)
+        mock_image_module.LANCZOS = 1
+
+        call_count = 0
+
+        def mock_save(buf, format=None, quality=None):
+            nonlocal call_count
+            call_count += 1
+            if quality >= 70:
+                # Simulate oversized JPEG at high quality
+                buf.write(b"\xff\xd8" + b"\x00" * (_MAX_JPEG_SIZE + 1000))
+            else:
+                # At quality=50, produce something within limits
+                buf.write(b"\xff\xd8" + b"\x00" * 100)
+
+        mock_img.save.side_effect = mock_save
+
+        capture = ScreenCapture(target_resolution=(1024, 768))
+        result = capture.capture()
+
+        # Should have tried multiple quality levels before succeeding
+        assert call_count >= 3  # tried 85, 70, then 50
+        assert isinstance(result, bytes)
+        assert len(result) <= _MAX_JPEG_SIZE
+
+
+# ---------------------------------------------------------------------------
+# NEW TEST: Unknown model raises at init (fail fast)
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_model_raises_at_init(mock_capture):
+    """Completely unknown model (no prefix match) raises ValueError at construction."""
+    config = _make_config(vision_model="totally-unknown-model")
+
+    with pytest.raises(ValueError, match="not in COORDINATE_SPACES registry"):
+        ScreenCoordinatorImpl(config, capture=mock_capture)
+
+
+def test_prefix_matched_model_does_not_raise(mock_capture):
+    """A model that prefix-matches a known model should NOT raise, just warn."""
+    # "molmo-7b" starts with "molmo" which is a known prefix
+    config = _make_config(vision_model="molmo-7b")
+    coord = ScreenCoordinatorImpl(config, capture=mock_capture)
+    # Should construct without error
+    assert coord is not None

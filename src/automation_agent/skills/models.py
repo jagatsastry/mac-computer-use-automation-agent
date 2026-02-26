@@ -19,7 +19,7 @@ class SkillRequirements:
     """System requirements for a skill to be usable."""
 
     apps: List[str] = field(default_factory=list)
-    os: str = "darwin"
+    os: str = ""
 
 
 @dataclass
