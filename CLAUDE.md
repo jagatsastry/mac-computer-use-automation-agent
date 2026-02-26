@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-macOS desktop automation agent that uses vision AI to understand screens and execute multi-step automation tasks from natural language prompts. Runs fully local via Ollama (Qwen2-VL for vision, Gemma2 for text) or optionally via Claude API.
+macOS desktop automation agent that uses vision AI to understand screens and execute multi-step automation tasks from natural language prompts. Runs fully local via any OpenAI-compatible vision server such as llama.cpp (Qwen2-VL for vision, Gemma2 for text) or optionally via Claude API.
 
 ## Common Commands
 
@@ -83,7 +83,7 @@ Bridge HTTP (`localhost:27741`) → `hs` CLI → AppleScript (`osascript`)
 ## Configuration
 
 Settings are loaded from environment variables prefixed with `AGENT_` (see `.env.example`). Key settings:
-- `AGENT_OLLAMA_HOST` — Ollama endpoint (default `localhost:11434`)
+- `AGENT_VISION_SERVER_URL` — Vision server endpoint (default `localhost:8080`; any OpenAI-compatible server)
 - `AGENT_VISION_MODEL` / `AGENT_TEXT_MODEL` — model names
 - `AGENT_LOG_DIR` — structured JSONL event logs with per-run directories
 
@@ -92,7 +92,7 @@ Config is in `src/automation_agent/config.py` using Pydantic Settings.
 ## LLM Backends
 
 Located in `src/automation_agent/llm/`:
-- **OllamaClient** — local Qwen2-VL / Gemma2
+- **OllamaClient** — local Qwen2-VL / Gemma2 (planner text generation)
 - **AnthropicClient** — Claude API (optional `pip install -e ".[anthropic]"`)
 - **MolmoVisionClient** — Molmo via OpenRouter or local HuggingFace
 

@@ -7,7 +7,7 @@ class LLMError(Exception):
 
 
 class ModelNotFoundError(LLMError):
-    """Model not found in Ollama."""
+    """Model not found on server."""
     pass
 
 

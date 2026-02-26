@@ -74,7 +74,7 @@ class ScreenCoordinatorImpl:
         """Return the model name actually used for vision calls based on provider.
 
         When model_provider is 'anthropic', the Anthropic vision model is used.
-        Otherwise, the Ollama vision model is used.
+        Otherwise, the local vision model is used.
         """
         if self.config.model_provider.value == "anthropic":
             return self.config.anthropic_vision_model
@@ -171,10 +171,10 @@ class ScreenCoordinatorImpl:
         if self.config.model_provider.value == "anthropic":
             return await self._call_anthropic_vision(prompt, screenshot_b64)
         else:
-            return await self._call_ollama_vision(prompt, screenshot_b64)
+            return await self._call_local_vision(prompt, screenshot_b64)
 
-    async def _call_ollama_vision(self, prompt: str, screenshot_b64: str) -> str:
-        """Call Ollama vision model.
+    async def _call_local_vision(self, prompt: str, screenshot_b64: str) -> str:
+        """Call local vision model via OpenAI-compatible API (e.g. llama.cpp server).
 
         Args:
             prompt: The text prompt.
@@ -185,18 +185,34 @@ class ScreenCoordinatorImpl:
         """
         import httpx
 
-        url = f"{self.config.ollama_host}/api/generate"
+        url = f"{self.config.vision_server_url}/v1/chat/completions"
         payload = {
             "model": self.config.vision_model,
-            "prompt": prompt,
-            "images": [screenshot_b64],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{screenshot_b64}",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 1024,
             "stream": False,
         }
 
-        async with httpx.AsyncClient(timeout=self.config.ollama_timeout) as client:
+        async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()["response"]
+            return response.json()["choices"][0]["message"]["content"]
 
     async def _call_anthropic_vision(self, prompt: str, screenshot_b64: str) -> str:
         """Call Anthropic vision model with retry on overloaded/rate-limit errors.

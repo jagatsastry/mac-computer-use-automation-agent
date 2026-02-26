@@ -19,7 +19,7 @@ class LogLevel(str, Enum):
 
 class ModelProvider(str, Enum):
     """Supported LLM providers."""
-    OLLAMA = "ollama"
+    LOCAL = "local"
     ANTHROPIC = "anthropic"
 
 
@@ -44,24 +44,24 @@ class AgentConfig(BaseSettings):
 
     # LLM Configuration
     model_provider: ModelProvider = Field(
-        default=ModelProvider.OLLAMA,
-        description="LLM provider to use (ollama or anthropic)",
+        default=ModelProvider.LOCAL,
+        description="LLM provider to use (local or anthropic)",
     )
-    ollama_host: str = Field(
-        default="http://localhost:11434",
-        description="Ollama server host URL",
+    vision_server_url: str = Field(
+        default="http://localhost:8080",
+        description="Vision server URL (any OpenAI-compatible endpoint, e.g. llama.cpp)",
     )
     vision_model: str = Field(
         default="qwen3-vl",
-        description="Vision model for screen analysis (Ollama model name)",
+        description="Vision model name for screen analysis",
     )
     text_model: str = Field(
         default="gemma2:9b",
-        description="Text model for planning and reasoning (Ollama model name)",
+        description="Text model for planning and reasoning",
     )
-    ollama_timeout: int = Field(
+    vision_server_timeout: int = Field(
         default=300,
-        description="Timeout in seconds for Ollama API calls",
+        description="Timeout in seconds for vision server API calls",
         gt=0,
     )
 
@@ -222,12 +222,12 @@ class AgentConfig(BaseSettings):
         v.mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("ollama_host")
+    @field_validator("vision_server_url")
     @classmethod
-    def validate_ollama_host(cls, v: str) -> str:
-        """Ensure ollama host has proper format."""
+    def validate_vision_server_url(cls, v: str) -> str:
+        """Ensure vision server URL has proper format."""
         if not v.startswith(("http://", "https://")):
-            raise ValueError("ollama_host must start with http:// or https://")
+            raise ValueError("vision_server_url must start with http:// or https://")
         return v.rstrip("/")
 
     def get_log_file_path(self) -> Path:

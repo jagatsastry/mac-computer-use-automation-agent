@@ -21,13 +21,13 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
     if hasattr(args, 'provider') and args.provider:
         config.model_provider = ModelProvider(args.provider)
 
-    # Ollama settings
-    if args.ollama_host:
-        config.ollama_host = args.ollama_host
-    if args.ollama_model:
-        config.vision_model = args.ollama_model
-    if args.ollama_timeout:
-        config.ollama_timeout = args.ollama_timeout
+    # Vision server settings
+    if args.vision_server_url:
+        config.vision_server_url = args.vision_server_url
+    if args.vision_model:
+        config.vision_model = args.vision_model
+    if args.vision_timeout:
+        config.vision_server_timeout = args.vision_timeout
 
     # Anthropic settings
     if hasattr(args, 'anthropic_api_key') and args.anthropic_api_key:
@@ -49,9 +49,9 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
     if args.log_dir:
         config.log_dir = args.log_dir
 
-    # Molmo mode: force Ollama vision model for coordinate grounding
+    # Molmo mode: force local vision model for coordinate grounding
     if hasattr(args, "molmo") and args.molmo:
-        config.model_provider = ModelProvider.OLLAMA
+        config.model_provider = ModelProvider.LOCAL
         config.vision_model = "molmo"
 
     if hasattr(args, "hammerspoon") and args.hammerspoon:

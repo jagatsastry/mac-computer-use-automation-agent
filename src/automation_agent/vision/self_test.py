@@ -7,7 +7,7 @@ Performs a real integration test:
 
 This test requires:
 - macOS with screencapture available
-- A configured vision model (Ollama or Anthropic)
+- A configured vision model (local OpenAI-compatible server or Anthropic)
 
 Usage:
     PYTHONPATH=src python -m automation_agent.vision.self_test

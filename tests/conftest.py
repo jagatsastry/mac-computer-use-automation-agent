@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 def sample_config_data():
     """Sample configuration data for testing."""
     return {
-        "ollama_host": "http://test:11434",
+        "vision_server_url": "http://test:8080",
         "vision_model": "test-vision",
         "text_model": "test-text",
         "log_level": "DEBUG",

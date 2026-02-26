@@ -61,19 +61,19 @@ class TestParseArgs:
         assert args.log_level == "DEBUG"
         print("✓ Verbose flag sets DEBUG log level")
 
-    def test_parse_with_ollama_options(self):
-        """Test parsing with Ollama options."""
+    def test_parse_with_vision_server_options(self):
+        """Test parsing with vision server options."""
         args = parse_args([
-            "--ollama-host", "http://192.168.1.100:11434",
-            "--ollama-model", "custom-model",
-            "--ollama-timeout", "60",
+            "--vision-server-url", "http://192.168.1.100:8080",
+            "--vision-model", "custom-model",
+            "--vision-timeout", "60",
             "Test prompt"
         ])
 
-        assert args.ollama_host == "http://192.168.1.100:11434"
-        assert args.ollama_model == "custom-model"
-        assert args.ollama_timeout == 60
-        print("✓ Ollama options parsing works")
+        assert args.vision_server_url == "http://192.168.1.100:8080"
+        assert args.vision_model == "custom-model"
+        assert args.vision_timeout == 60
+        print("✓ Vision server options parsing works")
 
     def test_parse_with_log_level(self):
         """Test parsing with --log-level."""
@@ -126,7 +126,7 @@ class TestValidateArgs:
 
     def test_validate_invalid_timeout(self, capsys):
         """Test validation with invalid timeout."""
-        args = parse_args(["--ollama-timeout", "0", "Test"])
+        args = parse_args(["--vision-timeout", "0", "Test"])
 
         with pytest.raises(SystemExit):
             validate_args(args)
@@ -137,7 +137,7 @@ class TestValidateArgs:
 
     def test_validate_negative_timeout(self, capsys):
         """Test validation with negative timeout."""
-        args = parse_args(["--ollama-timeout", "-1", "Test"])
+        args = parse_args(["--vision-timeout", "-1", "Test"])
 
         with pytest.raises(SystemExit):
             validate_args(args)

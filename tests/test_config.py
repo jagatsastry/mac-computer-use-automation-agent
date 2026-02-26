@@ -13,11 +13,11 @@ class TestAgentConfig:
         """Test default configuration values."""
         config = AgentConfig(_env_file=None)
 
-        assert config.model_provider == ModelProvider.OLLAMA
-        assert config.ollama_host == "http://localhost:11434"
+        assert config.model_provider == ModelProvider.LOCAL
+        assert config.vision_server_url == "http://localhost:8080"
         assert config.vision_model == "qwen3-vl"
         assert config.text_model == "gemma2:9b"
-        assert config.ollama_timeout == 300
+        assert config.vision_server_timeout == 300
         assert config.log_level == LogLevel.INFO
         assert config.action_delay == 0.5
         assert config.max_retries == 3
@@ -26,7 +26,7 @@ class TestAgentConfig:
     def test_config_from_dict(self):
         """Test creating config from dictionary."""
         data = {
-            "ollama_host": "http://192.168.1.100:11434",
+            "vision_server_url": "http://192.168.1.100:8080",
             "vision_model": "custom-vision",
             "text_model": "custom-text",
             "log_level": "DEBUG",
@@ -34,40 +34,40 @@ class TestAgentConfig:
         }
         config = AgentConfig(_env_file=None, **data)
 
-        assert config.ollama_host == "http://192.168.1.100:11434"
+        assert config.vision_server_url == "http://192.168.1.100:8080"
         assert config.vision_model == "custom-vision"
         assert config.text_model == "custom-text"
         assert config.log_level == LogLevel.DEBUG
         assert config.action_delay == 1.0
         print("✓ Config from dict works")
 
-    def test_ollama_host_validation(self):
-        """Test ollama_host validation."""
-        # Valid hosts
-        config1 = AgentConfig(_env_file=None, ollama_host="http://localhost:11434")
-        assert config1.ollama_host == "http://localhost:11434"
+    def test_vision_server_url_validation(self):
+        """Test vision_server_url validation."""
+        # Valid URLs
+        config1 = AgentConfig(_env_file=None, vision_server_url="http://localhost:8080")
+        assert config1.vision_server_url == "http://localhost:8080"
 
-        config2 = AgentConfig(_env_file=None, ollama_host="https://example.com:11434")
-        assert config2.ollama_host == "https://example.com:11434"
+        config2 = AgentConfig(_env_file=None, vision_server_url="https://example.com:8080")
+        assert config2.vision_server_url == "https://example.com:8080"
 
-        # Invalid host (no http/https)
+        # Invalid URL (no http/https)
         with pytest.raises(ValueError, match="must start with http"):
-            AgentConfig(_env_file=None, ollama_host="localhost:11434")
+            AgentConfig(_env_file=None, vision_server_url="localhost:8080")
 
-        print("✓ Ollama host validation works")
+        print("✓ Vision server URL validation works")
 
     def test_timeout_validation(self):
         """Test timeout validation."""
         # Valid timeout
-        config = AgentConfig(_env_file=None, ollama_timeout=60)
-        assert config.ollama_timeout == 60
+        config = AgentConfig(_env_file=None, vision_server_timeout=60)
+        assert config.vision_server_timeout == 60
 
         # Invalid timeouts
         with pytest.raises(ValueError):
-            AgentConfig(_env_file=None, ollama_timeout=0)
+            AgentConfig(_env_file=None, vision_server_timeout=0)
 
         with pytest.raises(ValueError):
-            AgentConfig(_env_file=None, ollama_timeout=-1)
+            AgentConfig(_env_file=None, vision_server_timeout=-1)
 
         print("✓ Timeout validation works")
 
@@ -125,14 +125,14 @@ class TestLoadConfig:
         """Test loading config from JSON file."""
         config_file = tmp_path / "config.json"
         config_data = {
-            "ollama_host": "http://custom:11434",
+            "vision_server_url": "http://custom:8080",
             "log_level": "DEBUG",
             "action_delay": 0.8,
         }
         config_file.write_text(json.dumps(config_data))
 
         config = load_config(config_file)
-        assert config.ollama_host == "http://custom:11434"
+        assert config.vision_server_url == "http://custom:8080"
         assert config.log_level == LogLevel.DEBUG
         assert config.action_delay == 0.8
         print("✓ Load config from JSON file works")
@@ -144,5 +144,5 @@ class TestLoadConfig:
 
         # Should return default config
         assert isinstance(config, AgentConfig)
-        assert config.ollama_host == "http://localhost:11434"
+        assert config.vision_server_url == "http://localhost:8080"
         print("✓ Load config with nonexistent file returns defaults")

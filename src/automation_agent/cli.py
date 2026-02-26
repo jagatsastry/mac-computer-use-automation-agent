@@ -18,7 +18,7 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   automation-agent "Click on the Safari icon"
-  automation-agent --ollama-host http://192.168.1.100:11434 "Open Finder"
+  automation-agent --vision-server-url http://192.168.1.100:8080 "Open Finder"
   automation-agent --dry-run --verbose "Test prompt"
         """,
     )
@@ -35,14 +35,18 @@ Examples:
         "--provider",
         type=str,
         choices=[p.value for p in ModelProvider],
-        help="LLM provider to use (ollama or anthropic)",
+        help="LLM provider to use (local or anthropic)",
     )
 
-    # Ollama settings
-    parser.add_argument("--ollama-host", type=str, metavar="URL", help="Ollama server host URL")
-    parser.add_argument("--ollama-model", type=str, metavar="MODEL", help="Ollama model to use")
+    # Vision server settings
     parser.add_argument(
-        "--ollama-timeout", type=int, metavar="SECONDS", help="Timeout for Ollama API calls"
+        "--vision-server-url", type=str, metavar="URL",
+        help="Vision server URL (any OpenAI-compatible endpoint)",
+    )
+    parser.add_argument("--vision-model", type=str, metavar="MODEL", help="Vision model to use")
+    parser.add_argument(
+        "--vision-timeout", type=int, metavar="SECONDS",
+        help="Timeout for vision server API calls",
     )
 
     # Anthropic settings
@@ -120,6 +124,6 @@ def validate_args(args: argparse.Namespace) -> None:
         print(f"Error: Configuration file not found: {args.config}", file=sys.stderr)
         sys.exit(1)
 
-    if args.ollama_timeout is not None and args.ollama_timeout <= 0:
-        print("Error: --ollama-timeout must be greater than 0", file=sys.stderr)
+    if args.vision_timeout is not None and args.vision_timeout <= 0:
+        print("Error: --vision-timeout must be greater than 0", file=sys.stderr)
         sys.exit(1)
