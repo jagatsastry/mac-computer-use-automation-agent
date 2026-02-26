@@ -3,13 +3,10 @@
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any, Tuple
 
 from .cli import parse_args, validate_args
 from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
-from .llm.client import OllamaClient
-from .llm import AnthropicClient, ANTHROPIC_AVAILABLE, MolmoVisionClient, MolmoLocalClient
 from .workflows import run_restaurant_workflow
 from .orchestrator import AutomationAgent
 from .actuator import create_actuator
@@ -61,63 +58,6 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.use_hammerspoon = True
 
 
-async def _resolve_molmo_vision_backend(
-    config: AgentConfig,
-    text_llm_client: Any,
-    logger: Any,
-) -> Tuple[Any, str]:
-    """
-    Resolve the best available Molmo-capable vision backend.
-
-    Priority:
-    1) OpenRouter Molmo via API key
-    2) Local Ollama model named "molmo"
-    3) Local HuggingFace Molmo model
-    4) Fallback to local qwen3-vl
-    """
-    # 1) OpenRouter Molmo
-    if config.openrouter_api_key:
-        molmo_client = MolmoVisionClient(
-            api_key=config.openrouter_api_key,
-            model=config.molmo_model,
-            timeout=config.ollama_timeout,
-            base_url=config.openrouter_base_url,
-        )
-        if await molmo_client.test_connection():
-            logger.info("using_molmo_openrouter", model=config.molmo_model)
-            print(f"[INFO] Using Molmo via OpenRouter ({config.molmo_model})")
-            return molmo_client, config.molmo_model
-        logger.warning("molmo_openrouter_unavailable_fallback")
-        print("[WARN] OpenRouter Molmo unavailable, trying local Ollama models...")
-
-    # 2/3) Local Ollama choices
-    if isinstance(text_llm_client, OllamaClient):
-        if await text_llm_client.check_model_available("molmo"):
-            logger.info("using_molmo_ollama", model="molmo")
-            print("[INFO] Using local Ollama Molmo model (molmo)")
-            return text_llm_client, "molmo"
-
-        if MolmoLocalClient.dependencies_available():
-            local_molmo = MolmoLocalClient(
-                model_name=config.molmo_local_model,
-                timeout=max(config.ollama_timeout, 1200),
-            )
-            if await local_molmo.test_connection():
-                logger.info("using_molmo_local_hf", model=config.molmo_local_model)
-                print(f"[INFO] Using local HuggingFace Molmo ({config.molmo_local_model})")
-                return local_molmo, config.molmo_local_model
-            logger.warning("molmo_local_hf_unavailable")
-
-        if await text_llm_client.check_model_available("qwen3-vl"):
-            logger.warning("molmo_not_found_fallback_qwen3_vl")
-            print("[WARN] Local Molmo model not found; falling back to qwen3-vl for vision.")
-            return text_llm_client, "qwen3-vl"
-
-    logger.warning("molmo_not_available_any_backend")
-    print("[WARN] Molmo backend unavailable; using configured vision model.")
-    return text_llm_client, config.vision_model
-
-
 def _is_restaurant_prompt(prompt: str) -> bool:
     """Best-effort intent check for restaurant reservation workflows."""
     lowered = prompt.lower()
@@ -140,7 +80,6 @@ async def run_agent(
     config: AgentConfig,
     dry_run: bool = False,
     restaurant_only: bool = False,
-    molmo: bool = False,
 ) -> int:
     """
     Run the automation agent with the given prompt.
@@ -154,65 +93,6 @@ async def run_agent(
         Exit code (0 for success, 1 for failure)
     """
     logger = get_logger(__name__)
-
-    # Initialize LLM client based on provider
-    if config.model_provider == ModelProvider.ANTHROPIC:
-        if not ANTHROPIC_AVAILABLE:
-            logger.error("anthropic_not_installed")
-            print("\n[ERROR] Anthropic provider selected but 'anthropic' package not installed")
-            print("Install with: pip install anthropic")
-            return 1
-
-        if not config.anthropic_api_key:
-            logger.error("anthropic_api_key_missing")
-            print("\n[ERROR] Anthropic API key not configured")
-            print("Set AGENT_ANTHROPIC_API_KEY environment variable or add to config")
-            return 1
-
-        llm_client = AnthropicClient(
-            api_key=config.anthropic_api_key,
-            timeout=config.ollama_timeout,
-            model=config.anthropic_model,
-            vision_model=config.anthropic_vision_model,
-        )
-        text_model = config.anthropic_model
-        vision_model = config.anthropic_vision_model
-
-        # Test connection
-        if not await llm_client.test_connection():
-            logger.error("anthropic_connection_failed")
-            print("\n[ERROR] Could not connect to Anthropic API")
-            print("Check your API key and network connection")
-            return 1
-
-        logger.info("using_anthropic_provider", model=config.anthropic_model)
-        print(f"[INFO] Using Anthropic Claude ({config.anthropic_model})")
-
-    else:
-        # Default: Ollama
-        llm_client = OllamaClient(
-            host=config.ollama_host,
-            timeout=config.ollama_timeout,
-        )
-        text_model = config.text_model
-        vision_model = config.vision_model
-
-        # Test connection
-        if not await llm_client.test_connection():
-            logger.error("ollama_connection_failed", host=config.ollama_host)
-            print(f"\n[ERROR] Could not connect to Ollama at {config.ollama_host}")
-            print("Make sure Ollama is running: ollama serve")
-            return 1
-
-    # Select vision backend (default: same client as text path)
-    vision_client = llm_client
-    observer_vision_model = vision_model
-    if molmo:
-        vision_client, observer_vision_model = await _resolve_molmo_vision_backend(
-            config=config,
-            text_llm_client=llm_client,
-            logger=logger,
-        )
 
     # Initialize components
     planner = ActionPlannerImpl(config)
@@ -344,7 +224,6 @@ def main() -> None:
                 config,
                 args.dry_run,
                 getattr(args, "restaurant_only", False),
-                getattr(args, "molmo", False),
             )
         )
         logger.info("automation_agent_completed", success=(exit_code == 0))
