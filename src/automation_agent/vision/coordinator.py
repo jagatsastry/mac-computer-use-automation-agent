@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 # we raise an error rather than silently misinterpret coordinates.
 COORDINATE_SPACES: Dict[str, str] = {
     "molmo": "normalized_0_1",  # Molmo returns 0.0-1.0 normalized
-    "qwen3-vl": "normalized_0_1000",  # Qwen returns 0-1000 normalized
+    "qwen3-vl": "normalized_0_1000",  # Qwen3-VL returns 0-1000 normalized
+    "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
+    "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
     "claude-sonnet-4-20250514": "pixel",  # Claude returns pixel coords
 }
 
@@ -63,24 +65,15 @@ class ScreenCoordinatorImpl:
         """Ensure we know the coordinate space for our vision model.
 
         Raises ValueError for completely unknown models (no prefix match).
-        Logs a warning for prefix-matched but not exact-matched models.
+        Uses case-insensitive prefix matching to handle GGUF filenames
+        (e.g. 'Qwen2.5-VL-7B-Instruct-q4_k_m.gguf' matches 'qwen2.5-vl').
         """
         for model in self._get_models_to_validate():
-            if model not in COORDINATE_SPACES:
-                # Check if it matches a known model prefix
-                known = any(model.startswith(k) for k in COORDINATE_SPACES)
-                if not known:
-                    raise ValueError(
-                        f"Vision model '{model}' not in COORDINATE_SPACES registry. "
-                        f"Known models: {list(COORDINATE_SPACES.keys())}"
-                    )
-                else:
-                    logger.warning(
-                        "Vision model '%s' not exact match in COORDINATE_SPACES registry, "
-                        "but matches a known prefix. Known models: %s",
-                        model,
-                        list(COORDINATE_SPACES.keys()),
-                    )
+            if self._resolve_coordinate_space(model) is None:
+                raise ValueError(
+                    f"Vision model '{model}' not in COORDINATE_SPACES registry. "
+                    f"Known models: {list(COORDINATE_SPACES.keys())}"
+                )
 
     def _get_models_to_validate(self) -> list:
         """Return the list of model names that need validation."""
@@ -101,8 +94,27 @@ class ScreenCoordinatorImpl:
             return self.config.anthropic_vision_model
         return self.config.vision_model
 
+    @staticmethod
+    def _resolve_coordinate_space(model: str) -> Optional[str]:
+        """Resolve coordinate space for a model via case-insensitive prefix matching.
+
+        Handles GGUF filenames like 'Qwen2.5-VL-7B-Instruct-q4_k_m.gguf'
+        matching registry key 'qwen2.5-vl'.
+
+        Returns None if no match found.
+        """
+        model_lower = model.lower()
+        # Exact match first
+        if model_lower in COORDINATE_SPACES:
+            return COORDINATE_SPACES[model_lower]
+        # Case-insensitive prefix match
+        for key, space in COORDINATE_SPACES.items():
+            if model_lower.startswith(key):
+                return space
+        return None
+
     def _get_coordinate_space(self, model: str) -> str:
-        """Get the coordinate space for a model, checking exact match then prefix match.
+        """Get the coordinate space for a model.
 
         Args:
             model: The model name to look up.
@@ -113,19 +125,13 @@ class ScreenCoordinatorImpl:
         Raises:
             ValueError: If the model is not in the registry.
         """
-        # Exact match first
-        if model in COORDINATE_SPACES:
-            return COORDINATE_SPACES[model]
-
-        # Prefix match (e.g., "molmo-7b" matches "molmo")
-        for key, space in COORDINATE_SPACES.items():
-            if model.startswith(key):
-                return space
-
-        raise ValueError(
-            f"Unknown coordinate space for model '{model}'. "
-            f"Known models: {list(COORDINATE_SPACES.keys())}"
-        )
+        space = self._resolve_coordinate_space(model)
+        if space is None:
+            raise ValueError(
+                f"Unknown coordinate space for model '{model}'. "
+                f"Known models: {list(COORDINATE_SPACES.keys())}"
+            )
+        return space
 
     def _convert_coordinates(
         self,
