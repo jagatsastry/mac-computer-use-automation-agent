@@ -65,6 +65,16 @@ class AgentConfig(BaseSettings):
         gt=0,
     )
 
+    # Grounding Model Configuration
+    grounding_model: str = Field(
+        default="",
+        description="Specialized grounding model name. If set, used for find_element calls.",
+    )
+    grounding_server_url: str = Field(
+        default="",
+        description="Server URL for grounding model (if different from vision server)",
+    )
+
     # Anthropic (Claude) Configuration
     anthropic_api_key: Optional[str] = Field(
         default=None,
@@ -105,6 +115,10 @@ class AgentConfig(BaseSettings):
     molmo_local_model: str = Field(
         default="allenai/MolmoE-1B-0924",
         description="Local HuggingFace Molmo model identifier",
+    )
+    use_accessibility: bool = Field(
+        default=False,
+        description="Use macOS Accessibility API for fast UI element lookup",
     )
     use_hammerspoon: bool = Field(
         default=False,
@@ -228,6 +242,16 @@ class AgentConfig(BaseSettings):
         """Ensure vision server URL has proper format."""
         if not v.startswith(("http://", "https://")):
             raise ValueError("vision_server_url must start with http:// or https://")
+        return v.rstrip("/")
+
+    @field_validator("grounding_server_url")
+    @classmethod
+    def validate_grounding_server_url(cls, v: str) -> str:
+        """Validate grounding server URL when non-empty."""
+        if not v:
+            return v
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("grounding_server_url must start with http:// or https://")
         return v.rstrip("/")
 
     def get_log_file_path(self) -> Path:

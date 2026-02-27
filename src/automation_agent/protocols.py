@@ -18,6 +18,7 @@ class ActionPlanner(Protocol):
         goal: str,
         screen_description: str = "",
         skill_context: Optional[str] = None,
+        desktop_context: str = "",
     ) -> ActionPlan:
         """Generate an action plan for the given goal.
 
@@ -25,6 +26,7 @@ class ActionPlanner(Protocol):
             goal: Natural language description of what to accomplish.
             screen_description: Current screen state description.
             skill_context: Optional expanded skill template for context.
+            desktop_context: Structured desktop state from ContextMonitor.
 
         Returns:
             ActionPlan with validated steps (all steps have verify fields).
@@ -37,6 +39,7 @@ class ActionPlanner(Protocol):
         screen_description: str,
         history: List[StepResult],
         retry_strategies_used: List[str],
+        desktop_context: str = "",
     ) -> ActionPlan:
         """Generate a new plan given execution history and failures.
 
@@ -47,6 +50,7 @@ class ActionPlanner(Protocol):
             screen_description: Current screen state.
             history: Results of previously executed steps.
             retry_strategies_used: Strategies already attempted.
+            desktop_context: Structured desktop state from ContextMonitor.
 
         Returns:
             ActionPlan with a different approach.

@@ -3,6 +3,8 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 ## Original Goal
 {{goal}}
 
+{{desktop_context}}
+
 ## Current Screen State
 {{screen_description}}
 
@@ -19,6 +21,8 @@ Do NOT repeat the same actions that failed. Consider:
 - Navigating through menus instead of direct interaction
 - Breaking the task into smaller sub-steps
 - Using `observe` to better understand the current state
+- When interactive elements are listed, reference them by exact name in your action steps
+- Check form progress to avoid re-filling already completed fields
 
 ## Response Format
 Same JSON format as before. Every step MUST have a non-empty "verify" field.

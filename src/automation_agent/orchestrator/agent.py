@@ -22,6 +22,9 @@ class AutomationAgent:
         actuator,
         config: AgentConfig,
         logger: Optional[EventLogger] = None,
+        screenshot_diff=None,
+        context_monitor=None,
+        grounding_router=None,
     ):
         self.planner = planner
         self.skill_registry = skill_registry
@@ -32,6 +35,9 @@ class AutomationAgent:
         self.verifier = StepVerifier(
             actuator=actuator, coordinator=coordinator, logger=self.logger
         )
+        self.screenshot_diff = screenshot_diff
+        self.context_monitor = context_monitor
+        self.grounding_router = grounding_router
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
@@ -59,16 +65,28 @@ class AutomationAgent:
 
             # 2. Get screen description for context
             screen_desc = ""
-            try:
-                screen_desc = await self.coordinator.describe_screen()
-            except Exception:
-                pass
+            desktop_context = ""
+            if self.context_monitor:
+                self.context_monitor.update_cheap()
+            if not self.context_monitor or self.context_monitor.needs_full_vision():
+                try:
+                    screen_desc = await self.coordinator.describe_screen()
+                    if self.context_monitor:
+                        self.context_monitor.context.last_vision_description = screen_desc
+                except Exception:
+                    pass
+            if self.context_monitor:
+                desktop_context = self.context_monitor.format_for_planner()
 
             # 3. Plan
             self.logger.log_event(EventType.PLAN_START, "Planning...")
-            plan = await self.planner.plan(
-                goal, screen_description=screen_desc, skill_context=skill_context
+            plan_kwargs = dict(
+                screen_description=screen_desc,
+                skill_context=skill_context,
             )
+            if desktop_context:
+                plan_kwargs["desktop_context"] = desktop_context
+            plan = await self.planner.plan(goal, **plan_kwargs)
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
                 f"Plan: {len(plan.steps)} steps",
@@ -109,9 +127,17 @@ class AutomationAgent:
                         run_id=self.logger.run_id,
                     )
 
+                # Cheap context update before each step
+                if self.context_monitor:
+                    self.context_monitor.update_cheap()
+
                 result = await self._execute_step(i, step, step_results, goal, plan)
                 step_results.append(result)
                 iterations += 1
+
+                # Record context after actions
+                if self.context_monitor:
+                    self._record_context(step)
 
                 if step.action == "done":
                     break
@@ -225,8 +251,27 @@ class AutomationAgent:
                 evidence=f"Screen: {desc}",
             )
 
+        # Capture screenshot before click actions for fast diff-based verification
+        if self.screenshot_diff and step.action == "click":
+            self.screenshot_diff.capture_before()
+
         # For element-based actions (click with element description), find the element first
         actuator_result = await self._dispatch_action(step)
+
+        # After click, quick diff check: if no visible effect, mark as failed for retry
+        if (
+            self.screenshot_diff
+            and step.action == "click"
+            and actuator_result.get("success", False)
+        ):
+            await asyncio.sleep(0.3)  # Brief wait for UI update
+            click_x = actuator_result.get("x", step.params.get("x", 0))
+            click_y = actuator_result.get("y", step.params.get("y", 0))
+            if not self.screenshot_diff.region_changed(click_x, click_y):
+                actuator_result["success"] = False
+                actuator_result["error"] = (
+                    "Click had no visible effect (screenshot unchanged)"
+                )
 
         # BUG 1 FIX: If the actuator action failed (e.g. element not found), skip
         # verification and return failure immediately. Vision verification must not
@@ -278,7 +323,7 @@ class AutomationAgent:
             if action == "click":
                 # If element description given, find it first
                 if "element" in params:
-                    location = await self.coordinator.find_element(params["element"])
+                    location = await self._find_element(params["element"])
                     if location is None:
                         self.logger.log_event(
                             EventType.ELEMENT_NOT_FOUND,
@@ -313,6 +358,30 @@ class AutomationAgent:
         except Exception as e:
             self.logger.log_event(EventType.ACTION_ERROR, f"{action} error: {e}")
             return {"success": False, "error": str(e)}
+
+    async def _find_element(self, description: str):
+        """Find a UI element by description, using grounding router if available.
+
+        Returns dict with 'x', 'y' keys on success, or None if not found.
+        """
+        if self.grounding_router is not None:
+            gr = await self.grounding_router.find_element(description)
+            if gr is not None:
+                return {"x": gr.x, "y": gr.y, "source": gr.strategy_used.value}
+            return None
+        return await self.coordinator.find_element(description)
+
+    def _record_context(self, step: ActionStep) -> None:
+        """Record action context in the context monitor after step execution."""
+        if step.action == "click":
+            self.context_monitor.record_click(step.params.get("element", ""))
+        elif step.action == "type_text":
+            self.context_monitor.record_type(
+                step.params.get("text", ""),
+                step.params.get("field_name"),
+            )
+        elif step.action == "open_url":
+            self.context_monitor.record_navigation(step.params.get("url", ""))
 
     async def _handle_failure(self, index, step, result, history, goal, plan, iterations):
         """Handle a step failure based on on_fail policy.

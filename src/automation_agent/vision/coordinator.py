@@ -34,11 +34,30 @@ class ScreenCoordinatorImpl:
     """
 
     def __init__(
-        self, config: AgentConfig, capture: Optional[ScreenCapture] = None
+        self,
+        config: AgentConfig,
+        capture: Optional[ScreenCapture] = None,
+        accessibility: Optional[Any] = None,
     ):
         self.config = config
         self.capture = capture or ScreenCapture(config.screenshot_resolution)
         self._validate_model()
+        self._grounding_enabled = bool(config.grounding_model)
+
+        # Accessibility bridge: use provided instance, auto-create if enabled, or None.
+        self.accessibility = accessibility
+        if self.accessibility is None and config.use_accessibility:
+            try:
+                from automation_agent.perception.accessibility import AccessibilityBridge
+
+                self.accessibility = AccessibilityBridge()
+                logger.info("Accessibility bridge initialized")
+            except Exception:
+                logger.warning(
+                    "Failed to initialize AccessibilityBridge; "
+                    "falling back to vision-only mode",
+                    exc_info=True,
+                )
 
     def _validate_model(self) -> None:
         """Ensure we know the coordinate space for our vision model.
@@ -68,6 +87,8 @@ class ScreenCoordinatorImpl:
         models = [self.config.vision_model]
         if self.config.model_provider.value == "anthropic":
             models.append(self.config.anthropic_vision_model)
+        if self.config.grounding_model:
+            models.append(self.config.grounding_model)
         return models
 
     def _get_active_model(self) -> str:
@@ -272,6 +293,55 @@ class ScreenCoordinatorImpl:
                     continue
                 raise
 
+    async def _call_grounding_model(self, prompt: str, screenshot_b64: str) -> str:
+        """Call dedicated grounding model via OpenAI-compatible API.
+
+        Uses grounding_server_url if configured, otherwise falls back to
+        the general vision_server_url.
+
+        Args:
+            prompt: The text prompt.
+            screenshot_b64: Base64-encoded screenshot.
+
+        Returns:
+            The model's text response.
+        """
+        import httpx
+
+        base_url = (
+            self.config.grounding_server_url
+            if self.config.grounding_server_url
+            else self.config.vision_server_url
+        )
+        url = f"{base_url}/v1/chat/completions"
+        payload = {
+            "model": self.config.grounding_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{screenshot_b64}",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 1024,
+            "stream": False,
+        }
+
+        async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+
     def _parse_coordinates(self, response: str) -> Optional[Tuple[float, float]]:
         """Parse coordinates from a vision model response.
 
@@ -304,21 +374,71 @@ class ScreenCoordinatorImpl:
     async def find_element(
         self, description: str, screenshot_b64: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Find UI element by description using vision model.
+        """Find UI element by description.
+
+        Strategy (in order):
+        1. Accessibility API (instant, accurate, logical coords)
+        2. Grounding model if configured
+        3. General vision model (slowest fallback)
 
         Args:
             description: Natural language description of the element to find.
             screenshot_b64: Optional pre-captured screenshot. If None, captures one.
 
         Returns:
-            Dict with 'x', 'y' pixel coordinates and 'raw_response', or None if not found.
+            Dict with 'x', 'y' pixel coordinates, 'source', and optionally
+            'raw_response'. Returns None if not found.
         """
+        # FAST PATH: Accessibility API
+        if self.accessibility is not None:
+            try:
+                ax_element = self.accessibility.find_element_by_description(description)
+                if ax_element and ax_element.center:
+                    cx, cy = ax_element.center
+                    logger.debug(
+                        "Accessibility hit for '%s' at (%d, %d)", description, cx, cy
+                    )
+                    return {"x": cx, "y": cy, "source": "accessibility"}
+            except Exception:
+                logger.debug(
+                    "Accessibility lookup failed for '%s', falling back to vision",
+                    description,
+                    exc_info=True,
+                )
+
+        # SLOW PATH: Vision model
         if screenshot_b64 is None:
             screenshot_b64 = self.capture.capture_b64()
 
         prompt = self._load_prompt("find_element.md").replace(
             "{{element_description}}", description
         )
+
+        # Try grounding model first if configured
+        if self._grounding_enabled:
+            try:
+                response = await self._call_grounding_model(prompt, screenshot_b64)
+                raw_coords = self._parse_coordinates(response)
+                if raw_coords is not None:
+                    model = self.config.grounding_model
+                    w, h = self.config.screenshot_resolution
+                    x, y = self._convert_coordinates(
+                        raw_coords[0], raw_coords[1], model, w, h
+                    )
+                    return {
+                        "x": x, "y": y,
+                        "source": "vision", "raw_response": response,
+                    }
+                logger.info(
+                    "Grounding model returned no result, falling back to vision model"
+                )
+            except Exception:
+                logger.warning(
+                    "Grounding model failed, falling back to vision model",
+                    exc_info=True,
+                )
+
+        # Fall back to general vision model
         response = await self._call_vision_model(prompt, screenshot_b64)
 
         raw_coords = self._parse_coordinates(response)
@@ -329,7 +449,7 @@ class ScreenCoordinatorImpl:
         w, h = self.config.screenshot_resolution
         x, y = self._convert_coordinates(raw_coords[0], raw_coords[1], model, w, h)
 
-        return {"x": x, "y": y, "raw_response": response}
+        return {"x": x, "y": y, "source": "vision", "raw_response": response}
 
     async def describe_screen(
         self,
