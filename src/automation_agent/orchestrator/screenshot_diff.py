@@ -6,10 +6,11 @@ This is a ~50ms check that can trigger immediate retry without waiting
 for a full vision verification round-trip.
 """
 
-import numpy as np
-from typing import Optional
+import io
 
-from automation_agent.perception.capture import ScreenCapturer
+import numpy as np
+from PIL import Image
+from typing import Any, Optional
 
 
 class ScreenshotDiffVerifier:
@@ -22,20 +23,31 @@ class ScreenshotDiffVerifier:
     A pixel is considered "changed" if its intensity differs by more than 10 units.
     The screen/region is considered "changed" if the fraction of changed pixels
     exceeds ``change_threshold``.
+
+    The capturer can be any object with a ``capture()`` method returning JPEG bytes
+    or a ``capture_screen()`` method returning a PIL Image.
     """
 
-    def __init__(self, capturer: ScreenCapturer, change_threshold: float = 0.01):
+    def __init__(self, capturer: Any, change_threshold: float = 0.01):
         self.capturer = capturer
         self.change_threshold = change_threshold
         self._before: Optional[np.ndarray] = None
+
+    def _grab(self) -> np.ndarray:
+        """Capture current screen as numpy array, adapting to capturer API."""
+        if hasattr(self.capturer, "capture_screen"):
+            return np.array(self.capturer.capture_screen())
+        # ScreenCapture.capture() returns JPEG bytes
+        raw = self.capturer.capture()
+        img = Image.open(io.BytesIO(raw))
+        return np.array(img)
 
     def capture_before(self) -> None:
         """Capture screenshot before action.
 
         Stores the current screen as a numpy array for later comparison.
         """
-        img = self.capturer.capture_screen()
-        self._before = np.array(img)
+        self._before = self._grab()
 
     def screen_changed(self) -> bool:
         """Check if the full screen changed since capture_before().
@@ -45,7 +57,7 @@ class ScreenshotDiffVerifier:
         """
         if self._before is None:
             return True
-        after = np.array(self.capturer.capture_screen())
+        after = self._grab()
         if self._before.shape != after.shape:
             return True
         diff = np.abs(self._before.astype(np.float32) - after.astype(np.float32))
@@ -66,7 +78,7 @@ class ScreenshotDiffVerifier:
         """
         if self._before is None:
             return True
-        after = np.array(self.capturer.capture_screen())
+        after = self._grab()
         if self._before.shape != after.shape:
             return True
         h, w = self._before.shape[:2]

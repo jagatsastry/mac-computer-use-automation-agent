@@ -102,6 +102,36 @@ async def run_agent(
     logger.info("using_actuator", actuator=type(actuator).__name__)
     print(f"[INFO] Using actuator: {type(actuator).__name__}")
 
+    # Initialize optional next-gen modules
+    screenshot_diff = None
+    context_monitor = None
+    grounding_router = None
+
+    if config.use_accessibility and coordinator.accessibility:
+        try:
+            from .orchestrator.context_monitor import ContextMonitor
+            context_monitor = ContextMonitor(accessibility=coordinator.accessibility)
+            logger.info("context_monitor_enabled")
+        except Exception:
+            pass
+
+        try:
+            from .orchestrator.grounding_router import GroundingRouter
+            grounding_router = GroundingRouter(
+                accessibility=coordinator.accessibility,
+                vision_coordinator=coordinator,
+            )
+            logger.info("grounding_router_enabled")
+        except Exception:
+            pass
+
+    try:
+        from .orchestrator.screenshot_diff import ScreenshotDiffVerifier
+        screenshot_diff = ScreenshotDiffVerifier(capturer=coordinator.capture)
+        logger.info("screenshot_diff_enabled")
+    except Exception:
+        pass
+
     # Create agent
     agent = AutomationAgent(
         planner=planner,
@@ -109,6 +139,9 @@ async def run_agent(
         coordinator=coordinator,
         actuator=actuator,
         config=config,
+        screenshot_diff=screenshot_diff,
+        context_monitor=context_monitor,
+        grounding_router=grounding_router,
     )
 
     if dry_run:
