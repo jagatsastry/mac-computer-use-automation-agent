@@ -16,20 +16,12 @@ max-retries: 3
 ---
 
 ## Steps
-1. Open Safari
+1. Use activate_app to open Safari
    - verify: Safari is frontmost app
-2. Click the address bar or press Cmd+L
-   - verify: Address bar is focused
-3. Type "https://www.amazon.com" and press Enter
-   - verify: Amazon homepage or search bar visible
-4. Find the Amazon search bar and click it
-   - verify: Amazon search bar is focused
-5. Type "{{product}}" and press Enter
-   - verify: Amazon search results page visible showing {{product}} listings
-6. Find the "Sort by" dropdown and click it
-   - verify: Sort options visible
-7. Select "Price: Low to High"
-   - verify: Results re-sorted with lowest price items first
+2. Use open_url to navigate to https://www.amazon.com/s?k={{product}}&s=price-asc-rank
+   - verify: Amazon search results page visible showing {{product}} listings sorted by price
+3. Use done to confirm results are visible
+   - verify: Amazon search results visible with price-sorted listings
 
 ## Error Recovery
 - If login page appears: wait for user to sign in
