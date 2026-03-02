@@ -54,20 +54,20 @@ curl -s http://localhost:8090/v1/models
 AGENT_VISION_SERVER_URL=http://localhost:8090 \
 AGENT_VISION_MODEL=Qwen2.5-VL-7B-Instruct-q4_k_m.gguf \
 AGENT_MODEL_PROVIDER=local \
-python3 -m automation_agent "Show me the cheapest shirts for men on Amazon"
+.venv/bin/python -m automation_agent "Show me the cheapest shirts for men on Amazon"
 ```
 
 ### With Claude API vision
 
 ```bash
 AGENT_MODEL_PROVIDER=anthropic \
-python3 -m automation_agent "Open Calculator and compute 7 * 8"
+.venv/bin/python -m automation_agent "Open Calculator and compute 7 * 8"
 ```
 
 ### Dry run (plan only, no execution)
 
 ```bash
-python3 -m automation_agent --dry-run "Open Safari and search Google for weather"
+.venv/bin/python -m automation_agent --dry-run "Open Safari and search Google for weather"
 ```
 
 ### With debug logging
@@ -77,7 +77,7 @@ AGENT_LOG_LEVEL=DEBUG \
 AGENT_VISION_SERVER_URL=http://localhost:8090 \
 AGENT_VISION_MODEL=Qwen2.5-VL-7B-Instruct-q4_k_m.gguf \
 AGENT_MODEL_PROVIDER=local \
-python3 -m automation_agent "Your prompt here"
+.venv/bin/python -m automation_agent "Your prompt here"
 ```
 
 ## Logs
@@ -129,28 +129,28 @@ tail -f /Users/jagatp/workspace/macos-automation-agent/logs/automation_agent.log
 
 ```bash
 # Calculator
-python3 -m automation_agent "Open Calculator and compute 3 * 18"
+.venv/bin/python -m automation_agent "Open Calculator and compute 3 * 18"
 
 # Amazon shopping (uses amazon-search skill)
-python3 -m automation_agent "Show me the cheapest shirts for men on Amazon"
-python3 -m automation_agent "Find the cheapest wireless mouse on Amazon"
-python3 -m automation_agent "Search Amazon for USB-C cables sorted by price"
+.venv/bin/python -m automation_agent "Show me the cheapest shirts for men on Amazon"
+.venv/bin/python -m automation_agent "Find the cheapest wireless mouse on Amazon"
+.venv/bin/python -m automation_agent "Search Amazon for USB-C cables sorted by price"
 
 # Safari navigation
-python3 -m automation_agent "Open Safari and go to news.ycombinator.com"
-python3 -m automation_agent "Open https://weather.com in Safari"
+.venv/bin/python -m automation_agent "Open Safari and go to news.ycombinator.com"
+.venv/bin/python -m automation_agent "Open https://weather.com in Safari"
 
 # App management
-python3 -m automation_agent "Open Notes and create a new note"
-python3 -m automation_agent "Quit Safari"
-python3 -m automation_agent "Open Finder and go to Downloads"
+.venv/bin/python -m automation_agent "Open Notes and create a new note"
+.venv/bin/python -m automation_agent "Quit Safari"
+.venv/bin/python -m automation_agent "Open Finder and go to Downloads"
 
 # Multi-step
-python3 -m automation_agent "Open Calculator, type 42 * 17, and press equals"
-python3 -m automation_agent "Open Safari, go to Google, and search for best coffee shops nearby"
+.venv/bin/python -m automation_agent "Open Calculator, type 42 * 17, and press equals"
+.venv/bin/python -m automation_agent "Open Safari, go to Google, and search for best coffee shops nearby"
 
 # Dry run (see the plan without executing)
-python3 -m automation_agent --dry-run "Order a pizza on DoorDash"
+.venv/bin/python -m automation_agent --dry-run "Order a pizza on DoorDash"
 ```
 
 ## Benchmark Vision Backends
@@ -159,7 +159,7 @@ Compare llama.cpp vs Ollama speed:
 
 ```bash
 # Ensure both servers are running, then:
-python3 scripts/benchmark_vision.py
+.venv/bin/python scripts/benchmark_vision.py
 ```
 
 ## Tests
