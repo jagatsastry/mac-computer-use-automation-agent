@@ -121,6 +121,34 @@ tail -f /Users/jagatp/workspace/macos-automation-agent/logs/automation_agent.log
 | `AGENT_LOG_DIR` | `logs/` | Directory for log files |
 | `AGENT_EVENT_LOG_DIR` | `logs/runs/` | Directory for per-run event logs |
 
+## Example Prompts
+
+```bash
+# Calculator
+python -m automation_agent "Open Calculator and compute 3 * 18"
+
+# Amazon shopping (uses amazon-search skill)
+python -m automation_agent "Show me the cheapest shirts for men on Amazon"
+python -m automation_agent "Find the cheapest wireless mouse on Amazon"
+python -m automation_agent "Search Amazon for USB-C cables sorted by price"
+
+# Safari navigation
+python -m automation_agent "Open Safari and go to news.ycombinator.com"
+python -m automation_agent "Open https://weather.com in Safari"
+
+# App management
+python -m automation_agent "Open Notes and create a new note"
+python -m automation_agent "Quit Safari"
+python -m automation_agent "Open Finder and go to Downloads"
+
+# Multi-step
+python -m automation_agent "Open Calculator, type 42 * 17, and press equals"
+python -m automation_agent "Open Safari, go to Google, and search for best coffee shops nearby"
+
+# Dry run (see the plan without executing)
+python -m automation_agent --dry-run "Order a pizza on DoorDash"
+```
+
 ## Benchmark Vision Backends
 
 Compare llama.cpp vs Ollama speed:
