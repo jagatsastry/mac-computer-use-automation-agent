@@ -1,5 +1,9 @@
 # Quick Start
 
+```bash
+cd /Users/jagatp/workspace/macos-automation-agent
+```
+
 ## Prerequisites
 
 1. **Python 3.9+** with the project installed:
