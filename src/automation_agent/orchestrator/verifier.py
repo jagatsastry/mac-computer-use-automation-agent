@@ -2,7 +2,7 @@
 
 Three-tier verification strategy:
   Tier 0: Accessibility API state (future — not implemented yet)
-  Tier 1: Hammerspoon state query via actuator.get_state() (~50ms)
+  Tier 1: Actuator state query via actuator.get_state() (~50ms)
   Tier 2: Vision screenshot verification via coordinator.verify_condition() (~2-5s)
 """
 
@@ -10,16 +10,20 @@ import base64
 import time
 from typing import Any, Dict, Optional, Tuple
 
+import structlog
+
 from automation_agent.shared_models import ActionStep, StepResult
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
+
+slog = structlog.get_logger(__name__)
 
 
 class StepVerifier:
     """Three-tier verification. Used by both Orchestrator and tests.
 
     Tier 0: Accessibility API state (future -- not implemented yet)
-    Tier 1: Hammerspoon state query via actuator.get_state() (~50ms)
+    Tier 1: Actuator state query via actuator.get_state() (~50ms)
     Tier 2: Vision screenshot verification via coordinator.verify_condition() (~2-5s)
     """
 
@@ -71,11 +75,18 @@ class StepVerifier:
                 duration_ms=duration,
             )
 
-        # Tier 1: Hammerspoon state query (fast)
+        # Tier 1: Actuator state query (fast)
         if act:
             tier1_result = self._verify_tier1(step, act)
             if tier1_result is not None:  # Conclusive (pass or fail)
                 duration = int((time.monotonic() - start) * 1000)
+                emoji = "✅" if tier1_result[0] else "❌"
+                slog.info(
+                    f"{emoji} Verified (tier1)",
+                    condition=step.verify,
+                    passed=tier1_result[0],
+                    duration_ms=duration,
+                )
                 if self.logger:
                     self.logger.log_event(
                         EventType.VERIFY_PASS if tier1_result[0] else EventType.VERIFY_FAIL,
@@ -84,7 +95,7 @@ class StepVerifier:
                 return StepResult(
                     step=step,
                     success=tier1_result[0],
-                    verification_method="hammerspoon_state",
+                    verification_method="actuator_state",
                     evidence=tier1_result[1],
                     duration_ms=duration,
                 )
@@ -112,6 +123,13 @@ class StepVerifier:
             except Exception:
                 pass
 
+            emoji = "✅" if tier2_result[0] else "❌"
+            slog.info(
+                f"{emoji} Verified (tier2, vision)",
+                condition=step.verify,
+                passed=tier2_result[0],
+                duration_ms=duration,
+            )
             if self.logger:
                 event_type = EventType.VERIFY_PASS if tier2_result[0] else EventType.VERIFY_FAIL
                 self.logger.log_event(event_type, f"Tier 2: {tier2_result[1]}")
@@ -138,7 +156,7 @@ class StepVerifier:
     def _verify_tier1(
         self, step: ActionStep, actuator
     ) -> Optional[Tuple[bool, str]]:
-        """Tier 1: Fast verification via Hammerspoon state.
+        """Tier 1: Fast verification via actuator state.
 
         Returns (success, evidence) if conclusive, None if inconclusive.
         """
@@ -150,7 +168,7 @@ class StepVerifier:
             expected_app = step.params["app_name"]
             actual_app = state.get("app_name", "")
             if not actual_app:
-                # Hammerspoon not responding — inconclusive, escalate
+                # Actuator not responding — inconclusive, escalate
                 return None
             if (
                 expected_app.lower() in actual_app.lower()

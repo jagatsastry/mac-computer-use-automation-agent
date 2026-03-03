@@ -1,7 +1,7 @@
-"""AppleScript-based actuator — fallback when Hammerspoon is unavailable.
+"""AppleScript-based actuator for macOS desktop automation.
 
-Uses osascript to execute common desktop automation actions. Slower and less
-capable than Hammerspoon but works without any additional setup on macOS.
+Uses osascript to execute common desktop automation actions.
+Works without any additional setup on macOS.
 """
 
 import subprocess

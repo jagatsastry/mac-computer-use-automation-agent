@@ -1,7 +1,7 @@
 """Self-test for the Actuator component.
 
-Performs real integration tests against Hammerspoon.
-Only meaningful when Hammerspoon is installed and running.
+Performs real integration tests against the AppleScript actuator.
+Only meaningful on macOS where osascript is available.
 
 Usage:
     PYTHONPATH=src python -m automation_agent.actuator.self_test
@@ -10,12 +10,12 @@ Usage:
 import json
 import sys
 
-from automation_agent.actuator.actuator import HammerspoonActuator
+from automation_agent.actuator import create_actuator
 
 
 def self_test() -> bool:
-    """Run self-test against real Hammerspoon. Returns True if all checks pass."""
-    actuator = HammerspoonActuator()
+    """Run self-test against real AppleScript actuator. Returns True if all checks pass."""
+    actuator = create_actuator()
     passed = 0
     failed = 0
 
@@ -34,12 +34,11 @@ def self_test() -> bool:
     print("Actuator Self-Test")
     print("=" * 50)
 
-    # Check 1: hs CLI available
+    # Check 1: osascript available
     available = actuator.is_available()
-    check("hs CLI available", available, f"path={actuator._hs_path}")
+    check("osascript available", available)
     if not available:
-        print("\nCannot proceed: Hammerspoon 'hs' CLI not found.")
-        print("Install Hammerspoon and enable CLI: Hammerspoon > Preferences > Enable CLI")
+        print("\nCannot proceed: osascript not available. Requires macOS.")
         return False
 
     # Check 2: get_state returns valid data

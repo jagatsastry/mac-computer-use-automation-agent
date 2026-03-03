@@ -60,7 +60,7 @@ async def _run_agent(goal: str, config: AgentConfig):
     from automation_agent.planner.planner import ActionPlannerImpl
     from automation_agent.skills.registry import SkillRegistryImpl
     from automation_agent.vision.coordinator import ScreenCoordinatorImpl
-    from automation_agent.actuator.hammerspoon import HammerspoonActuator
+    from automation_agent.actuator import create_actuator
     from automation_agent.logging.event_logger import EventLogger
     from automation_agent.orchestrator.agent import AutomationAgent
 
@@ -68,7 +68,7 @@ async def _run_agent(goal: str, config: AgentConfig):
     planner = ActionPlannerImpl(config)
     skill_registry = SkillRegistryImpl(config.skill_library_path)
     coordinator = ScreenCoordinatorImpl(config)
-    actuator = HammerspoonActuator(cli_path=config.hammerspoon_cli_path)
+    actuator = create_actuator(config)
     logger = EventLogger(config.event_log_dir)
 
     agent = AutomationAgent(

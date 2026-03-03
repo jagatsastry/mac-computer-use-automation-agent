@@ -5,10 +5,12 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+import structlog
+
 from automation_agent.config import AgentConfig
 from automation_agent.vision.capture import ScreenCapture
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Registry mapping model names to their coordinate output format.
 # This is explicit — no heuristic guessing. If a model is not listed,
@@ -53,11 +55,10 @@ class ScreenCoordinatorImpl:
                 from automation_agent.perception.accessibility import AccessibilityBridge
 
                 self.accessibility = AccessibilityBridge()
-                logger.info("Accessibility bridge initialized")
+                logger.info("🔧 Accessibility bridge initialized")
             except Exception:
                 logger.warning(
-                    "Failed to initialize AccessibilityBridge; "
-                    "falling back to vision-only mode",
+                    "🔧 Failed to initialize AccessibilityBridge, falling back to vision-only mode",
                     exc_info=True,
                 )
 
@@ -292,8 +293,11 @@ class ScreenCoordinatorImpl:
                 if e.status_code in (429, 529) and attempt < max_retries:
                     delay = base_delay * (2 ** attempt)
                     logger.warning(
-                        "Anthropic API %d error (attempt %d/%d), retrying in %.1fs",
-                        e.status_code, attempt + 1, max_retries, delay,
+                        "🔄 Anthropic API error, retrying",
+                        status_code=e.status_code,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay_s=delay,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -402,13 +406,16 @@ class ScreenCoordinatorImpl:
                 if ax_element and ax_element.center:
                     cx, cy = ax_element.center
                     logger.debug(
-                        "Accessibility hit for '%s' at (%d, %d)", description, cx, cy
+                        "👁️ Accessibility hit",
+                        description=description,
+                        x=cx,
+                        y=cy,
                     )
                     return {"x": cx, "y": cy, "source": "accessibility"}
             except Exception:
                 logger.debug(
-                    "Accessibility lookup failed for '%s', falling back to vision",
-                    description,
+                    "👁️ Accessibility lookup failed, falling back to vision",
+                    description=description,
                     exc_info=True,
                 )
 
@@ -431,16 +438,17 @@ class ScreenCoordinatorImpl:
                     x, y = self._convert_coordinates(
                         raw_coords[0], raw_coords[1], model, w, h
                     )
+                    logger.info("👁️ Element found via grounding model", description=description, x=x, y=y)
                     return {
                         "x": x, "y": y,
                         "source": "vision", "raw_response": response,
                     }
                 logger.info(
-                    "Grounding model returned no result, falling back to vision model"
+                    "👁️ Grounding model returned no result, falling back to vision model"
                 )
             except Exception:
                 logger.warning(
-                    "Grounding model failed, falling back to vision model",
+                    "👁️ Grounding model failed, falling back to vision model",
                     exc_info=True,
                 )
 
@@ -460,14 +468,14 @@ class ScreenCoordinatorImpl:
     async def describe_screen(
         self,
         screenshot_b64: Optional[str] = None,
-        hammerspoon_state: Optional[Dict[str, Any]] = None,
+        desktop_state: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Describe current screen state, optionally merging Hammerspoon state.
+        """Describe current screen state, optionally merging desktop state.
 
         Args:
             screenshot_b64: Optional pre-captured screenshot. If None, captures one.
-            hammerspoon_state: Optional dict with keys like 'app_name', 'window_title'
-                from Hammerspoon. If provided, this info is prepended to the description.
+            desktop_state: Optional dict with keys like 'app_name', 'window_title'
+                from the actuator. If provided, this info is prepended to the description.
 
         Returns:
             Natural language description of the screen.
@@ -477,10 +485,11 @@ class ScreenCoordinatorImpl:
 
         prompt = self._load_prompt("describe_screen.md")
         vision_description = await self._call_vision_model(prompt, screenshot_b64)
+        logger.info("👁️ Screen described", length=len(vision_description))
 
-        if hammerspoon_state:
-            app_name = hammerspoon_state.get("app_name", "Unknown")
-            window_title = hammerspoon_state.get("window_title", "Unknown")
+        if desktop_state:
+            app_name = desktop_state.get("app_name", "Unknown")
+            window_title = desktop_state.get("window_title", "Unknown")
             return (
                 f"Frontmost app: {app_name} (window: '{window_title}'). "
                 f"{vision_description}"
@@ -510,7 +519,10 @@ class ScreenCoordinatorImpl:
 
         # Parse YES/NO response, conservative default
         response_lower = response.strip().lower()
-        return response_lower.startswith("yes")
+        result = response_lower.startswith("yes")
+        emoji = "✅" if result else "❌"
+        logger.info(f"{emoji} Vision verify", condition=condition, result=result)
+        return result
 
     async def capture_screenshot(self) -> str:
         """Capture and return base64 screenshot.

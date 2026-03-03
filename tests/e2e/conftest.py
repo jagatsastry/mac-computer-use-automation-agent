@@ -4,7 +4,7 @@ from automation_agent.config import AgentConfig
 from automation_agent.planner import ActionPlannerImpl
 from automation_agent.skills import SkillRegistryImpl
 from automation_agent.vision import ScreenCoordinatorImpl
-from automation_agent.actuator import HammerspoonActuator
+from automation_agent.actuator import AppleScriptActuator
 from automation_agent.orchestrator import AutomationAgent
 from automation_agent.logging.event_logger import EventLogger
 
@@ -15,7 +15,7 @@ def real_config():
 
 @pytest.fixture
 def real_actuator(real_config):
-    return HammerspoonActuator(real_config)
+    return AppleScriptActuator(real_config)
 
 @pytest.fixture
 def real_agent(real_config, tmp_path):
@@ -24,7 +24,7 @@ def real_agent(real_config, tmp_path):
     planner = ActionPlannerImpl(real_config)
     skills = SkillRegistryImpl()
     coordinator = ScreenCoordinatorImpl(real_config)
-    actuator = HammerspoonActuator(real_config)
+    actuator = AppleScriptActuator(real_config)
     return AutomationAgent(
         planner=planner,
         skill_registry=skills,
@@ -34,12 +34,12 @@ def real_agent(real_config, tmp_path):
         logger=logger,
     )
 
-def requires_hammerspoon():
-    """Skip test if Hammerspoon not available."""
+def requires_actuator():
+    """Skip test if no actuator is available (requires macOS with osascript)."""
     import shutil
     return pytest.mark.skipif(
-        shutil.which("hs") is None,
-        reason="Hammerspoon 'hs' CLI not available"
+        shutil.which("osascript") is None,
+        reason="osascript not available (not on macOS)"
     )
 
 def requires_anthropic():

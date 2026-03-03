@@ -47,7 +47,7 @@ class ActionPlannerImpl:
         prompt = self._build_plan_prompt(
             goal, screen_description, skill_context, desktop_context
         )
-        logger.info("planning_started", goal=goal)
+        logger.info("📋 Planning started", goal=goal)
         start = time.monotonic()
         response = await self._call_llm(prompt)
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -56,7 +56,7 @@ class ActionPlannerImpl:
         plan.planning_duration_ms = duration_ms
 
         logger.info(
-            "planning_complete",
+            "📋 Planning complete",
             duration_ms=duration_ms,
             input_tokens=response.get("usage", {}).get("input_tokens"),
             output_tokens=response.get("usage", {}).get("output_tokens"),
@@ -95,7 +95,7 @@ class ActionPlannerImpl:
             goal, screen_description, history, retry_strategies_used,
             desktop_context,
         )
-        logger.info("replanning_started", goal=goal)
+        logger.info("🔄 Replanning started", goal=goal)
         start = time.monotonic()
         response = await self._call_llm(prompt)
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -104,7 +104,7 @@ class ActionPlannerImpl:
         plan.planning_duration_ms = duration_ms
 
         logger.info(
-            "replanning_complete",
+            "🔄 Replanning complete",
             duration_ms=duration_ms,
             input_tokens=response.get("usage", {}).get("input_tokens"),
             output_tokens=response.get("usage", {}).get("output_tokens"),

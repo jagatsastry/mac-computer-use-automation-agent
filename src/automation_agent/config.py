@@ -120,15 +120,6 @@ class AgentConfig(BaseSettings):
         default=False,
         description="Use macOS Accessibility API for fast UI element lookup",
     )
-    use_hammerspoon: bool = Field(
-        default=False,
-        description="Use Hammerspoon for action execution",
-    )
-    hammerspoon_cli_path: Optional[str] = Field(
-        default=None,
-        description="Path to Hammerspoon 'hs' CLI. Auto-detected from PATH if not set.",
-    )
-
     # Screenshot / Vision Configuration
     screenshot_resolution: Tuple[int, int] = Field(
         default=(1024, 768),

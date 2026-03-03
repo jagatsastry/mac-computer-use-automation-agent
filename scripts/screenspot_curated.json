@@ -1,0 +1,52 @@
+[
+  {
+    "file_name": "pc_sample1.png",
+    "instruction": "close",
+    "bbox": [0.9479, 0.1444, 0.9938, 0.2074],
+    "data_type": "icon",
+    "data_source": "macOS",
+    "image_url": "",
+    "image_width": 960,
+    "image_height": 540
+  },
+  {
+    "file_name": "pc_sample2.png",
+    "instruction": "minimize this window",
+    "bbox": [0.8958, 0.1444, 0.9417, 0.2074],
+    "data_type": "icon",
+    "data_source": "macOS",
+    "image_url": "",
+    "image_width": 960,
+    "image_height": 540
+  },
+  {
+    "file_name": "mobile_sample1.png",
+    "instruction": "Settings",
+    "bbox": [0.4167, 0.7222, 0.5833, 0.8148],
+    "data_type": "text",
+    "data_source": "iOS",
+    "image_url": "",
+    "image_width": 360,
+    "image_height": 640
+  },
+  {
+    "file_name": "web_sample1.png",
+    "instruction": "Sign In",
+    "bbox": [0.8542, 0.0185, 0.9375, 0.0556],
+    "data_type": "text",
+    "data_source": "GitLab",
+    "image_url": "",
+    "image_width": 1920,
+    "image_height": 1080
+  },
+  {
+    "file_name": "win_sample1.png",
+    "instruction": "Start menu",
+    "bbox": [0.0000, 0.9537, 0.0313, 1.0000],
+    "data_type": "icon",
+    "data_source": "windows",
+    "image_url": "",
+    "image_width": 1920,
+    "image_height": 1080
+  }
+]

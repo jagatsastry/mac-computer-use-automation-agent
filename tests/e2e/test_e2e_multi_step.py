@@ -1,10 +1,10 @@
 import pytest
-from tests.e2e.conftest import requires_hammerspoon, requires_anthropic
+from tests.e2e.conftest import requires_actuator, requires_anthropic
 
 
 @pytest.mark.e2e
 class TestMultiStepE2E:
-    @requires_hammerspoon()
+    @requires_actuator()
     @requires_anthropic()
     async def test_google_search(self, real_agent):
         """Open Safari, navigate to Google, search for weather."""

@@ -6,26 +6,40 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+import structlog
 
+from automation_agent.config import AgentConfig
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
 from automation_agent.skills.matcher import match_skill
 from automation_agent.skills.models import Skill
+from automation_agent.skills.router import SkillRouter
+
+std_logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class SkillRegistryImpl:
     """Concrete implementation of the SkillRegistry protocol.
 
     Loads skill templates from .md files (YAML frontmatter + Markdown body),
-    matches user prompts to skills by keyword, and expands templates with
-    parameter values.
+    matches user prompts to skills via an LLM-driven router (with keyword
+    fallback), and expands templates with parameter values.
     """
 
-    def __init__(self, skill_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        skill_dir: Optional[Path] = None,
+        config: Optional[AgentConfig] = None,
+    ) -> None:
         self._skills: Dict[str, Skill] = {}
         self._skill_dir = skill_dir or Path(__file__).parent / "library"
+        self._config = config
         if self._skill_dir.is_dir():
             self.load_from_directory(self._skill_dir)
+        # Router created lazily after skills are loaded
+        self._router: Optional[SkillRouter] = None
+        if self._config is not None:
+            self._router = SkillRouter(self._config, self._skills)
 
     def load_from_directory(self, path: Path) -> None:
         """Load all .md skill files from a directory.
@@ -45,7 +59,7 @@ class SkillRegistryImpl:
                 if not _os_matches(skill.requires.os):
                     continue
                 if skill.name in self._skills:
-                    logger.warning(
+                    std_logger.warning(
                         "Duplicate skill name '%s': '%s' overwrites previous definition",
                         skill.name,
                         md_file,
@@ -54,6 +68,9 @@ class SkillRegistryImpl:
             except Exception:
                 # Skip malformed files during loading; validate_all catches them
                 continue
+        # Rebuild router when skills change
+        if self._config is not None:
+            self._router = SkillRouter(self._config, self._skills)
 
     def load_from_string(self, content: str) -> Skill:
         """Load a single skill from raw file content.
@@ -66,19 +83,54 @@ class SkillRegistryImpl:
         """
         skill = parse_skill_file(content)
         self._skills[skill.name] = skill
+        # Rebuild router when skills change
+        if self._config is not None:
+            self._router = SkillRouter(self._config, self._skills)
         return skill
 
-    def match(self, prompt: str) -> Optional[Dict[str, Any]]:
+    async def match(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Find a matching skill for the given prompt.
+
+        Uses the LLM-driven SkillRouter when available, falling back to
+        keyword matching if the router is not configured or the LLM call fails.
 
         Returns:
             Dict with 'skill_name', 'expanded_steps', 'params', or None.
         """
+        # Primary path: LLM router
+        if self._router is not None:
+            router_result = await self._router.route(prompt)
+            if router_result is not None:
+                skill_name = router_result["skill_name"]
+                params = router_result.get("params", {})
+                expanded = self.expand(skill_name, params)
+                skill = self._skills[skill_name]
+                logger.info(
+                    "🤔 Skill matched via LLM router",
+                    skill_name=skill_name,
+                    params=params,
+                )
+                return {
+                    "skill_name": skill_name,
+                    "expanded_steps": expanded or skill.steps_text,
+                    "params": params,
+                }
+
+        # Fallback: keyword matching (no param extraction)
         result = match_skill(prompt, list(self._skills.values()))
         if result is None:
             return None
         skill, params = result
-        expanded = self.expand(skill.name, params)
+        # Fallback returns empty params — skip expand to avoid missing-param errors
+        try:
+            expanded = self.expand(skill.name, params)
+        except ValueError:
+            expanded = None
+        logger.info(
+            "🤔 Skill matched via keyword fallback",
+            skill_name=skill.name,
+            params=params,
+        )
         return {
             "skill_name": skill.name,
             "expanded_steps": expanded or skill.steps_text,
@@ -132,7 +184,7 @@ class SkillRegistryImpl:
             if pname in params:
                 return params[pname]
             # Optional param not provided — log warning and strip
-            logger.warning(
+            std_logger.warning(
                 "Unexpanded placeholder '{{%s}}' in skill '%s' (stripped)",
                 pname,
                 skill_name,

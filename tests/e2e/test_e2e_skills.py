@@ -1,10 +1,10 @@
 import pytest
-from tests.e2e.conftest import requires_hammerspoon, requires_anthropic
+from tests.e2e.conftest import requires_actuator, requires_anthropic
 
 
 @pytest.mark.e2e
 class TestSkillsE2E:
-    @requires_hammerspoon()
+    @requires_actuator()
     @requires_anthropic()
     async def test_skill_based_google_search(self, real_agent):
         """Test that a skill-matched task uses skill context."""

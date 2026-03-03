@@ -21,7 +21,7 @@ async def self_test():
         from automation_agent.planner.planner import ActionPlannerImpl
         from automation_agent.skills.registry import SkillRegistryImpl
         from automation_agent.vision.coordinator import ScreenCoordinatorImpl
-        from automation_agent.actuator.hammerspoon import HammerspoonActuator
+        from automation_agent.actuator import create_actuator
         from automation_agent.orchestrator.agent import AutomationAgent
 
         config = AgentConfig(_env_file=None)
@@ -30,13 +30,11 @@ async def self_test():
         planner = ActionPlannerImpl(config)
         skill_registry = SkillRegistryImpl(config.skill_library_path)
         coordinator = ScreenCoordinatorImpl(config)
-        actuator = HammerspoonActuator(cli_path=config.hammerspoon_cli_path)
+        actuator = create_actuator(config)
 
         # Check actuator availability
         if not actuator.is_available():
-            print("[SKIP] Hammerspoon not available. Install and configure it first.")
-            print("       brew install hammerspoon")
-            print("       Enable the IPC module in Hammerspoon config.")
+            print("[SKIP] Actuator not available. Requires macOS with osascript.")
             return False
 
         agent = AutomationAgent(

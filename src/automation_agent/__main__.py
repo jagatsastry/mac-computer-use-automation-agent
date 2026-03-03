@@ -54,8 +54,6 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.model_provider = ModelProvider.LOCAL
         config.vision_model = "molmo"
 
-    if hasattr(args, "hammerspoon") and args.hammerspoon:
-        config.use_hammerspoon = True
 
 
 def _is_restaurant_prompt(prompt: str) -> bool:

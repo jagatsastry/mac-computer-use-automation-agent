@@ -162,7 +162,7 @@ def sample_step_result():
             verify="Calculator app is in foreground",
         ),
         success=True,
-        verification_method="hammerspoon_state",
+        verification_method="actuator_state",
         evidence="Frontmost app is 'Calculator'",
         duration_ms=120,
     )
@@ -264,7 +264,7 @@ def mock_actuator():
 def mock_skill_registry():
     """Mock SkillRegistry for testing."""
     registry = MagicMock()
-    registry.match = MagicMock(return_value=None)
+    registry.match = AsyncMock(return_value=None)
     registry.list_skills = MagicMock(return_value=[])
     registry.expand = MagicMock(return_value=None)
     registry.validate_all = MagicMock(return_value=[])
@@ -281,7 +281,7 @@ def mock_verifier():
         return_value=StepResult(
             step=ActionStep(action="click", params={}, verify="element clicked"),
             success=True,
-            verification_method="hammerspoon_state",
+            verification_method="actuator_state",
             evidence="State confirmed",
         )
     )

@@ -4,11 +4,15 @@ import asyncio
 import time
 from typing import Optional
 
+import structlog
+
 from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, StepResult
 from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
 from automation_agent.orchestrator.verifier import StepVerifier
+
+slog = structlog.get_logger(__name__)
 
 
 class AutomationAgent:
@@ -42,6 +46,7 @@ class AutomationAgent:
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
         start = time.monotonic()
+        slog.info("🎯 Executing goal", goal=goal)
         self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
 
         step_results: list[StepResult] = []
@@ -50,17 +55,19 @@ class AutomationAgent:
         try:
             # 1. Check for matching skill
             skill_context = None
-            skill_match = self.skill_registry.match(goal)
+            skill_match = await self.skill_registry.match(goal)
             if skill_match:
                 skill_name = skill_match["skill_name"]
                 params = skill_match.get("params", {})
                 skill_context = self.skill_registry.expand(skill_name, params)
+                slog.info("🤔 Skill matched", skill_name=skill_name, params=params)
                 self.logger.log_event(
                     EventType.SKILL_MATCH,
                     f"Matched skill: {skill_name}",
                     data={"skill_name": skill_name, "params": params},
                 )
             else:
+                slog.info("🤔 No matching skill found")
                 self.logger.log_event(EventType.SKILL_NO_MATCH, "No matching skill found")
 
             # 2. Get screen description for context
@@ -87,6 +94,7 @@ class AutomationAgent:
             if desktop_context:
                 plan_kwargs["desktop_context"] = desktop_context
             plan = await self.planner.plan(goal, **plan_kwargs)
+            slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
                 f"Plan: {len(plan.steps)} steps",
@@ -183,6 +191,11 @@ class AutomationAgent:
 
             # Success
             duration = int((time.monotonic() - start) * 1000)
+            slog.info(
+                "🏁 Task completed",
+                duration_s=round(duration / 1000, 1),
+                iterations=iterations,
+            )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
             return ExecutionResult(
@@ -219,6 +232,7 @@ class AutomationAgent:
         plan: ActionPlan,
     ) -> StepResult:
         """Execute a single step: find element if needed, act, verify."""
+        slog.info("🎯 Executing step", step_index=index, action=step.action, params=step.params)
         self.logger.log_event(
             EventType.STEP_START,
             f"Step {index}: {step.action}",
@@ -317,6 +331,7 @@ class AutomationAgent:
         action = step.action
         params = step.params
 
+        slog.debug("🎯 Dispatching action", action=action, params=params)
         self.logger.log_event(EventType.ACTION_START, f"{action}({params})")
 
         try:
@@ -394,6 +409,12 @@ class AutomationAgent:
             current_result = result
             while current_result.retry_count < step.max_retries:
                 strategy, modified_params = self._vary_strategy(step, current_result)
+                slog.info(
+                    "🔄 Retrying step",
+                    step_index=index,
+                    strategy=strategy,
+                    attempt=current_result.retry_count + 1,
+                )
                 self.logger.log_event(
                     EventType.STEP_RETRY,
                     f"Retrying step {index} with strategy: {strategy}",

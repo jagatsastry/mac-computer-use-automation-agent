@@ -14,7 +14,7 @@ Usage:
 import json
 import sys
 
-from automation_agent.actuator.actuator import HammerspoonActuator
+from automation_agent.actuator import create_actuator
 
 
 def main() -> None:
@@ -23,18 +23,16 @@ def main() -> None:
         print(__doc__.strip())
         sys.exit(1)
 
-    actuator = HammerspoonActuator()
+    actuator = create_actuator()
     command = args[0].lower()
 
     if command == "status":
         available = actuator.is_available()
-        print(f"Hammerspoon hs CLI: {'available' if available else 'NOT FOUND'}")
-        if available:
-            print(f"  Path: {actuator._hs_path}")
+        print(f"Actuator (AppleScript): {'available' if available else 'NOT FOUND'}")
         sys.exit(0 if available else 1)
 
     if not actuator.is_available():
-        print("ERROR: Hammerspoon 'hs' CLI not found. Install Hammerspoon and enable the CLI.")
+        print("ERROR: osascript not available. This requires macOS.")
         sys.exit(1)
 
     if command == "click":

@@ -74,7 +74,7 @@ class ScreenCoordinator(Protocol):
     async def describe_screen(
         self,
         screenshot_b64: Optional[str] = None,
-        hammerspoon_state: Optional[Dict[str, Any]] = None,
+        desktop_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Describe the current screen state in natural language."""
         ...
@@ -131,7 +131,7 @@ class Actuator(Protocol):
 class SkillRegistry(Protocol):
     """Manages skill templates for common automation tasks."""
 
-    def match(self, prompt: str) -> Optional[Dict[str, Any]]:
+    async def match(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Find a matching skill for the given prompt.
 
         Returns dict with 'skill_name', 'expanded_steps', 'params', or None.
@@ -168,7 +168,7 @@ class Verifier(Protocol):
         """Verify a step's postcondition using tiered verification.
 
         Tier 0: Accessibility API state (if applicable)
-        Tier 1: Hammerspoon state query (~50ms)
+        Tier 1: Actuator state query (~50ms)
         Tier 2: Vision screenshot verification (~2-5s)
 
         Returns StepResult with verification_method and evidence.

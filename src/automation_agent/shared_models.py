@@ -113,7 +113,7 @@ class StepResult:
 
     step: ActionStep
     success: bool
-    verification_method: str = ""  # "accessibility" | "hammerspoon_state" | "vision" | "both"
+    verification_method: str = ""  # "accessibility" | "actuator_state" | "vision" | "both"
     evidence: str = ""  # MANDATORY — what was observed
     error: Optional[str] = None
     duration_ms: int = 0
@@ -123,7 +123,7 @@ class StepResult:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
-        valid_methods = {"", "accessibility", "hammerspoon_state", "vision", "both"}
+        valid_methods = {"", "accessibility", "actuator_state", "vision", "both"}
         if self.verification_method not in valid_methods:
             raise ValueError(
                 f"Unknown verification_method '{self.verification_method}'. "
