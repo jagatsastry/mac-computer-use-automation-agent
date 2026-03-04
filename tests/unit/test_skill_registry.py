@@ -1,8 +1,10 @@
 """Unit tests for the skill registry component."""
 
+import json
 import logging
 import textwrap
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,6 +12,7 @@ from automation_agent.skills.loader import parse_skill_file
 from automation_agent.skills.matcher import match_skill
 from automation_agent.skills.models import Skill, SkillParam, SkillRequirements
 from automation_agent.skills.registry import SkillRegistryImpl, validate_skill_file
+from automation_agent.skills.router import SkillRouter
 
 
 # ---------------------------------------------------------------------------
@@ -220,49 +223,119 @@ class TestExpand:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: match() with keyword hit -> correct skill
+# Test 5: async match() with LLM router mocked -> correct skill
 # ---------------------------------------------------------------------------
 
-class TestMatchKeywordHit:
-    def test_match_by_keyword(self, registry_with_sample):
-        result = registry_with_sample.match("I want to test something")
+class TestMatchWithRouter:
+    @pytest.mark.asyncio
+    async def test_match_via_router(self, tmp_path):
+        """When LLM router returns a result, match() uses it."""
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "test_skill.md").write_text(SAMPLE_SKILL_CONTENT)
+
+        # Create registry without config (no router) then patch
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        mock_router = AsyncMock()
+        mock_router.route.return_value = {
+            "skill_name": "test-skill",
+            "params": {"query": "pandas tutorial"},
+        }
+        registry._router = mock_router
+
+        result = await registry.match("I want to test pandas tutorial")
+        assert result is not None
+        assert result["skill_name"] == "test-skill"
+        assert result["params"]["query"] == "pandas tutorial"
+        assert "pandas tutorial" in result["expanded_steps"]
+        mock_router.route.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_match_router_returns_none_falls_back_to_keywords(self, tmp_path):
+        """When LLM router returns None, keyword fallback is used."""
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "test_skill.md").write_text(SAMPLE_SKILL_CONTENT)
+
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        mock_router = AsyncMock()
+        mock_router.route.return_value = None
+        registry._router = mock_router
+
+        result = await registry.match("I want to test something")
+        assert result is not None
+        assert result["skill_name"] == "test-skill"
+        # Keyword fallback returns empty params
+        assert result["params"] == {}
+
+    @pytest.mark.asyncio
+    async def test_match_no_router_uses_keyword_fallback(self, tmp_path):
+        """When no router configured, keyword fallback is used directly."""
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "test_skill.md").write_text(SAMPLE_SKILL_CONTENT)
+
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+        assert registry._router is None  # No config = no router
+
+        result = await registry.match("I want to test something")
         assert result is not None
         assert result["skill_name"] == "test-skill"
 
-    def test_match_by_keyword_case_insensitive(self, registry_with_sample):
-        result = registry_with_sample.match("Run the DEMO please")
-        assert result is not None
-        assert result["skill_name"] == "test-skill"
-
 
 # ---------------------------------------------------------------------------
-# Test 6: match() with no hit -> None
+# Test 6: async match() with no hit -> None
 # ---------------------------------------------------------------------------
 
-class TestMatchNoHit:
-    def test_no_match(self, registry_with_sample):
-        result = registry_with_sample.match("fly me to the moon")
+class TestMatchNoHitAsync:
+    @pytest.mark.asyncio
+    async def test_no_match(self, registry_with_sample):
+        result = await registry_with_sample.match("fly me to the moon")
         assert result is None
 
-    def test_empty_prompt(self, registry_with_sample):
-        result = registry_with_sample.match("")
+    @pytest.mark.asyncio
+    async def test_empty_prompt(self, registry_with_sample):
+        result = await registry_with_sample.match("")
         assert result is None
 
 
 # ---------------------------------------------------------------------------
-# Test 7: match() extracts params from prompt
+# Test 7: keyword fallback match (no param extraction)
 # ---------------------------------------------------------------------------
 
-class TestMatchExtractsParams:
-    def test_quoted_param_extraction(self, registry_with_sample):
-        result = registry_with_sample.match('test "pandas tutorial"')
+class TestKeywordFallbackMatch:
+    def test_keyword_match_returns_empty_params(self):
+        """Keyword fallback now returns empty params (no extract_params)."""
+        skill = Skill(
+            name="test-skill",
+            description="A test skill",
+            trigger_keywords=["test", "demo"],
+            parameters={
+                "query": SkillParam(type="string", required=True),
+            },
+            requires=SkillRequirements(),
+            success_condition="Done",
+            steps_text="1. Do something",
+        )
+        result = match_skill("I want to test something", [skill])
         assert result is not None
-        assert result["params"].get("query") == "pandas tutorial"
+        matched_skill, params = result
+        assert matched_skill.name == "test-skill"
+        assert params == {}  # No param extraction in fallback
 
-    def test_single_quoted_param_extraction(self, registry_with_sample):
-        result = registry_with_sample.match("test 'pandas tutorial'")
+    def test_keyword_match_case_insensitive(self):
+        skill = Skill(
+            name="demo-skill",
+            description="A demo",
+            trigger_keywords=["demo", "example"],
+            parameters={},
+            requires=SkillRequirements(),
+            success_condition="Done",
+            steps_text="1. Do it",
+        )
+        result = match_skill("Run the DEMO please", [skill])
         assert result is not None
-        assert result["params"].get("query") == "pandas tutorial"
+        assert result[0].name == "demo-skill"
 
 
 # ---------------------------------------------------------------------------
@@ -581,11 +654,12 @@ class TestNoRequiresBlock:
 
 
 # ---------------------------------------------------------------------------
-# Test 14: Strategy 2 param extraction preserves case
+# Test 14: Keyword fallback preserves case (no param extraction)
 # ---------------------------------------------------------------------------
 
-class TestStrategy2PreservesCase:
-    def test_strategy2_param_extraction_preserves_case(self):
+class TestKeywordFallbackPreservesCase:
+    def test_keyword_fallback_returns_empty_params(self):
+        """Keyword fallback returns empty params (extract_params removed)."""
         skill = Skill(
             name="send-email",
             description="Send an email",
@@ -599,9 +673,9 @@ class TestStrategy2PreservesCase:
         )
         result = match_skill("send email to John Smith", [skill])
         assert result is not None
-        _, params = result
-        assert "recipient" in params
-        assert "John Smith" in params["recipient"]
+        matched_skill, params = result
+        assert matched_skill.name == "send-email"
+        assert params == {}  # No param extraction in fallback
 
 
 # ---------------------------------------------------------------------------
@@ -740,3 +814,190 @@ class TestLoadFromString:
         # Verify appears in list_skills
         skills = registry.list_skills()
         assert any(s["name"] == "string-loaded" for s in skills)
+
+
+# ---------------------------------------------------------------------------
+# Test 19: SkillRouter builds skills summary correctly
+# ---------------------------------------------------------------------------
+
+class TestSkillRouterSummary:
+    def test_builds_summary(self):
+        skills = {
+            "test-skill": Skill(
+                name="test-skill",
+                description="A test skill",
+                trigger_keywords=["test"],
+                parameters={
+                    "query": SkillParam(
+                        type="string",
+                        required=True,
+                        description="The query",
+                        examples=["hello", "world"],
+                    ),
+                },
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Test",
+            ),
+        }
+        config = MagicMock()
+        config.model_provider.value = "local"
+        router = SkillRouter(config, skills)
+        summary = router._build_skills_summary()
+        assert "### test-skill" in summary
+        assert "A test skill" in summary
+        assert "query (required)" in summary
+        assert "'hello'" in summary
+
+
+# ---------------------------------------------------------------------------
+# Test 20: SkillRouter parses valid JSON response
+# ---------------------------------------------------------------------------
+
+class TestSkillRouterParseResponse:
+    def test_parse_valid_json(self):
+        skills = {
+            "test-skill": Skill(
+                name="test-skill",
+                description="A test skill",
+                trigger_keywords=["test"],
+                parameters={},
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Test",
+            ),
+        }
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response('{"skill_name": "test-skill", "params": {"q": "hello"}}')
+        assert result is not None
+        assert result["skill_name"] == "test-skill"
+        assert result["params"]["q"] == "hello"
+
+    def test_parse_null_skill(self):
+        skills = {}
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response('{"skill_name": null, "params": {}}')
+        assert result is None
+
+    def test_parse_markdown_wrapped_json(self):
+        skills = {
+            "test-skill": Skill(
+                name="test-skill",
+                description="A test",
+                trigger_keywords=["test"],
+                parameters={},
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Test",
+            ),
+        }
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response(
+            '```json\n{"skill_name": "test-skill", "params": {}}\n```'
+        )
+        assert result is not None
+        assert result["skill_name"] == "test-skill"
+
+    def test_parse_invalid_json(self):
+        skills = {}
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response("not json at all")
+        assert result is None
+
+    def test_parse_unknown_skill_returns_none(self):
+        skills = {
+            "real-skill": Skill(
+                name="real-skill",
+                description="Real",
+                trigger_keywords=["real"],
+                parameters={},
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Do",
+            ),
+        }
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response('{"skill_name": "fake-skill", "params": {}}')
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Test 21: SkillRouter.route() end-to-end with mocked LLM
+# ---------------------------------------------------------------------------
+
+class TestSkillRouterRoute:
+    @pytest.mark.asyncio
+    async def test_route_local_success(self):
+        skills = {
+            "amazon-search": Skill(
+                name="amazon-search",
+                description="Search Amazon",
+                trigger_keywords=["amazon", "search"],
+                parameters={
+                    "product": SkillParam(type="string", required=True, description="Product"),
+                },
+                requires=SkillRequirements(),
+                success_condition="Results visible",
+                steps_text="1. Search",
+            ),
+        }
+        config = MagicMock()
+        config.model_provider.value = "local"
+        router = SkillRouter(config, skills)
+
+        with patch.object(router, "_call_local", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = json.dumps({
+                "skill_name": "amazon-search",
+                "params": {"product": "wireless mouse"},
+            })
+            result = await router.route("Search for the cheapest wireless mouse on Amazon")
+
+        assert result is not None
+        assert result["skill_name"] == "amazon-search"
+        assert result["params"]["product"] == "wireless mouse"
+
+    @pytest.mark.asyncio
+    async def test_route_no_match(self):
+        skills = {
+            "amazon-search": Skill(
+                name="amazon-search",
+                description="Search Amazon",
+                trigger_keywords=["amazon"],
+                parameters={},
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Search",
+            ),
+        }
+        config = MagicMock()
+        config.model_provider.value = "local"
+        router = SkillRouter(config, skills)
+
+        with patch.object(router, "_call_local", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = '{"skill_name": null, "params": {}}'
+            result = await router.route("What's the weather today?")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_route_llm_failure_returns_none(self):
+        skills = {}
+        config = MagicMock()
+        config.model_provider.value = "local"
+        router = SkillRouter(config, skills)
+
+        with patch.object(router, "_call_local", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = Exception("Connection refused")
+            result = await router.route("anything")
+
+        assert result is None

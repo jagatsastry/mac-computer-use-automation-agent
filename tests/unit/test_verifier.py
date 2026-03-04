@@ -57,7 +57,7 @@ def logger(tmp_log_dir):
 
 
 class TestTier1Verification:
-    """Tests for Tier 1 (Hammerspoon state) verification."""
+    """Tests for Tier 1 (actuator state) verification."""
 
     async def test_tier1_confirms_app_name_match(self, mock_act, logger):
         """1. Tier 1 confirms when frontmost app matches expected app."""
@@ -71,7 +71,7 @@ class TestTier1Verification:
         result = await verifier.verify(step, {"success": True, "output": ""})
 
         assert result.success is True
-        assert result.verification_method == "hammerspoon_state"
+        assert result.verification_method == "actuator_state"
         assert "Calculator" in result.evidence
 
     async def test_tier1_denies_wrong_app(self, mock_act, logger):
@@ -91,7 +91,7 @@ class TestTier1Verification:
         result = await verifier.verify(step, {"success": True, "output": ""})
 
         assert result.success is False
-        assert result.verification_method == "hammerspoon_state"
+        assert result.verification_method == "actuator_state"
         assert "Finder" in result.evidence
         assert "Safari" in result.evidence
 
@@ -285,7 +285,7 @@ class TestStandalone:
 
         assert isinstance(result, StepResult)
         assert result.evidence != ""
-        assert result.verification_method in ("hammerspoon_state", "vision", "")
+        assert result.verification_method in ("actuator_state", "vision", "")
 
 
 class TestVerifierRejectsEmptyVerify:
@@ -343,7 +343,7 @@ class TestTier1ImprovedAppDetection:
         result = await verifier.verify(step, {"success": True, "output": ""})
 
         assert result.success is True
-        assert result.verification_method == "hammerspoon_state"
+        assert result.verification_method == "actuator_state"
 
     async def test_activate_app_tier1_resolves_generic_verify(
         self, mock_act, logger
@@ -360,7 +360,7 @@ class TestTier1ImprovedAppDetection:
 
         # The activate_app action with app_name triggers Tier 1 regardless of verify text
         assert result.success is True
-        assert result.verification_method == "hammerspoon_state"
+        assert result.verification_method == "actuator_state"
 
     async def test_tier1_is_open_keyword_matches(self, mock_act, logger):
         """Tier 1 matches 'is open' keyword in verify text."""
@@ -378,12 +378,12 @@ class TestTier1ImprovedAppDetection:
         result = await verifier.verify(step, {"success": True, "output": ""})
 
         assert result.success is True
-        assert result.verification_method == "hammerspoon_state"
+        assert result.verification_method == "actuator_state"
 
-    async def test_activate_app_tier1_inconclusive_when_hammerspoon_down(
+    async def test_activate_app_tier1_inconclusive_when_actuator_down(
         self, mock_coord, logger
     ):
-        """Tier 1 is inconclusive when Hammerspoon returns empty state (not running)."""
+        """Tier 1 is inconclusive when actuator returns empty state (not running)."""
         mock_act = MagicMock()
         mock_act.get_state.return_value = {
             "app_name": "",

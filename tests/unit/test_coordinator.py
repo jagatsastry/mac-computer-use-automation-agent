@@ -555,13 +555,13 @@ def test_coordinate_clamping_at_boundary(mock_capture):
 
 
 # ---------------------------------------------------------------------------
-# NEW TEST: describe_screen with Hammerspoon state
+# NEW TEST: describe_screen with desktop state
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_describe_screen_with_hammerspoon_state(mock_capture):
-    """Pass hammerspoon state dict, verify it's merged into description."""
+async def test_describe_screen_with_desktop_state(mock_capture):
+    """Pass desktop state dict, verify it's merged into description."""
     config = _make_config(vision_model="molmo")
     coord = _make_coordinator(config, mock_capture)
     vision_text = "A web browser showing a search page."
@@ -569,7 +569,7 @@ async def test_describe_screen_with_hammerspoon_state(mock_capture):
 
     hs_state = {"app_name": "Safari", "window_title": "Google"}
     result = await coord.describe_screen(
-        screenshot_b64="fakedata", hammerspoon_state=hs_state
+        screenshot_b64="fakedata", desktop_state=hs_state
     )
 
     assert result.startswith("Frontmost app: Safari (window: 'Google').")
@@ -577,8 +577,8 @@ async def test_describe_screen_with_hammerspoon_state(mock_capture):
 
 
 @pytest.mark.asyncio
-async def test_describe_screen_without_hammerspoon_state(mock_capture):
-    """Without hammerspoon state, describe_screen returns raw vision output."""
+async def test_describe_screen_without_desktop_state(mock_capture):
+    """Without desktop state, describe_screen returns raw vision output."""
     config = _make_config(vision_model="molmo")
     coord = _make_coordinator(config, mock_capture)
     vision_text = "A web browser showing a search page."

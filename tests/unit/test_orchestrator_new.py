@@ -196,12 +196,12 @@ class TestVerificationTiers:
         # verify_condition (tier 2) should NOT have been called for the activate_app step
         # It might be called 0 or more times for other reasons, but the verify for
         # the activate_app step should have been resolved by tier 1.
-        # Check that the step result used hammerspoon_state method
+        # Check that the step result used actuator_state method
         activate_step_results = [
             sr for sr in result.steps if sr.step.action == "activate_app"
         ]
         assert len(activate_step_results) == 1
-        assert activate_step_results[0].verification_method == "hammerspoon_state"
+        assert activate_step_results[0].verification_method == "actuator_state"
 
     async def test_verify_tier1_ambiguous_escalates_to_tier2(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
