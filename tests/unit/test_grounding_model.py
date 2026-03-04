@@ -123,13 +123,13 @@ class TestGroundingRouting:
         """find_element routes to grounding model when grounding_model is set."""
         config = _make_config(grounding_model="molmo")
         coord = _make_coordinator(config, mock_capture)
-        coord._call_grounding_model.return_value = "FOUND: x=0.5, y=0.25"
+        coord._call_grounding_model.return_value = "FOUND: x=50.0, y=25.0"
 
         result = await coord.find_element("OK button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512  # 0.5 * 1024
-        assert result["y"] == 192  # 0.25 * 768
+        assert result.x == 512  # 50.0/100 * 1024
+        assert result.y == 192  # 25.0/100 * 768
         coord._call_grounding_model.assert_called_once()
         coord._call_vision_model.assert_not_called()
 
@@ -138,13 +138,13 @@ class TestGroundingRouting:
         """find_element uses vision model when grounding_model is not set."""
         config = _make_config()  # No grounding_model
         coord = _make_coordinator(config, mock_capture)
-        coord._call_vision_model.return_value = "FOUND: x=0.5, y=0.25"
+        coord._call_vision_model.return_value = "FOUND: x=50.0, y=25.0"
 
         result = await coord.find_element("OK button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512
-        assert result["y"] == 192
+        assert result.x == 512
+        assert result.y == 192
         coord._call_vision_model.assert_called_once()
         coord._call_grounding_model.assert_not_called()
 
@@ -163,8 +163,8 @@ class TestGroundingRouting:
 
         assert result is not None
         # 500/1000 * 1024 = 512, 250/1000 * 768 = 192
-        assert result["x"] == 512
-        assert result["y"] == 192
+        assert result.x == 512
+        assert result.y == 192
 
     @pytest.mark.asyncio
     async def test_grounding_enabled_flag_set(self, mock_capture):
@@ -232,13 +232,13 @@ class TestGroundingFallback:
         config = _make_config(grounding_model="molmo")
         coord = _make_coordinator(config, mock_capture)
         coord._call_grounding_model.side_effect = Exception("Connection refused")
-        coord._call_vision_model.return_value = "FOUND: x=0.3, y=0.4"
+        coord._call_vision_model.return_value = "FOUND: x=30.0, y=40.0"
 
         result = await coord.find_element("Save button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 307  # int(0.3 * 1024)
-        assert result["y"] == 307  # int(0.4 * 768)
+        assert result.x == 307  # int(30.0/100 * 1024)
+        assert result.y == 307  # int(40.0/100 * 768)
         coord._call_grounding_model.assert_called_once()
         coord._call_vision_model.assert_called_once()
 
@@ -248,13 +248,13 @@ class TestGroundingFallback:
         config = _make_config(grounding_model="molmo")
         coord = _make_coordinator(config, mock_capture)
         coord._call_grounding_model.return_value = "NOT_FOUND"
-        coord._call_vision_model.return_value = "FOUND: x=0.5, y=0.5"
+        coord._call_vision_model.return_value = "FOUND: x=50.0, y=50.0"
 
         result = await coord.find_element("hidden button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512
-        assert result["y"] == 384
+        assert result.x == 512
+        assert result.y == 384
         coord._call_grounding_model.assert_called_once()
         coord._call_vision_model.assert_called_once()
 

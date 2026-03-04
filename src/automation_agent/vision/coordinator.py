@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.shared_models import FindElementResult
 from automation_agent.vision.capture import ScreenCapture
 
 logger = structlog.get_logger(__name__)
@@ -16,7 +17,7 @@ logger = structlog.get_logger(__name__)
 # This is explicit — no heuristic guessing. If a model is not listed,
 # we raise an error rather than silently misinterpret coordinates.
 COORDINATE_SPACES: Dict[str, str] = {
-    "molmo": "normalized_0_100",  # Molmo returns 0-100 normalized
+    "molmo": "normalized_0_100",  # Molmo returns 0-100 normalized coordinates (e.g. <point x="75.3">)
     "qwen3-vl": "normalized_0_1000",  # Qwen3-VL returns 0-1000 normalized
     "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
     "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
@@ -356,11 +357,11 @@ class ScreenCoordinatorImpl:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
-    def _parse_coordinates(self, response: str) -> Optional[Tuple[float, float]]:
-        """Parse coordinates from a vision model response.
+    def _parse_coordinates(self, response: str) -> Optional[Tuple[float, float, float]]:
+        """Parse coordinates and optional confidence from a vision model response.
 
         Expects either:
-            FOUND: x=<number>, y=<number>
+            FOUND: x=<number>, y=<number> [, confidence=<0.0-1.0>]
         or:
             NOT_FOUND
 
@@ -368,26 +369,64 @@ class ScreenCoordinatorImpl:
             response: The raw text response from the vision model.
 
         Returns:
-            Tuple of (x, y) raw coordinates, or None if not found.
+            Tuple of (x, y, confidence) raw coordinates, or None if not found.
+            confidence defaults to 0.0 if not present in response.
         """
         response = response.strip()
         if response.upper().startswith("NOT_FOUND"):
             return None
 
-        # Match "FOUND: x=<number>, y=<number>" pattern
+        # Match "FOUND: x=<number>, y=<number>" with optional confidence
         match = re.search(
-            r"FOUND:\s*x\s*=\s*([0-9]*\.?[0-9]+)\s*,\s*y\s*=\s*([0-9]*\.?[0-9]+)",
+            r"FOUND:\s*x\s*=\s*([0-9]*\.?[0-9]+)\s*,\s*y\s*=\s*([0-9]*\.?[0-9]+)"
+            r"(?:\s*,?\s*confidence\s*=\s*([0-9]*\.?[0-9]+))?",
             response,
             re.IGNORECASE,
         )
         if match:
-            return float(match.group(1)), float(match.group(2))
+            x = float(match.group(1))
+            y = float(match.group(2))
+            conf = float(match.group(3)) if match.group(3) else 0.0
+            return x, y, conf
 
         return None
 
+    def _build_candidate_prefix(self, candidates: list, description: str) -> str:
+        """Build a structured candidate list prefix for the vision prompt.
+
+        Caps the list at 20 elements to avoid context overflow.
+        Truncates labels longer than 80 characters.
+
+        Args:
+            candidates: List of accessibility element dicts.
+            description: The element being searched for.
+
+        Returns:
+            Formatted string to prepend to the vision prompt.
+        """
+        capped = candidates[:20]
+        lines = ["The following interactive UI elements are visible on screen:"]
+        for i, elem in enumerate(capped, start=1):
+            label = str(elem.get("label", ""))[:80]
+            role = elem.get("role", "")
+            cx = elem.get("center_x", elem.get("x", 0))
+            cy = elem.get("center_y", elem.get("y", 0))
+            lines.append(f'{i}. "{label}" ({role}) at center ({cx}, {cy})')
+        lines.append("")
+        lines.append(f'Which element best matches: "{description}"?')
+        lines.append(
+            "If one of the numbered elements matches, respond: FOUND: x=<center_x>, y=<center_y>"
+        )
+        lines.append("If none match, use the screenshot to locate the element.")
+        lines.append("")
+        return "\n".join(lines)
+
     async def find_element(
-        self, description: str, screenshot_b64: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        description: str,
+        screenshot_b64: Optional[str] = None,
+        candidates: Optional[list] = None,
+    ) -> Optional[FindElementResult]:
         """Find UI element by description.
 
         Strategy (in order):
@@ -398,10 +437,14 @@ class ScreenCoordinatorImpl:
         Args:
             description: Natural language description of the element to find.
             screenshot_b64: Optional pre-captured screenshot. If None, captures one.
+            candidates: Optional list of accessibility candidate dicts from
+                get_accessibility_elements(). When non-empty, a structured
+                candidate list is prepended to the vision prompt to reduce
+                search ambiguity. Falls back to raw vision when empty or None.
 
         Returns:
-            Dict with 'x', 'y' pixel coordinates, 'source', and optionally
-            'raw_response'. Returns None if not found.
+            FindElementResult with x, y pixel coordinates, confidence, and source,
+            or None if the element could not be found.
         """
         # FAST PATH: Accessibility API
         if self.accessibility is not None:
@@ -415,7 +458,7 @@ class ScreenCoordinatorImpl:
                         x=cx,
                         y=cy,
                     )
-                    return {"x": cx, "y": cy, "source": "accessibility"}
+                    return FindElementResult(x=cx, y=cy, confidence=1.0, source="accessibility")
             except Exception:
                 logger.debug(
                     "👁️ Accessibility lookup failed, falling back to vision",
@@ -427,9 +470,16 @@ class ScreenCoordinatorImpl:
         if screenshot_b64 is None:
             screenshot_b64 = self.capture.capture_b64()
 
-        prompt = self._load_prompt("find_element.md").replace(
+        base_prompt = self._load_prompt("find_element.md").replace(
             "{{element_description}}", description
         )
+
+        # Prepend structured candidate list if provided (cap at 20)
+        if candidates:
+            candidate_prefix = self._build_candidate_prefix(candidates, description)
+            prompt = candidate_prefix + base_prompt
+        else:
+            prompt = base_prompt
 
         # Try grounding model first if configured
         if self._grounding_enabled:
@@ -442,11 +492,11 @@ class ScreenCoordinatorImpl:
                     x, y = self._convert_coordinates(
                         raw_coords[0], raw_coords[1], model, w, h
                     )
+                    conf = raw_coords[2]
                     logger.info("👁️ Element found via grounding model", description=description, x=x, y=y)
-                    return {
-                        "x": x, "y": y,
-                        "source": "vision", "raw_response": response,
-                    }
+                    return FindElementResult(
+                        x=x, y=y, confidence=conf, source="vision", raw_response=response
+                    )
                 logger.info(
                     "👁️ Grounding model returned no result, falling back to vision model"
                 )
@@ -466,8 +516,9 @@ class ScreenCoordinatorImpl:
         model = self._get_active_model()
         w, h = self.config.screenshot_resolution
         x, y = self._convert_coordinates(raw_coords[0], raw_coords[1], model, w, h)
+        conf = raw_coords[2]
 
-        return {"x": x, "y": y, "source": "vision", "raw_response": response}
+        return FindElementResult(x=x, y=y, confidence=conf, source="vision", raw_response=response)
 
     async def describe_screen(
         self,

@@ -331,7 +331,7 @@ class TestFallbackBehavior:
         result = await coord.find_element("the button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512  # 500/1000 * 1024
+        assert result.x == 512  # 500/1000 * 1024
         coord._call_grounding_model.assert_called_once()
         coord._call_vision_model.assert_called_once()
 
@@ -481,15 +481,15 @@ class TestFallbackBehavior:
         )
         coord = _make_coordinator(config, mock_capture)
         coord._call_grounding_model.return_value = "NOT_FOUND"
-        # Vision model (molmo) returns normalized 0-1 coordinates
-        coord._call_vision_model.return_value = "FOUND: x=0.5, y=0.25"
+        # Vision model (molmo) returns normalized 0-100 coordinates
+        coord._call_vision_model.return_value = "FOUND: x=50.0, y=25.0"
 
         result = await coord.find_element("the button", screenshot_b64="fakedata")
 
         assert result is not None
-        # 0.5 * 1024 = 512, 0.25 * 768 = 192
-        assert result["x"] == 512
-        assert result["y"] == 192
+        # 50.0/100 * 1024 = 512, 25.0/100 * 768 = 192
+        assert result.x == 512
+        assert result.y == 192
 
 
 # ===========================================================================
@@ -536,8 +536,8 @@ class TestCoordinateSpace:
 
         assert result is not None
         # 500/1000 * 1024 = 512, 500/1000 * 768 = 384
-        assert result["x"] == 512
-        assert result["y"] == 384
+        assert result.x == 512
+        assert result.y == 384
 
     @pytest.mark.asyncio
     async def test_grounding_coords_not_interpreted_as_vision_space(self, mock_capture):
@@ -559,9 +559,9 @@ class TestCoordinateSpace:
 
         assert result is not None
         # Correctly interpreted as qwen3-vl (0-1000): 500/1000*1024=512
-        assert result["x"] == 512
-        # If incorrectly interpreted as molmo (0-1): 500*1024=512000 (WRONG)
-        assert result["x"] < 2000  # sanity check
+        assert result.x == 512
+        # If incorrectly interpreted as molmo (0-100): 500/100*1024=5120 (WRONG)
+        assert result.x < 2000  # sanity check
 
     def test_grounding_model_pixel_space(self, mock_capture):
         """Grounding model with pixel coordinate space passes coords through."""
@@ -592,7 +592,7 @@ class TestCoordinateSpace:
         # If regex doesn't match negatives, falls back to vision
         if result is not None:
             # Vision coords: 500/1000*1024=512
-            assert result["x"] >= 0
+            assert result.x >= 0
 
     @pytest.mark.asyncio
     async def test_grounding_returns_coordinates_exceeding_1000(self, mock_capture):
@@ -609,8 +609,8 @@ class TestCoordinateSpace:
 
         assert result is not None
         # Should be clamped to screen bounds
-        assert result["x"] <= 1023
-        assert result["y"] <= 767
+        assert result.x <= 1023
+        assert result.y <= 767
 
     @pytest.mark.asyncio
     async def test_grounding_returns_zero_coordinates(self, mock_capture):
@@ -625,8 +625,8 @@ class TestCoordinateSpace:
         result = await coord.find_element("top-left element", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 0
-        assert result["y"] == 0
+        assert result.x == 0
+        assert result.y == 0
 
 
 # ===========================================================================
@@ -841,7 +841,7 @@ class TestConcurrency:
         )
 
         assert find_result is not None
-        assert find_result["x"] == 512  # qwen3-vl: 500/1000*1024
+        assert find_result.x == 512  # qwen3-vl: 500/1000*1024
         assert describe_result == "A desktop with apps"
         coord._call_grounding_model.assert_called_once()
         coord._call_vision_model.assert_called_once()
@@ -880,13 +880,13 @@ class TestRegressionNoGrounding:
         """Legacy: molmo find_element without grounding still works."""
         config = _make_config(vision_model="molmo")
         coord = _make_coordinator(config, mock_capture)
-        coord._call_vision_model.return_value = "FOUND: x=0.5, y=0.25"
+        coord._call_vision_model.return_value = "FOUND: x=50.0, y=25.0"
 
         result = await coord.find_element("OK button", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512
-        assert result["y"] == 192
+        assert result.x == 512  # 50.0/100 * 1024
+        assert result.y == 192  # 25.0/100 * 768
 
     @pytest.mark.asyncio
     async def test_find_element_qwen_still_works(self, mock_capture):
@@ -898,8 +898,8 @@ class TestRegressionNoGrounding:
         result = await coord.find_element("search bar", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 512
-        assert result["y"] == 192
+        assert result.x == 512
+        assert result.y == 192
 
     @pytest.mark.asyncio
     async def test_find_element_claude_still_works(self, mock_capture):
@@ -915,8 +915,8 @@ class TestRegressionNoGrounding:
         result = await coord.find_element("Save", screenshot_b64="fakedata")
 
         assert result is not None
-        assert result["x"] == 350
-        assert result["y"] == 200
+        assert result.x == 350
+        assert result.y == 200
 
     @pytest.mark.asyncio
     async def test_describe_screen_unchanged(self, mock_capture):

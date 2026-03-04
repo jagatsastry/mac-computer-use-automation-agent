@@ -127,7 +127,9 @@ class TestElementFinding:
 
         await agent.execute("Click submit")
 
-        mock_coordinator.find_element.assert_awaited_with("the submit button")
+        mock_coordinator.find_element.assert_awaited_once()
+        call_args = mock_coordinator.find_element.call_args
+        assert call_args.args[0] == "the submit button"
 
     async def test_element_not_found_returns_failure(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir

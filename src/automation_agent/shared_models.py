@@ -29,6 +29,20 @@ _ACTION_ALIASES: Dict[str, str] = {
 
 
 @dataclass
+class FindElementResult:
+    """Result of locating a UI element on screen.
+
+    Returned by ScreenCoordinator.find_element() and AutomationAgent._find_element().
+    """
+
+    x: int
+    y: int
+    confidence: float = 0.0  # 0.0 = unknown/not reported, 1.0 = certain
+    source: str = ""         # "accessibility", "vision", "grounding"
+    raw_response: str = ""
+
+
+@dataclass
 class ActionStep:
     """A single action step in an execution plan.
 

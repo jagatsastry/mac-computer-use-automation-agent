@@ -38,6 +38,7 @@ def _make_config(**overrides) -> AgentConfig:
     defaults = {
         "vision_model": "molmo",
         "log_dir": "/tmp/test_agent_logs",
+        "model_provider": "local",  # Pin to local to avoid .env leakage (AGENT_MODEL_PROVIDER=anthropic)
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)
@@ -59,18 +60,18 @@ def _make_coordinator(
 
 @pytest.mark.asyncio
 async def test_find_element_molmo_normalized(mock_capture):
-    """Molmo returns 0.0-1.0 normalized coordinates -> correct pixel conversion."""
+    """Molmo returns 0-100 normalized coordinates -> correct pixel conversion."""
     config = _make_config(vision_model="molmo")
     coord = _make_coordinator(config, mock_capture)
-    coord._call_vision_model.return_value = "FOUND: x=0.5, y=0.25"
+    coord._call_vision_model.return_value = "FOUND: x=50.0, y=25.0"
 
     result = await coord.find_element("the OK button", screenshot_b64="fakedata")
 
     assert result is not None
-    # 0.5 * 1024 = 512, 0.25 * 768 = 192
-    assert result["x"] == 512
-    assert result["y"] == 192
-    assert "raw_response" in result
+    # 50.0/100 * 1024 = 512, 25.0/100 * 768 = 192
+    assert result.x == 512
+    assert result.y == 192
+    assert result.raw_response != ""
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +90,8 @@ async def test_find_element_qwen_normalized(mock_capture):
 
     assert result is not None
     # 500/1000 * 1024 = 512, 250/1000 * 768 = 192
-    assert result["x"] == 512
-    assert result["y"] == 192
+    assert result.x == 512
+    assert result.y == 192
 
 
 # ---------------------------------------------------------------------------
@@ -281,13 +282,13 @@ def test_coordinate_conversion_various_sizes(mock_capture):
     config = _make_config(vision_model="molmo")
     coord = _make_coordinator(config, mock_capture)
 
-    # Test 1440x900
-    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", 1440, 900)
+    # Test 1440x900 (Molmo uses 0-100 range, so 50.0 = center)
+    x, y = coord._convert_coordinates(50.0, 50.0, "molmo", 1440, 900)
     assert x == 720
     assert y == 450
 
     # Test 2560x1440
-    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", 2560, 1440)
+    x, y = coord._convert_coordinates(50.0, 50.0, "molmo", 2560, 1440)
     assert x == 1280
     assert y == 720
 
@@ -326,8 +327,8 @@ def test_coordinate_conversion_retina(mock_capture):
     # Logical resolution (what the model sees after downscaling)
     logical_w, logical_h = 1024, 768
 
-    # Molmo says element is at center (0.5, 0.5) of the screenshot
-    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", logical_w, logical_h)
+    # Molmo says element is at center (50.0, 50.0) of the screenshot (0-100 range)
+    x, y = coord._convert_coordinates(50.0, 50.0, "molmo", logical_w, logical_h)
     assert x == 512
     assert y == 384
 
@@ -336,14 +337,14 @@ def test_coordinate_conversion_retina(mock_capture):
     assert x == 0
     assert y == 0
 
-    x, y = coord._convert_coordinates(1.0, 1.0, "molmo", logical_w, logical_h)
+    x, y = coord._convert_coordinates(100.0, 100.0, "molmo", logical_w, logical_h)
     assert x == logical_w - 1  # clamped to valid pixel index
     assert y == logical_h - 1  # clamped to valid pixel index
 
     # Physical Retina resolution — if user passes physical resolution,
     # conversion still works mathematically
     physical_w, physical_h = 2048, 1536
-    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", physical_w, physical_h)
+    x, y = coord._convert_coordinates(50.0, 50.0, "molmo", physical_w, physical_h)
     assert x == 1024
     assert y == 768
 
@@ -391,7 +392,7 @@ class TestCoordinateSpacesRegistry:
 
     def test_coordinate_space_values(self):
         """Each model maps to a valid coordinate space type."""
-        valid_spaces = {"normalized_0_1", "normalized_0_1000", "pixel"}
+        valid_spaces = {"normalized_0_1", "normalized_0_100", "normalized_0_1000", "pixel"}
         for model, space in COORDINATE_SPACES.items():
             assert space in valid_spaces, f"Model '{model}' has invalid space '{space}'"
 
@@ -407,7 +408,7 @@ class TestParseCoordinates:
 
     def test_parse_found(self):
         result = self.coord._parse_coordinates("FOUND: x=100.5, y=200.3")
-        assert result == (100.5, 200.3)
+        assert result == (100.5, 200.3, 0.0)
 
     def test_parse_not_found(self):
         result = self.coord._parse_coordinates("NOT_FOUND")
@@ -419,11 +420,11 @@ class TestParseCoordinates:
 
     def test_parse_found_integer(self):
         result = self.coord._parse_coordinates("FOUND: x=500, y=250")
-        assert result == (500.0, 250.0)
+        assert result == (500.0, 250.0, 0.0)
 
     def test_parse_found_with_whitespace(self):
         result = self.coord._parse_coordinates("  FOUND: x = 100 , y = 200  ")
-        assert result == (100.0, 200.0)
+        assert result == (100.0, 200.0, 0.0)
 
 
 class TestModelModels:
@@ -496,8 +497,8 @@ async def test_find_element_claude_pixel_coords(mock_capture):
     result = await coord.find_element("Save button", screenshot_b64="fakedata")
 
     assert result is not None
-    assert result["x"] == 350
-    assert result["y"] == 200
+    assert result.x == 350
+    assert result.y == 200
 
 
 # ---------------------------------------------------------------------------
@@ -524,8 +525,8 @@ async def test_find_element_uses_correct_model_for_anthropic(mock_capture):
     # If it incorrectly used qwen3-vl (normalized_0_1000), it would compute:
     # x = 350/1000 * 1024 = 358, y = 200/1000 * 768 = 153
     # With the correct model (claude, pixel space), coords pass through as-is:
-    assert result["x"] == 350
-    assert result["y"] == 200
+    assert result.x == 350
+    assert result.y == 200
 
 
 # ---------------------------------------------------------------------------
@@ -538,8 +539,8 @@ def test_coordinate_clamping_at_boundary(mock_capture):
     config = _make_config(vision_model="molmo")
     coord = _make_coordinator(config, mock_capture)
 
-    # normalized_0_1: value 1.0 -> int(1.0 * 1024) = 1024, but max valid index is 1023
-    x, y = coord._convert_coordinates(1.0, 1.0, "molmo", 1024, 768)
+    # normalized_0_100: value 100.0 -> int(100.0/100 * 1024) = 1024, clamped to 1023
+    x, y = coord._convert_coordinates(100.0, 100.0, "molmo", 1024, 768)
     assert x == 1023
     assert y == 767
 
@@ -548,8 +549,8 @@ def test_coordinate_clamping_at_boundary(mock_capture):
     assert x == 1023
     assert y == 767
 
-    # Values below boundary should not be clamped
-    x, y = coord._convert_coordinates(0.5, 0.5, "molmo", 1024, 768)
+    # Values below boundary should not be clamped (50.0 = 50% in 0-100 range)
+    x, y = coord._convert_coordinates(50.0, 50.0, "molmo", 1024, 768)
     assert x == 512
     assert y == 384
 

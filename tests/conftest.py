@@ -228,8 +228,12 @@ def mock_planner():
 @pytest.fixture
 def mock_coordinator():
     """Mock ScreenCoordinator for testing."""
+    from automation_agent.shared_models import FindElementResult
+
     coordinator = AsyncMock()
-    coordinator.find_element = AsyncMock(return_value={"x": 500, "y": 300})
+    coordinator.find_element = AsyncMock(
+        return_value=FindElementResult(x=500, y=300, confidence=0.9, source="vision")
+    )
     coordinator.describe_screen = AsyncMock(return_value="Desktop with Safari open")
     coordinator.verify_condition = AsyncMock(return_value=True)
     coordinator.capture_screenshot = AsyncMock(

@@ -1,12 +1,14 @@
 """AutomationAgent -- main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
 
 import asyncio
+import base64
+import io
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 import structlog
 
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, StepResult
+from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, FindElementResult, StepResult
 from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
@@ -17,6 +19,16 @@ slog = structlog.get_logger(__name__)
 
 class AutomationAgent:
     """Main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
+
+    # Confidence thresholds for Rec 2
+    _DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+    _CRITICAL_CONFIDENCE_THRESHOLD = 0.9
+    _CRITICAL_ACTION_KEYWORDS = frozenset(
+        {"submit", "pay", "confirm", "reserve", "delete", "remove", "send"}
+    )
+
+    # Resolution threshold for Rec 4 cropping
+    _CROP_WIDTH_THRESHOLD = 1440
 
     def __init__(
         self,
@@ -42,9 +54,13 @@ class AutomationAgent:
         self.screenshot_diff = screenshot_diff
         self.context_monitor = context_monitor
         self.grounding_router = grounding_router
+        # Rec 4: tracks (left, top, right, bottom) of last successful click
+        # in screenshot_resolution pixel space. Reset at start of each execute().
+        self.last_successful_region: Optional[Tuple[int, int, int, int]] = None
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
+        self.last_successful_region = None  # Rec 4: reset for new task
         start = time.monotonic()
         slog.info("🎯 Executing goal", goal=goal)
         self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
@@ -324,6 +340,18 @@ class AutomationAgent:
             },
         )
 
+        # Rec 4: record the successful click region for resolution-aware narrowing
+        if step.action == "click" and verification.success:
+            click_x = actuator_result.get("x", step.params.get("x", 0))
+            click_y = actuator_result.get("y", step.params.get("y", 0))
+            half = 256
+            self.last_successful_region = (
+                max(0, click_x - half),
+                max(0, click_y - half),
+                click_x + half,
+                click_y + half,
+            )
+
         return verification
 
     async def _dispatch_action(self, step: ActionStep) -> dict:
@@ -348,11 +376,59 @@ class AutomationAgent:
                             "success": False,
                             "error": f"Element not found: {params['element']}",
                         }
+
+                    # Rec 2: confidence gate — check before any click
+                    confidence = location.confidence
+                    threshold = self._get_confidence_threshold(step)
+                    if confidence > 0.0 and confidence < threshold:
+                        slog.warning(
+                            "Low confidence element match",
+                            confidence=confidence,
+                            threshold=threshold,
+                            element=params["element"],
+                        )
+                        return {
+                            "success": False,
+                            "error": f"low_confidence:{confidence:.2f}",
+                        }
+
+                    # Rec 3: pre-click validation (skip for accessibility or very high confidence)
+                    skip_validation = (location.source == "accessibility") or (confidence >= 0.9)
+                    if not skip_validation:
+                        try:
+                            is_valid = await self._validate_candidate(
+                                location.x, location.y, params["element"]
+                            )
+                        except Exception:
+                            slog.warning(
+                                "Pre-click validation error, proceeding with click",
+                                exc_info=True,
+                            )
+                            is_valid = True  # Fail-open
+
+                        if not is_valid:
+                            slog.warning(
+                                "Pre-click validation failed",
+                                element=params["element"],
+                                x=location.x,
+                                y=location.y,
+                            )
+                            return {
+                                "success": False,
+                                "error": (
+                                    f"Pre-click validation failed: element at "
+                                    f"({location.x}, {location.y}) does not appear "
+                                    f"to be '{params['element']}'"
+                                ),
+                            }
+
                     self.logger.log_event(
                         EventType.ELEMENT_FOUND,
-                        f"Found at ({location['x']}, {location['y']})",
+                        f"Found at ({location.x}, {location.y})",
                     )
-                    result = self.actuator.click(location["x"], location["y"])
+                    result = self.actuator.click(location.x, location.y)
+                    result["x"] = location.x
+                    result["y"] = location.y
                 else:
                     result = self.actuator.click(params.get("x", 0), params.get("y", 0))
             elif action == "type_text":
@@ -374,17 +450,172 @@ class AutomationAgent:
             self.logger.log_event(EventType.ACTION_ERROR, f"{action} error: {e}")
             return {"success": False, "error": str(e)}
 
-    async def _find_element(self, description: str):
+    async def _find_element(self, description: str) -> Optional[FindElementResult]:
         """Find a UI element by description, using grounding router if available.
 
-        Returns dict with 'x', 'y' keys on success, or None if not found.
+        Also wires accessibility candidates (Rec 1) and resolution-aware
+        screenshot cropping (Rec 4).
+
+        Returns FindElementResult on success, or None if not found.
         """
         if self.grounding_router is not None:
             gr = await self.grounding_router.find_element(description)
             if gr is not None:
-                return {"x": gr.x, "y": gr.y, "source": gr.strategy_used.value}
+                return FindElementResult(
+                    x=gr.x, y=gr.y, source=gr.strategy_used.value
+                )
             return None
-        return await self.coordinator.find_element(description)
+
+        # Rec 1: get accessibility candidates if actuator supports it
+        candidates = None
+        if hasattr(self.actuator, "get_accessibility_elements"):
+            try:
+                result = self.actuator.get_accessibility_elements()
+                if isinstance(result, list):
+                    candidates = result if result else None
+            except Exception:
+                pass  # Fallback: no candidates
+
+        # Rec 4: capture screenshot and optionally crop to last successful region
+        screenshot_b64 = await self.coordinator.capture_screenshot()
+        crop_offset = None
+
+        if self.last_successful_region is not None:
+            crop_result = self._maybe_crop_screenshot(screenshot_b64)
+            if crop_result is not None:
+                screenshot_b64, crop_offset = crop_result
+
+        result = await self.coordinator.find_element(
+            description, screenshot_b64=screenshot_b64, candidates=candidates
+        )
+
+        # Adjust coordinates back to full-image space if we cropped
+        if result is not None and crop_offset is not None:
+            result = FindElementResult(
+                x=result.x + crop_offset[0],
+                y=result.y + crop_offset[1],
+                confidence=result.confidence,
+                source=result.source,
+                raw_response=result.raw_response,
+            )
+
+        return result
+
+    def _get_confidence_threshold(self, step: ActionStep) -> float:
+        """Return the confidence threshold for a step (Rec 2).
+
+        Steps whose verify text contains critical-action keywords use a higher
+        threshold of 0.9. All other steps use 0.5.
+        """
+        verify_lower = step.verify.lower() if step.verify else ""
+        if any(kw in verify_lower for kw in self._CRITICAL_ACTION_KEYWORDS):
+            return self._CRITICAL_CONFIDENCE_THRESHOLD
+        return self._DEFAULT_CONFIDENCE_THRESHOLD
+
+    async def _validate_candidate(
+        self,
+        candidate_x: int,
+        candidate_y: int,
+        target_description: str,
+        screenshot_b64: Optional[str] = None,
+    ) -> bool:
+        """Pre-click validation: crop region around candidate and ask vision model (Rec 3).
+
+        Crops a 200x200 pixel region centered on (candidate_x, candidate_y) from a
+        screenshot, then asks the coordinator's verify_condition() with:
+            "The element at the center of this image is: {target_description}"
+
+        Args:
+            candidate_x: Pixel x of the candidate element center.
+            candidate_y: Pixel y of the candidate element center.
+            target_description: What the element should be (e.g., "Save button").
+            screenshot_b64: Optional pre-captured full screenshot. If None, captures one.
+
+        Returns:
+            True if the vision model confirms the match, False otherwise.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            slog.warning(
+                "PIL (Pillow) not installed — skipping pre-click validation. "
+                "Install with: pip install pillow"
+            )
+            return True  # Skip validation, not fail-open silently
+
+        if screenshot_b64 is None:
+            screenshot_b64 = await self.coordinator.capture_screenshot()
+
+        img_bytes = base64.b64decode(screenshot_b64)
+        img = Image.open(io.BytesIO(img_bytes))
+        w, h = img.size
+
+        crop_size = 200
+        half = crop_size // 2
+        left = max(0, candidate_x - half)
+        top = max(0, candidate_y - half)
+        right = min(w, candidate_x + half)
+        bottom = min(h, candidate_y + half)
+
+        cropped = img.crop((left, top, right, bottom))
+        buf = io.BytesIO()
+        cropped.save(buf, format="JPEG", quality=85)
+        cropped_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        condition = f"The element at the center of this image is: {target_description}"
+        return await self.coordinator.verify_condition(condition, screenshot_b64=cropped_b64)
+
+    def _maybe_crop_screenshot(
+        self, screenshot_b64: str
+    ) -> Optional[Tuple[str, Tuple[int, int]]]:
+        """Crop screenshot to 512x512 around last_successful_region if image is hi-res (Rec 4).
+
+        Only activates when image width > _CROP_WIDTH_THRESHOLD (1440px) AND
+        last_successful_region is set. This is a no-op for the default 1024px resolution.
+
+        Args:
+            screenshot_b64: Full screenshot as base64 JPEG.
+
+        Returns:
+            Tuple of (cropped_b64, (offset_x, offset_y)) if cropping was applied.
+            None if image is at or below the width threshold or no previous region exists.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            slog.warning("PIL (Pillow) not installed — skipping resolution-aware crop")
+            return None
+
+        try:
+            img_bytes = base64.b64decode(screenshot_b64)
+            img = Image.open(io.BytesIO(img_bytes))
+            w, h = img.size
+
+            if w <= self._CROP_WIDTH_THRESHOLD:
+                return None
+
+            if self.last_successful_region is None:
+                return None
+
+            region = self.last_successful_region
+            center_x = (region[0] + region[2]) // 2
+            center_y = (region[1] + region[3]) // 2
+
+            crop_half = 256
+            left = max(0, min(center_x - crop_half, w - 512))
+            top = max(0, min(center_y - crop_half, h - 512))
+            right = min(w, left + 512)
+            bottom = min(h, top + 512)
+
+            cropped = img.crop((left, top, right, bottom))
+            buf = io.BytesIO()
+            cropped.save(buf, format="JPEG", quality=85)
+            cropped_b64 = base64.b64encode(buf.getvalue()).decode()
+
+            return cropped_b64, (left, top)
+        except Exception:
+            slog.warning("Resolution-aware crop failed, using full screenshot", exc_info=True)
+            return None
 
     def _record_context(self, step: ActionStep) -> None:
         """Record action context in the context monitor after step execution."""

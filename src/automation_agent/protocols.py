@@ -6,7 +6,7 @@ Components depend on protocols, not concrete implementations.
 
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, StepResult
+from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, FindElementResult, StepResult
 
 
 @runtime_checkable
@@ -63,11 +63,23 @@ class ScreenCoordinator(Protocol):
     """Coordinates vision model queries for screen understanding."""
 
     async def find_element(
-        self, description: str, screenshot_b64: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        description: str,
+        screenshot_b64: Optional[str] = None,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[FindElementResult]:
         """Find a UI element on screen by description.
 
-        Returns dict with 'x', 'y' pixel coordinates, or None if not found.
+        Args:
+            description: Natural language description of the element.
+            screenshot_b64: Optional pre-captured screenshot.
+            candidates: Optional list of accessibility candidate dicts from
+                get_accessibility_elements(). When provided, the vision model
+                receives a structured candidate list to reduce search ambiguity.
+
+        Returns:
+            FindElementResult with x, y pixel coordinates, confidence, and source,
+            or None if the element could not be found.
         """
         ...
 

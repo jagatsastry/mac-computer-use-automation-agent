@@ -136,6 +136,100 @@ class AppleScriptActuator:
         script = f'tell application "{app_name}" to quit'
         return self._run_osascript(script).to_dict()
 
+    def get_accessibility_elements(self, app_name: str = "") -> list:
+        """Query macOS Accessibility API for visible, interactive UI elements.
+
+        Uses JXA (JavaScript for Automation) via osascript to walk the
+        accessibility tree of the frontmost application (or the named app).
+
+        Args:
+            app_name: Application to query. Empty string means frontmost app.
+
+        Returns:
+            List of dicts, each with keys:
+                - "label": str  (AXTitle or AXDescription or AXValue)
+                - "role": str   (AXButton, AXTextField, AXLink, etc.)
+                - "x": int      (left edge in screen pixels)
+                - "y": int      (top edge in screen pixels)
+                - "width": int
+                - "height": int
+                - "center_x": int
+                - "center_y": int
+            Returns empty list on any failure (permission denied, no elements, timeout).
+        """
+        script = r"""
+function run(argv) {
+    var sysEvents = Application("System Events");
+    var proc;
+    if (argv.length > 0 && argv[0]) {
+        proc = sysEvents.processes.byName(argv[0]);
+    } else {
+        var frontmost = sysEvents.processes.whose({frontmost: true});
+        if (frontmost.length === 0) return "[]";
+        proc = frontmost[0];
+    }
+
+    var elements = [];
+    var interactiveRoles = [
+        "AXButton", "AXLink", "AXTextField", "AXTextArea",
+        "AXCheckBox", "AXRadioButton", "AXPopUpButton",
+        "AXComboBox", "AXMenuItem", "AXTab", "AXIncrementor"
+    ];
+
+    function walk(elem, depth) {
+        if (depth > 6) return;
+        try {
+            var role = elem.role();
+            if (interactiveRoles.indexOf(role) !== -1) {
+                var pos = elem.position();
+                var size = elem.size();
+                if (pos && size && size[0] > 0 && size[1] > 0) {
+                    elements.push({
+                        label: (function() {
+                            try { return elem.title() || ""; } catch(e) { return ""; }
+                        })() || (function() {
+                            try { return elem.description() || ""; } catch(e) { return ""; }
+                        })() || (function() {
+                            try { var v = elem.value(); return typeof v === "string" ? v : ""; } catch(e) { return ""; }
+                        })(),
+                        role: role,
+                        x: pos[0], y: pos[1],
+                        width: size[0], height: size[1],
+                        center_x: pos[0] + Math.round(size[0] / 2),
+                        center_y: pos[1] + Math.round(size[1] / 2)
+                    });
+                }
+            }
+            var children = elem.uiElements();
+            for (var i = 0; i < children.length; i++) {
+                walk(children[i], depth + 1);
+            }
+        } catch(e) {}
+    }
+
+    walk(proc, 0);
+    return JSON.stringify(elements);
+}
+"""
+        try:
+            args = ["osascript", "-l", "JavaScript", "-e", script]
+            if app_name:
+                args.append(app_name)
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+            import json
+            return json.loads(result.stdout.strip())
+        except subprocess.TimeoutExpired:
+            return []
+        except Exception:
+            return []
+
     def get_state(self) -> Dict[str, Any]:
         default_state = {
             "app_name": "",
