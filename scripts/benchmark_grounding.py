@@ -71,7 +71,7 @@ class BackendResult:
 
 # Copied from src/automation_agent/vision/coordinator.py
 COORDINATE_SPACES: Dict[str, str] = {
-    "molmo": "normalized_0_1",
+    "molmo": "normalized_0_100",
     "qwen3-vl": "normalized_0_1000",
     "qwen2.5-vl": "normalized_0_1000",
     "qwen2-vl": "normalized_0_1000",
@@ -81,12 +81,16 @@ COORDINATE_SPACES: Dict[str, str] = {
 
 # Copied from src/automation_agent/vision/coordinator.py
 def _resolve_coordinate_space(model: str) -> Optional[str]:
-    """Resolve coordinate space for a model via case-insensitive prefix matching."""
+    """Resolve coordinate space for a model via case-insensitive prefix or substring matching."""
     model_lower = model.lower()
     if model_lower in COORDINATE_SPACES:
         return COORDINATE_SPACES[model_lower]
     for key, space in COORDINATE_SPACES.items():
         if model_lower.startswith(key):
+            return space
+    # Substring match for HuggingFace-style model IDs (e.g. "mlx-community/Molmo-...")
+    for key, space in COORDINATE_SPACES.items():
+        if key in model_lower:
             return space
     return None
 
@@ -105,12 +109,21 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
         return None
 
     match = re.search(
-        r"FOUND:\s*x\s*=\s*([0-9]*\.?[0-9]+)\s*,\s*y\s*=\s*([0-9]*\.?[0-9]+)",
+        r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s*[,\s]\s*y\s*=\s*"?([0-9]*\.?[0-9]+)"?',
         response,
         re.IGNORECASE,
     )
     if match:
         return float(match.group(1)), float(match.group(2))
+
+    # Try Molmo's native <point x="..." y="..."> format
+    point_match = re.search(
+        r'<point\s+x="([0-9]*\.?[0-9]+)"\s+y="([0-9]*\.?[0-9]+)"',
+        response,
+        re.IGNORECASE,
+    )
+    if point_match:
+        return float(point_match.group(1)), float(point_match.group(2))
 
     return None
 
@@ -140,6 +153,11 @@ def normalize_prediction(
         return (
             min(max(raw_x, 0.0), 1.0),
             min(max(raw_y, 0.0), 1.0),
+        )
+    elif space == "normalized_0_100":
+        return (
+            min(max(raw_x / 100.0, 0.0), 1.0),
+            min(max(raw_y / 100.0, 0.0), 1.0),
         )
     elif space == "normalized_0_1000":
         return (
@@ -234,6 +252,7 @@ PRICING = {
     "claude-sonnet": {"input": 3.00, "output": 15.00},
     "qwen2.5-vl-ollama": {"input": 0.0, "output": 0.0},
     "qwen2.5-vl-llamacpp": {"input": 0.0, "output": 0.0},
+    "molmo-mlx": {"input": 0.0, "output": 0.0},  # local, free
 }
 
 
@@ -264,15 +283,20 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "type": "anthropic",
         "model": "claude-sonnet-4-20250514",
     },
-    "qwen2.5-vl-ollama": {
+    "qwen3-vl-ollama": {
         "type": "openai_compat",
         "url": "http://localhost:11434/v1/chat/completions",
-        "model": "qwen2.5-vl:7b",
+        "model": "qwen3-vl:latest",
     },
     "qwen2.5-vl-llamacpp": {
         "type": "openai_compat",
         "url": "http://localhost:8090/v1/chat/completions",
         "model": "Qwen2.5-VL-7B-Instruct",
+    },
+    "molmo-mlx": {
+        "type": "openai_compat",
+        "url": "http://localhost:8091/v1/chat/completions",
+        "model": "mlx-community/Molmo-7B-D-0924-3bit",
     },
 }
 
@@ -337,8 +361,22 @@ def check_backend(name: str, cfg: Dict[str, str]) -> bool:
 # Backend call functions
 # ---------------------------------------------------------------------------
 
+def _detect_image_media_type(image_bytes: bytes) -> str:
+    """Detect image media type from file header bytes."""
+    if image_bytes[:3] == b'\xff\xd8\xff':
+        return "image/jpeg"
+    elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/png"  # fallback
+
+
 def call_openai_compat_backend(
-    url: str, model: str, image_b64: str, prompt: str
+    url: str, model: str, image_b64: str, prompt: str,
+    media_type: str = "image/png",
 ) -> Tuple[str, float]:
     """Call an OpenAI-compatible vision backend.
 
@@ -362,7 +400,7 @@ def call_openai_compat_backend(
                 "content": [
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                        "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
                     },
                     {"type": "text", "text": prompt},
                 ],
@@ -389,7 +427,8 @@ def call_openai_compat_backend(
 
 
 def call_anthropic_backend(
-    model: str, image_b64: str, prompt: str
+    model: str, image_b64: str, prompt: str,
+    media_type: str = "image/png",
 ) -> Tuple[str, float]:
     """Call the Anthropic vision backend.
 
@@ -420,7 +459,7 @@ def call_anthropic_backend(
                         "type": "image",
                         "source": {
                             "type": "base64",
-                            "media_type": "image/png",
+                            "media_type": media_type,
                             "data": image_b64,
                         },
                     },
@@ -649,6 +688,7 @@ def run_sample(
     """Run a single sample through a backend and return the result."""
     prompt = _load_prompt(sample.instruction)
     image_b64 = base64.b64encode(sample.image_bytes).decode()
+    media_type = _detect_image_media_type(sample.image_bytes)
 
     raw_response = ""
     error = None
@@ -658,11 +698,13 @@ def run_sample(
     try:
         if cfg["type"] == "openai_compat":
             raw_response, latency = call_openai_compat_backend(
-                cfg["url"], cfg["model"], image_b64, prompt
+                cfg["url"], cfg["model"], image_b64, prompt,
+                media_type=media_type,
             )
         elif cfg["type"] == "anthropic":
             raw_response, latency = call_anthropic_backend(
-                cfg["model"], image_b64, prompt
+                cfg["model"], image_b64, prompt,
+                media_type=media_type,
             )
         else:
             raise ValueError(f"Unknown backend type: {cfg['type']}")
