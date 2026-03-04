@@ -71,6 +71,7 @@ class BackendResult:
 
 # Copied from src/automation_agent/vision/coordinator.py
 COORDINATE_SPACES: Dict[str, str] = {
+    "molmo2": "normalized_0_1000",
     "molmo": "normalized_0_100",
     "qwen3-vl": "normalized_0_1000",
     "qwen2.5-vl": "normalized_0_1000",
@@ -116,6 +117,15 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     if match:
         return float(match.group(1)), float(match.group(2))
 
+    # Fallback: FOUND: x=N N (Molmo2 sometimes omits the y= label)
+    match = re.search(
+        r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s+"?([0-9]*\.?[0-9]+)"?',
+        response,
+        re.IGNORECASE,
+    )
+    if match:
+        return float(match.group(1)), float(match.group(2))
+
     # Try Molmo's native <point x="..." y="..."> format
     point_match = re.search(
         r'<point\s+x="([0-9]*\.?[0-9]+)"\s+y="([0-9]*\.?[0-9]+)"',
@@ -124,6 +134,19 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     )
     if point_match:
         return float(point_match.group(1)), float(point_match.group(2))
+
+    # Try Molmo2's native <points coords="ID X Y"/> format (0-1000 scale)
+    points_match = re.search(
+        r'<points\s[^>]*coords="([^"]+)"',
+        response,
+        re.IGNORECASE,
+    )
+    if points_match:
+        coords_str = points_match.group(1)
+        # Extract first point triplet: ID X Y
+        triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+        if triplet:
+            return float(triplet.group(2)), float(triplet.group(3))
 
     return None
 
@@ -254,6 +277,7 @@ PRICING = {
     "qwen2.5-vl-ollama": {"input": 0.0, "output": 0.0},
     "qwen2.5-vl-llamacpp": {"input": 0.0, "output": 0.0},
     "molmo-mlx": {"input": 0.0, "output": 0.0},  # local, free
+    "molmo2-mlx": {"input": 0.0, "output": 0.0},  # local, free
 }
 
 
@@ -300,10 +324,15 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "url": "http://localhost:8091/v1/chat/completions",
         "model": "mlx-community/Molmo-7B-D-0924-3bit",
     },
+    "molmo2-mlx": {
+        "type": "openai_compat",
+        "url": "http://localhost:8092/v1/chat/completions",
+        "model": "mlx-community/Molmo2-8B-5bit",
+    },
 }
 
 # Default backends: only local models; claude-sonnet requires explicit --backends
-DEFAULT_BACKENDS = ["molmo-mlx", "qwen3-vl-ollama"]
+DEFAULT_BACKENDS = ["molmo-mlx", "molmo2-mlx", "qwen3-vl-ollama"]
 
 PROMPT_TEMPLATE = """Find the UI element described below and return its location.
 
@@ -1084,7 +1113,7 @@ def main() -> None:
 
     # Warmup local vision models before benchmarking
     for backend_name in backends_available:
-        if backend_name in ("molmo-mlx", "qwen3-vl-ollama"):
+        if backend_name in ("molmo-mlx", "molmo2-mlx", "qwen3-vl-ollama"):
             warmup_backend(backend_name, BACKENDS[backend_name])
 
     # 5. Run benchmarks

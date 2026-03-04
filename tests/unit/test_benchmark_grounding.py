@@ -355,6 +355,14 @@ class TestNormalizePrediction:
         assert x == pytest.approx(0.5)
         assert y == pytest.approx(0.5)
 
+    def test_molmo2_normalize(self, bg):
+        """Molmo2 model: 500/1000=0.5, 750/1000=0.75 (same scale as Qwen)."""
+        x, y = bg.normalize_prediction(
+            500.0, 750.0, "mlx-community/Molmo2-8B-5bit", 960, 540
+        )
+        assert x == pytest.approx(0.5)
+        assert y == pytest.approx(0.75)
+
 
 # ---------------------------------------------------------------------------
 # 7. _parse_coordinates  (9 tests)
@@ -429,6 +437,41 @@ class TestParseCoordinates:
         result = bg._parse_coordinates("FOUND: x=10, y=10")
         assert result == (10.0, 10.0)
 
+    def test_molmo2_points_coords_format(self, bg):
+        """Molmo2 native <points coords="1 483 127"/> -> (483.0, 127.0)."""
+        result = bg._parse_coordinates('<points coords="1 483 127"/>')
+        assert result == (483.0, 127.0)
+
+    def test_molmo2_points_coords_with_alt_attr(self, bg):
+        """Molmo2 <points alt="close button" coords="1 483 127"/> also parses."""
+        result = bg._parse_coordinates('<points alt="close button" coords="1 483 127"/>')
+        assert result == (483.0, 127.0)
+
+    def test_molmo2_points_coords_large_values(self, bg):
+        """Molmo2 coordinates at scale extremes."""
+        result = bg._parse_coordinates('<points coords="1 999 001"/>')
+        assert result == (999.0, 1.0)
+
+    def test_molmo2_found_no_y_label(self, bg):
+        """Molmo2 sometimes omits 'y=' label: FOUND: x=851 090 -> (851.0, 90.0)."""
+        result = bg._parse_coordinates("FOUND: x=851 090")
+        assert result == (851.0, 90.0)
+
+    def test_molmo2_found_no_y_label_large_y(self, bg):
+        """FOUND: x=190 1000 -> (190.0, 1000.0)."""
+        result = bg._parse_coordinates("FOUND: x=190 1000")
+        assert result == (190.0, 1000.0)
+
+    def test_molmo2_found_no_y_label_three_digit_coords(self, bg):
+        """FOUND: x=301 559 -> (301.0, 559.0)."""
+        result = bg._parse_coordinates("FOUND: x=301 559")
+        assert result == (301.0, 559.0)
+
+    def test_found_with_y_label_not_affected(self, bg):
+        """Standard FOUND: x=100, y=200 still works when no-y-label fallback exists."""
+        result = bg._parse_coordinates("FOUND: x=100, y=200")
+        assert result == (100.0, 200.0)
+
 
 # ---------------------------------------------------------------------------
 # 8. _resolve_coordinate_space  (5 tests)
@@ -470,6 +513,19 @@ class TestResolveCoordinateSpace:
     def test_qwen2_vl(self, bg):
         """qwen2-vl should also be in the coordinate spaces."""
         assert bg._resolve_coordinate_space("qwen2-vl") == "normalized_0_1000"
+
+    def test_molmo2_exact(self, bg):
+        """Exact match 'molmo2' -> 'normalized_0_1000'."""
+        assert bg._resolve_coordinate_space("molmo2") == "normalized_0_1000"
+
+    def test_molmo2_differs_from_molmo(self, bg):
+        """molmo2 resolves differently from molmo: 0_1000 vs 0_100."""
+        assert bg._resolve_coordinate_space("molmo2") == "normalized_0_1000"
+        assert bg._resolve_coordinate_space("molmo") == "normalized_0_100"
+
+    def test_molmo2_substring_match(self, bg):
+        """HuggingFace-style 'mlx-community/Molmo2-8B-4bit' -> normalized_0_1000."""
+        assert bg._resolve_coordinate_space("mlx-community/Molmo2-8B-4bit") == "normalized_0_1000"
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +721,7 @@ class TestBackendsDict:
         assert "claude-sonnet" in bg.BACKENDS
         assert "qwen3-vl-ollama" in bg.BACKENDS
         assert "molmo-mlx" in bg.BACKENDS
+        assert "molmo2-mlx" in bg.BACKENDS
         assert "qwen2.5-vl-llamacpp" in bg.BACKENDS
 
     def test_anthropic_backend_type(self, bg):
@@ -696,7 +753,7 @@ class TestCoordinateSpaces:
 
     def test_has_expected_models(self, bg):
         """COORDINATE_SPACES should have all models from the spec."""
-        expected = {"molmo", "qwen3-vl", "qwen2.5-vl", "qwen2-vl", "claude-sonnet-4-20250514"}
+        expected = {"molmo2", "molmo", "qwen3-vl", "qwen2.5-vl", "qwen2-vl", "claude-sonnet-4-20250514"}
         actual = set(bg.COORDINATE_SPACES.keys())
         assert expected.issubset(actual), f"Missing models: {expected - actual}"
 
@@ -722,10 +779,11 @@ class TestPricing:
         assert "qwen2.5-vl-ollama" in bg.PRICING
         assert "qwen2.5-vl-llamacpp" in bg.PRICING
         assert "molmo-mlx" in bg.PRICING
+        assert "molmo2-mlx" in bg.PRICING
 
     def test_local_backends_are_free(self, bg):
         """Local backends have 0.0 input and output pricing."""
-        for name in ("qwen3-vl-ollama", "qwen2.5-vl-ollama", "qwen2.5-vl-llamacpp", "molmo-mlx"):
+        for name in ("qwen3-vl-ollama", "qwen2.5-vl-ollama", "qwen2.5-vl-llamacpp", "molmo-mlx", "molmo2-mlx"):
             assert bg.PRICING[name]["input"] == 0.0
             assert bg.PRICING[name]["output"] == 0.0
 
@@ -859,6 +917,7 @@ class TestDefaultBackends:
         """Default backends should not include claude-sonnet."""
         assert "claude-sonnet" not in bg.DEFAULT_BACKENDS
         assert "molmo-mlx" in bg.DEFAULT_BACKENDS
+        assert "molmo2-mlx" in bg.DEFAULT_BACKENDS
         assert "qwen3-vl-ollama" in bg.DEFAULT_BACKENDS
 
 
