@@ -287,20 +287,20 @@ class TestNormalizePrediction:
     """Tests for normalize_prediction(raw_x, raw_y, model, w, h) -> (x, y)."""
 
     def test_molmo_passthrough(self, bg):
-        """molmo model: 0-1 values pass through."""
-        x, y = bg.normalize_prediction(0.5, 0.7, "molmo", 960, 540)
+        """molmo model: 0-100 values divided by 100."""
+        x, y = bg.normalize_prediction(50.0, 70.0, "molmo", 960, 540)
         assert x == pytest.approx(0.5)
         assert y == pytest.approx(0.7)
 
     def test_molmo_clamped_high(self, bg):
-        """molmo model: values > 1.0 are clamped to 1.0."""
-        x, y = bg.normalize_prediction(1.5, 2.0, "molmo", 960, 540)
+        """molmo model: values > 100 are clamped to 1.0."""
+        x, y = bg.normalize_prediction(150.0, 200.0, "molmo", 960, 540)
         assert x == pytest.approx(1.0)
         assert y == pytest.approx(1.0)
 
     def test_molmo_clamped_low(self, bg):
         """molmo model: values < 0.0 are clamped to 0.0."""
-        x, y = bg.normalize_prediction(-0.1, -0.5, "molmo", 960, 540)
+        x, y = bg.normalize_prediction(-5.0, -10.0, "molmo", 960, 540)
         assert x == pytest.approx(0.0)
         assert y == pytest.approx(0.0)
 
@@ -419,6 +419,16 @@ class TestParseCoordinates:
         result = bg._parse_coordinates("Found: x=100, y=200")
         assert result == (100.0, 200.0)
 
+    def test_found_with_quoted_numbers(self, bg):
+        """FOUND with quoted numbers should still parse."""
+        result = bg._parse_coordinates('FOUND: x="82.1" y="5.4"')
+        assert result == (82.1, 5.4)
+
+    def test_qwen3_vl_found_response(self, bg):
+        """qwen3-vl with thinking disabled returns standard FOUND format."""
+        result = bg._parse_coordinates("FOUND: x=10, y=10")
+        assert result == (10.0, 10.0)
+
 
 # ---------------------------------------------------------------------------
 # 8. _resolve_coordinate_space  (5 tests)
@@ -429,8 +439,8 @@ class TestResolveCoordinateSpace:
     """Tests for _resolve_coordinate_space(model) -> Optional[str]."""
 
     def test_molmo_exact(self, bg):
-        """Exact match 'molmo' -> 'normalized_0_1'."""
-        assert bg._resolve_coordinate_space("molmo") == "normalized_0_1"
+        """Exact match 'molmo' -> 'normalized_0_100'."""
+        assert bg._resolve_coordinate_space("molmo") == "normalized_0_100"
 
     def test_qwen25vl_exact(self, bg):
         """Exact match 'qwen2.5-vl' -> 'normalized_0_1000'."""
@@ -451,7 +461,7 @@ class TestResolveCoordinateSpace:
     def test_case_insensitive_lookup(self, bg):
         """Lookup should be case insensitive (spec says model_lower)."""
         # The dict keys are lowercase, and lookup uses model.lower()
-        assert bg._resolve_coordinate_space("Molmo") == "normalized_0_1"
+        assert bg._resolve_coordinate_space("Molmo") == "normalized_0_100"
 
     def test_qwen3_vl(self, bg):
         """qwen3-vl should also be in the coordinate spaces."""
@@ -651,9 +661,10 @@ class TestBackendsDict:
     """Verify BACKENDS dict matches spec section D."""
 
     def test_backends_has_expected_keys(self, bg):
-        """BACKENDS dict should contain at least the 3 documented backends."""
+        """BACKENDS dict should contain at least the documented backends."""
         assert "claude-sonnet" in bg.BACKENDS
-        assert "qwen2.5-vl-ollama" in bg.BACKENDS
+        assert "qwen3-vl-ollama" in bg.BACKENDS
+        assert "molmo-mlx" in bg.BACKENDS
         assert "qwen2.5-vl-llamacpp" in bg.BACKENDS
 
     def test_anthropic_backend_type(self, bg):
@@ -663,13 +674,16 @@ class TestBackendsDict:
 
     def test_openai_compat_backends(self, bg):
         """Local backends have type=openai_compat and correct URLs."""
-        ollama = bg.BACKENDS["qwen2.5-vl-ollama"]
-        assert ollama["type"] == "openai_compat"
-        assert "11434" in ollama["url"]
-
         llamacpp = bg.BACKENDS["qwen2.5-vl-llamacpp"]
         assert llamacpp["type"] == "openai_compat"
         assert "8090" in llamacpp["url"]
+
+    def test_ollama_native_backend(self, bg):
+        """qwen3-vl-ollama uses ollama_native type with /api/chat endpoint."""
+        qwen3 = bg.BACKENDS["qwen3-vl-ollama"]
+        assert qwen3["type"] == "ollama_native"
+        assert "11434" in qwen3["url"]
+        assert "/api/chat" in qwen3["url"]
 
 
 # ---------------------------------------------------------------------------
@@ -687,8 +701,8 @@ class TestCoordinateSpaces:
         assert expected.issubset(actual), f"Missing models: {expected - actual}"
 
     def test_space_values_are_valid(self, bg):
-        """Each coordinate space is one of the three documented types."""
-        valid = {"normalized_0_1", "normalized_0_1000", "pixel"}
+        """Each coordinate space is one of the documented types."""
+        valid = {"normalized_0_1", "normalized_0_100", "normalized_0_1000", "pixel"}
         for model, space in bg.COORDINATE_SPACES.items():
             assert space in valid, f"Model '{model}' has invalid space '{space}'"
 
@@ -704,12 +718,14 @@ class TestPricing:
     def test_has_expected_backends(self, bg):
         """PRICING should have entries for all documented backends."""
         assert "claude-sonnet" in bg.PRICING
+        assert "qwen3-vl-ollama" in bg.PRICING
         assert "qwen2.5-vl-ollama" in bg.PRICING
         assert "qwen2.5-vl-llamacpp" in bg.PRICING
+        assert "molmo-mlx" in bg.PRICING
 
     def test_local_backends_are_free(self, bg):
         """Local backends have 0.0 input and output pricing."""
-        for name in ("qwen2.5-vl-ollama", "qwen2.5-vl-llamacpp"):
+        for name in ("qwen3-vl-ollama", "qwen2.5-vl-ollama", "qwen2.5-vl-llamacpp", "molmo-mlx"):
             assert bg.PRICING[name]["input"] == 0.0
             assert bg.PRICING[name]["output"] == 0.0
 
@@ -829,3 +845,86 @@ class TestStandaloneConstraint:
         assert match is None, (
             f"Script imports from automation_agent at: {match.group()}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 18. Default backends exclude Claude  (1 test)
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultBackends:
+    """Verify default backends do not include paid APIs."""
+
+    def test_default_backends_exclude_claude(self, bg):
+        """Default backends should not include claude-sonnet."""
+        assert "claude-sonnet" not in bg.DEFAULT_BACKENDS
+        assert "molmo-mlx" in bg.DEFAULT_BACKENDS
+        assert "qwen3-vl-ollama" in bg.DEFAULT_BACKENDS
+
+
+# ---------------------------------------------------------------------------
+# 19. Ollama native backend  (3 tests)
+# ---------------------------------------------------------------------------
+
+
+class TestOllamaNativeBackend:
+    """Tests for call_ollama_native_backend function."""
+
+    def test_call_ollama_native_backend_exists(self, bg):
+        """call_ollama_native_backend function should exist."""
+        assert hasattr(bg, "call_ollama_native_backend")
+        assert callable(bg.call_ollama_native_backend)
+
+    def test_call_ollama_native_uses_api_chat_endpoint(self, bg):
+        """Verify native backend hits /api/chat, not /v1/chat/completions."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "message": {"content": "FOUND: x=10, y=10"}
+        }).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+            bg.call_ollama_native_backend(
+                "http://localhost:11434/api/chat", "qwen3-vl:latest",
+                "dGVzdA==", "test prompt"
+            )
+            call_args = mock_urlopen.call_args
+            req = call_args[0][0]
+            assert "/api/chat" in req.full_url
+
+    def test_call_ollama_native_sets_think_false(self, bg):
+        """Verify think: false is in the payload."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "message": {"content": "FOUND: x=10, y=10"}
+        }).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+            bg.call_ollama_native_backend(
+                "http://localhost:11434/api/chat", "qwen3-vl:latest",
+                "dGVzdA==", "test prompt"
+            )
+            call_args = mock_urlopen.call_args
+            req = call_args[0][0]
+            body = json.loads(req.data)
+            assert body["think"] is False
+
+    def test_call_ollama_native_returns_message_content(self, bg):
+        """Verify we read result['message']['content'], not choices[0]."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "message": {"content": "FOUND: x=42, y=99"}
+        }).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            content, latency = bg.call_ollama_native_backend(
+                "http://localhost:11434/api/chat", "qwen3-vl:latest",
+                "dGVzdA==", "test prompt"
+            )
+            assert content == "FOUND: x=42, y=99"
+            assert latency > 0

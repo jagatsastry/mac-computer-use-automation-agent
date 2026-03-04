@@ -250,6 +250,7 @@ def compute_distance_px(
 # Pricing per 1M tokens (USD), as of 2025-05
 PRICING = {
     "claude-sonnet": {"input": 3.00, "output": 15.00},
+    "qwen3-vl-ollama": {"input": 0.0, "output": 0.0},  # local, free
     "qwen2.5-vl-ollama": {"input": 0.0, "output": 0.0},
     "qwen2.5-vl-llamacpp": {"input": 0.0, "output": 0.0},
     "molmo-mlx": {"input": 0.0, "output": 0.0},  # local, free
@@ -280,12 +281,13 @@ def estimate_cost(
 
 BACKENDS: Dict[str, Dict[str, str]] = {
     "claude-sonnet": {
+        # NOTE: Only runs when explicitly passed via --backends claude-sonnet
         "type": "anthropic",
         "model": "claude-sonnet-4-20250514",
     },
     "qwen3-vl-ollama": {
-        "type": "openai_compat",
-        "url": "http://localhost:11434/v1/chat/completions",
+        "type": "ollama_native",
+        "url": "http://localhost:11434/api/chat",
         "model": "qwen3-vl:latest",
     },
     "qwen2.5-vl-llamacpp": {
@@ -299,6 +301,9 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "model": "mlx-community/Molmo-7B-D-0924-3bit",
     },
 }
+
+# Default backends: only local models; claude-sonnet requires explicit --backends
+DEFAULT_BACKENDS = ["molmo-mlx", "qwen3-vl-ollama"]
 
 PROMPT_TEMPLATE = """Find the UI element described below and return its location.
 
@@ -350,10 +355,14 @@ def check_anthropic_backend() -> bool:
 
 def check_backend(name: str, cfg: Dict[str, str]) -> bool:
     """Check if a backend is available."""
-    if cfg["type"] == "anthropic":
+    cfg_type = cfg["type"]
+    if cfg_type == "anthropic":
         return check_anthropic_backend()
-    elif cfg["type"] == "openai_compat":
+    elif cfg_type == "openai_compat":
         return check_openai_compat_backend(cfg["url"])
+    elif cfg_type == "ollama_native":
+        base_url = cfg["url"].rsplit("/api/", 1)[0]
+        return check_openai_compat_backend(base_url + "/v1/chat/completions")
     return False
 
 
@@ -426,6 +435,57 @@ def call_openai_compat_backend(
     return content, elapsed
 
 
+def call_ollama_native_backend(
+    url: str, model: str, image_b64: str, prompt: str,
+    media_type: str = "image/png",
+    num_predict: int = 2048,
+) -> Tuple[str, float]:
+    """Call Ollama native API (/api/chat) for thinking models like qwen3-vl.
+
+    Uses the native API so we can access the ``thinking`` field when content
+    is empty (thinking models put reasoning there, leaving content blank).
+
+    Args:
+        url: Ollama /api/chat URL, e.g. http://localhost:11434/api/chat
+        model: Model name
+        image_b64: Base64-encoded image
+        prompt: Text prompt
+        media_type: Image media type (unused by Ollama native, included for symmetry)
+        num_predict: Maximum tokens to generate (default 2048; use lower for warmup)
+
+    Returns:
+        Tuple of (response_text, latency_seconds)
+    """
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [image_b64],
+            }
+        ],
+        "think": False,
+        "stream": False,
+        "options": {"num_predict": num_predict},
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    start = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read())
+    elapsed = time.perf_counter() - start
+    content = result["message"]["content"]
+    # For thinking models (e.g. qwen3-vl), content may be empty while the
+    # answer lives in the thinking field.  Fall back to thinking if needed.
+    if not content.strip() and result["message"].get("thinking"):
+        content = result["message"]["thinking"]
+    return content, elapsed
+
+
 def call_anthropic_backend(
     model: str, image_b64: str, prompt: str,
     media_type: str = "image/png",
@@ -492,15 +552,19 @@ FALLBACK_JSON = Path(__file__).parent / "screenspot_curated.json"
 
 
 def _create_tiny_black_png() -> bytes:
-    """Create a minimal 1x1 black PNG image as bytes."""
+    """Create a small 64x64 black PNG image as bytes.
+
+    Some vision models (e.g. qwen3-vl) reject 1x1 images with HTTP 500,
+    so we use 64x64 as the minimum safe size for warmup and placeholders.
+    """
     try:
         from PIL import Image as PILImage
         buf = io.BytesIO()
-        img = PILImage.new("RGB", (1, 1), (0, 0, 0))
+        img = PILImage.new("RGB", (64, 64), (0, 0, 0))
         img.save(buf, format="PNG")
         return buf.getvalue()
     except ImportError:
-        # Hardcoded minimal 1x1 black PNG
+        # Hardcoded minimal 64x64 black PNG
         import struct
         import zlib
 
@@ -509,10 +573,13 @@ def _create_tiny_black_png() -> bytes:
             crc = zlib.crc32(c) & 0xFFFFFFFF
             return struct.pack(">I", len(data)) + c + struct.pack(">I", crc)
 
+        width, height = 64, 64
         sig = b"\x89PNG\r\n\x1a\n"
-        ihdr_data = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+        ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
         ihdr = _chunk(b"IHDR", ihdr_data)
-        raw = b"\x00\x00\x00\x00"  # filter byte + RGB
+        # Each row: filter byte (0) + width * 3 bytes (RGB)
+        row = b"\x00" + b"\x00\x00\x00" * width
+        raw = row * height
         idat_data = zlib.compress(raw)
         idat = _chunk(b"IDAT", idat_data)
         iend = _chunk(b"IEND", b"")
@@ -701,6 +768,11 @@ def run_sample(
                 cfg["url"], cfg["model"], image_b64, prompt,
                 media_type=media_type,
             )
+        elif cfg["type"] == "ollama_native":
+            raw_response, latency = call_ollama_native_backend(
+                cfg["url"], cfg["model"], image_b64, prompt,
+                media_type=media_type,
+            )
         elif cfg["type"] == "anthropic":
             raw_response, latency = call_anthropic_backend(
                 cfg["model"], image_b64, prompt,
@@ -884,6 +956,33 @@ def save_json_results(
 
 
 # ---------------------------------------------------------------------------
+# Warmup
+# ---------------------------------------------------------------------------
+
+
+def warmup_backend(backend_name: str, cfg: Dict[str, str]) -> None:
+    """Send a tiny warmup image to pre-load the model weights into GPU memory.
+
+    Prevents the first benchmark sample from showing inflated latency.
+    """
+    print(f"  Warming up {backend_name}...", end="", flush=True)
+    try:
+        tiny_png = _create_tiny_black_png()
+        b64 = base64.b64encode(tiny_png).decode()
+        start = time.perf_counter()
+        if cfg["type"] == "openai_compat":
+            call_openai_compat_backend(cfg["url"], cfg["model"], b64, "test")
+        elif cfg["type"] == "ollama_native":
+            call_ollama_native_backend(
+                cfg["url"], cfg["model"], b64, "test", num_predict=16,
+            )
+        elapsed = time.perf_counter() - start
+        print(f" done ({elapsed:.1f}s)")
+    except Exception as e:
+        print(f" skipped ({e})")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -897,7 +996,8 @@ def main() -> None:
         nargs="+",
         default=None,
         choices=list(BACKENDS.keys()),
-        help="Backend names to run (default: all reachable)",
+        help="Backend names to run (default: molmo-mlx, qwen3-vl-ollama; "
+             "claude-sonnet only when explicitly requested)",
     )
     parser.add_argument(
         "--n",
@@ -960,7 +1060,10 @@ def main() -> None:
     print(f"  Selected {n} samples for benchmarking", file=sys.stderr)
 
     # 4. Determine backends to run
-    backends_requested = args.backends if args.backends else list(BACKENDS.keys())
+    backends_requested = args.backends if args.backends else [
+        name for name in BACKENDS
+        if BACKENDS[name].get("type") != "anthropic"  # Never default to paid APIs
+    ]
     backends_available = []
     backends_skipped = []
 
@@ -978,6 +1081,11 @@ def main() -> None:
     if not backends_available:
         print("ERROR: No backends available. Exiting.", file=sys.stderr)
         sys.exit(1)
+
+    # Warmup local vision models before benchmarking
+    for backend_name in backends_available:
+        if backend_name in ("molmo-mlx", "qwen3-vl-ollama"):
+            warmup_backend(backend_name, BACKENDS[backend_name])
 
     # 5. Run benchmarks
     all_results: Dict[str, List[BackendResult]] = {}
