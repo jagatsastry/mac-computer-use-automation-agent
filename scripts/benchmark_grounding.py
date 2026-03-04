@@ -77,6 +77,7 @@ COORDINATE_SPACES: Dict[str, str] = {
     "qwen2.5-vl": "normalized_0_1000",
     "qwen2-vl": "normalized_0_1000",
     "claude-sonnet-4-20250514": "pixel",
+    "claude-3-5-sonnet-20241022": "pixel",  # Computer-use model
 }
 
 
@@ -273,6 +274,7 @@ def compute_distance_px(
 # Pricing per 1M tokens (USD), as of 2025-05
 PRICING = {
     "claude-sonnet": {"input": 3.00, "output": 15.00},
+    "claude-computer-use": {"input": 3.00, "output": 15.00},
     "qwen3-vl-ollama": {"input": 0.0, "output": 0.0},  # local, free
     "qwen2.5-vl-ollama": {"input": 0.0, "output": 0.0},
     "qwen2.5-vl-llamacpp": {"input": 0.0, "output": 0.0},
@@ -307,6 +309,12 @@ BACKENDS: Dict[str, Dict[str, str]] = {
     "claude-sonnet": {
         # NOTE: Only runs when explicitly passed via --backends claude-sonnet
         "type": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+    },
+    "claude-computer-use": {
+        # NOTE: Only runs when explicitly passed via --backends claude-computer-use
+        # Uses computer-use-2025-01-24 beta; model returns click coordinates via tool.
+        "type": "anthropic_computer_use",
         "model": "claude-sonnet-4-20250514",
     },
     "qwen3-vl-ollama": {
@@ -395,7 +403,7 @@ def check_anthropic_backend() -> bool:
 def check_backend(name: str, cfg: Dict[str, str]) -> bool:
     """Check if a backend is available."""
     cfg_type = cfg["type"]
-    if cfg_type == "anthropic":
+    if cfg_type in ("anthropic", "anthropic_computer_use"):
         return check_anthropic_backend()
     elif cfg_type == "openai_compat":
         return check_openai_compat_backend(cfg["url"])
@@ -574,6 +582,78 @@ def call_anthropic_backend(
 
     content = message.content[0].text
     return content, elapsed
+
+
+def call_anthropic_computer_use_backend(
+    model: str, image_b64: str, instruction: str,
+    image_width: int, image_height: int,
+    media_type: str = "image/png",
+) -> Tuple[str, float]:
+    """Call Anthropic with the computer-use beta tool.
+
+    Asks Claude to click on the described element using the computer_20241022 tool.
+    Parses the resulting coordinate and returns it in FOUND: x=N, y=N format.
+    Coordinates are in pixel space (display_width_px × display_height_px = image dims).
+
+    Args:
+        model: Anthropic model (e.g. claude-3-5-sonnet-20241022).
+        image_b64: Base64-encoded image.
+        instruction: Natural-language element description.
+        image_width, image_height: Image dimensions (used as display size).
+        media_type: Image media type.
+
+    Returns:
+        Tuple of (response_text_in_FOUND_format, latency_seconds).
+    """
+    import anthropic
+
+    client = anthropic.Anthropic()
+
+    start = time.perf_counter()
+    message = client.beta.messages.create(
+        model=model,
+        max_tokens=1024,
+        betas=["computer-use-2025-01-24"],
+        tools=[{
+            "type": "computer_20250124",
+            "name": "computer",
+            "display_width_px": image_width,
+            "display_height_px": image_height,
+        }],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": f"Click on the UI element described: {instruction}",
+                    },
+                ],
+            }
+        ],
+    )
+    elapsed = time.perf_counter() - start
+
+    # Extract coordinate from the tool_use block
+    raw_response = "NOT_FOUND"
+    for block in message.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "computer":
+            coord = block.input.get("coordinate")
+            if coord and len(coord) == 2:
+                raw_response = f"FOUND: x={coord[0]}, y={coord[1]}"
+                break
+        elif getattr(block, "type", None) == "text" and block.text:
+            raw_response = block.text  # fallback: text response without tool use
+
+    return raw_response, elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -816,6 +896,12 @@ def run_sample(
         elif cfg["type"] == "anthropic":
             raw_response, latency = call_anthropic_backend(
                 cfg["model"], image_b64, prompt,
+                media_type=media_type,
+            )
+        elif cfg["type"] == "anthropic_computer_use":
+            raw_response, latency = call_anthropic_computer_use_backend(
+                cfg["model"], image_b64, sample.instruction,
+                sample.image_width, sample.image_height,
                 media_type=media_type,
             )
         else:
