@@ -334,7 +334,8 @@ BACKENDS: Dict[str, Dict[str, str]] = {
 # Default backends: only local models; claude-sonnet requires explicit --backends
 DEFAULT_BACKENDS = ["molmo-mlx", "molmo2-mlx", "qwen3-vl-ollama"]
 
-PROMPT_TEMPLATE = """Find the UI element described below and return its location.
+PROMPT_TEMPLATES = {
+    "structured": """Find the UI element described below and return its location.
 
 Element: {instruction}
 
@@ -342,12 +343,21 @@ If you can find the element, respond with exactly:
 FOUND: x=<number>, y=<number>
 
 If you cannot find it, respond with exactly:
-NOT_FOUND"""
+NOT_FOUND""",
+
+    # Native pointing format — matches Molmo/Molmo2 training distribution.
+    # Model responds with <points coords="ID X Y"> which _parse_coordinates handles.
+    "native": "Point to {instruction}.",
+}
+
+# Keep backward-compatible alias
+PROMPT_TEMPLATE = PROMPT_TEMPLATES["structured"]
 
 
-def _load_prompt(instruction: str) -> str:
+def _load_prompt(instruction: str, prompt_style: str = "structured") -> str:
     """Build the grounding prompt for a given instruction."""
-    return PROMPT_TEMPLATE.format(instruction=instruction)
+    template = PROMPT_TEMPLATES.get(prompt_style, PROMPT_TEMPLATES["structured"])
+    return template.format(instruction=instruction)
 
 
 # ---------------------------------------------------------------------------
@@ -780,9 +790,10 @@ def run_sample(
     sample: BenchmarkSample,
     backend_name: str,
     cfg: Dict[str, str],
+    prompt_style: str = "structured",
 ) -> BackendResult:
     """Run a single sample through a backend and return the result."""
-    prompt = _load_prompt(sample.instruction)
+    prompt = _load_prompt(sample.instruction, prompt_style)
     image_b64 = base64.b64encode(sample.image_bytes).decode()
     media_type = _detect_image_media_type(sample.image_bytes)
 
@@ -926,6 +937,7 @@ def save_json_results(
     n_samples: int,
     category: Optional[str],
     winner: Optional[str],
+    prompt_style: str = "structured",
 ) -> Path:
     """Save results to JSON in the logs/ directory."""
     logs_dir = Path(__file__).parent.parent / "logs"
@@ -972,6 +984,7 @@ def save_json_results(
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "n_samples": n_samples,
         "category": category,
+        "prompt_style": prompt_style,
         "backends_requested": backends_requested,
         "backends_skipped": backends_skipped,
         "results": results_dict,
@@ -1051,6 +1064,14 @@ def main() -> None:
         action="store_true",
         help="Delete cached Parquet files and re-download",
     )
+    parser.add_argument(
+        "--prompt-style",
+        choices=list(PROMPT_TEMPLATES.keys()),
+        default="structured",
+        help="Prompt format to use: 'structured' (FOUND: x=N, y=N) or "
+             "'native' (Point to X — matches Molmo training distribution). "
+             "Default: structured",
+    )
     args = parser.parse_args()
 
     # 1. Load dataset
@@ -1111,6 +1132,8 @@ def main() -> None:
         print("ERROR: No backends available. Exiting.", file=sys.stderr)
         sys.exit(1)
 
+    print(f"  Prompt style: {args.prompt_style}", file=sys.stderr)
+
     # Warmup local vision models before benchmarking
     for backend_name in backends_available:
         if backend_name in ("molmo-mlx", "molmo2-mlx", "qwen3-vl-ollama"):
@@ -1126,7 +1149,7 @@ def main() -> None:
 
         results = []
         for i, sample in enumerate(samples):
-            result = run_sample(sample, backend_name, cfg)
+            result = run_sample(sample, backend_name, cfg, prompt_style=args.prompt_style)
             results.append(result)
 
             status = "HIT " if result.hit else "MISS"
@@ -1168,6 +1191,7 @@ def main() -> None:
         n_samples=n,
         category=args.category,
         winner=winner,
+        prompt_style=args.prompt_style,
     )
     print(f"\nResults saved to: {output_path}")
 
