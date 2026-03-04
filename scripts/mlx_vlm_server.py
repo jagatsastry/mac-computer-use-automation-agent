@@ -12,6 +12,7 @@ import argparse
 import base64
 import io
 import json
+import tempfile
 import time
 import uuid
 
@@ -61,7 +62,8 @@ async def chat_completions(request: Request) -> JSONResponse:
 
     # Extract text and image from messages
     prompt_text = ""
-    image = None
+    image_path = None
+    tmp_file = None
 
     for msg in messages:
         content = msg.get("content", "")
@@ -84,25 +86,44 @@ async def chat_completions(request: Request) -> JSONResponse:
                             ratio = max_dim / max(image.size)
                             new_size = (int(image.width * ratio), int(image.height * ratio))
                             image = image.resize(new_size, Image.LANCZOS)
+                        # mlx-vlm 0.3.x generate() expects file paths, not PIL images
+                        tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                        image.save(tmp_file, format="PNG")
+                        tmp_file.close()
+                        image_path = tmp_file.name
+
+    # Apply chat template so the processor inserts image tokens (e.g. <|image|>)
+    from mlx_vlm.prompt_utils import apply_chat_template
+    formatted_prompt = apply_chat_template(
+        _processor,
+        config=_config,
+        prompt=prompt_text,
+        num_images=1 if image_path is not None else 0,
+    )
 
     start = time.perf_counter()
-    if image is not None:
-        output = generate(
-            _model,
-            _processor,
-            prompt_text,
-            image,
-            max_tokens=max_tokens,
-            verbose=False,
-        )
-    else:
-        output = generate(
-            _model,
-            _processor,
-            prompt_text,
-            max_tokens=max_tokens,
-            verbose=False,
-        )
+    try:
+        if image_path is not None:
+            output = generate(
+                _model,
+                _processor,
+                formatted_prompt,
+                image_path,
+                max_tokens=max_tokens,
+                verbose=False,
+            )
+        else:
+            output = generate(
+                _model,
+                _processor,
+                formatted_prompt,
+                max_tokens=max_tokens,
+                verbose=False,
+            )
+    finally:
+        if tmp_file is not None:
+            import os
+            os.unlink(tmp_file.name)
     elapsed = time.perf_counter() - start
 
     return JSONResponse({
@@ -115,7 +136,7 @@ async def chat_completions(request: Request) -> JSONResponse:
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": output if isinstance(output, str) else str(output),
+                    "content": output.text if hasattr(output, "text") else (output if isinstance(output, str) else str(output)),
                 },
                 "finish_reason": "stop",
             }
