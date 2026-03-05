@@ -22,7 +22,7 @@ def real_agent(real_config, tmp_path):
     """Build a real agent with all components."""
     logger = EventLogger(tmp_path / "e2e_logs")
     planner = ActionPlannerImpl(real_config)
-    skills = SkillRegistryImpl()
+    skills = SkillRegistryImpl(config=real_config)
     coordinator = ScreenCoordinatorImpl(real_config)
     actuator = AppleScriptActuator(real_config)
     return AutomationAgent(
