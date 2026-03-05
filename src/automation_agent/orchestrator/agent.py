@@ -30,6 +30,11 @@ class AutomationAgent:
     # Resolution threshold for Rec 4 cropping
     _CROP_WIDTH_THRESHOLD = 1440
 
+    # wait_for_user polling config
+    _WAIT_POLL_INTERVAL_S = 5.0
+    _WAIT_TIMEOUT_S = 120.0
+    _WAIT_DIFF_THRESHOLD = 0.02  # 2% pixel change = "screen changed"
+
     def __init__(
         self,
         planner,
@@ -171,7 +176,6 @@ class AutomationAgent:
                         EventType.USER_WAIT,
                         f"Waiting for user: {step.params.get('message', '')}",
                     )
-                    # In real usage, this would pause. For now, continue.
                     continue
 
                 if not result.success:
@@ -265,12 +269,7 @@ class AutomationAgent:
             )
 
         if step.action == "wait_for_user":
-            return StepResult(
-                step=step,
-                success=True,
-                verification_method="",
-                evidence=f"Waiting for user: {step.params.get('message', '')}",
-            )
+            return await self._wait_for_user(step)
 
         if step.action == "observe":
             desc = await self.coordinator.describe_screen()
@@ -499,7 +498,128 @@ class AutomationAgent:
                 raw_response=result.raw_response,
             )
 
+        # Save debug image with crosshair at predicted coordinates
+        if result is not None:
+            self._save_debug_image(screenshot_b64, result, description)
+
         return result
+
+    def _save_debug_image(
+        self,
+        screenshot_b64: str,
+        location: FindElementResult,
+        description: str,
+    ) -> None:
+        """Save a debug screenshot with a crosshair at the predicted click point."""
+        try:
+            from PIL import Image, ImageDraw
+
+            img_bytes = base64.b64decode(screenshot_b64)
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+            draw = ImageDraw.Draw(img)
+            x, y = location.x, location.y
+            r = 15  # crosshair radius
+            color = (255, 0, 0)  # red
+            width = 3
+
+            # Crosshair
+            draw.line([(x - r, y), (x + r, y)], fill=color, width=width)
+            draw.line([(x, y - r), (x, y + r)], fill=color, width=width)
+            # Circle
+            draw.ellipse(
+                [(x - r, y - r), (x + r, y + r)], outline=color, width=width
+            )
+            # Label
+            label = f"({x},{y}) {description[:40]}"
+            draw.text((x + r + 4, y - 8), label, fill=color)
+
+            debug_dir = self.logger.run_dir / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            ts = int(time.time() * 1000)
+            path = debug_dir / f"find_{ts}.jpg"
+            img.save(str(path), format="JPEG", quality=90)
+            slog.debug("Debug image saved", path=str(path))
+        except Exception:
+            pass  # Never block execution for debug images
+
+    async def _wait_for_user(self, step: ActionStep) -> StepResult:
+        """Wait for the user to complete an action by polling for screen changes.
+
+        Captures a baseline screenshot, prints the message, then polls every
+        _WAIT_POLL_INTERVAL_S seconds comparing against baseline. Returns when
+        the screen changes significantly or after _WAIT_TIMEOUT_S seconds.
+        """
+        message = step.params.get("message", "Please complete the required action")
+        slog.info("⏳ Waiting for user action", message=message)
+        print(f"\n[WAITING] {message}")
+        print(f"  (will auto-resume when screen changes, timeout {self._WAIT_TIMEOUT_S}s)")
+
+        try:
+            from PIL import Image
+        except ImportError:
+            slog.warning("PIL not installed — cannot poll for screen changes, continuing")
+            return StepResult(
+                step=step, success=True, verification_method="",
+                evidence=f"Waiting for user (no PIL): {message}",
+            )
+
+        # Capture baseline
+        try:
+            baseline_b64 = await self.coordinator.capture_screenshot()
+            baseline_bytes = base64.b64decode(baseline_b64)
+            baseline_img = Image.open(io.BytesIO(baseline_bytes)).convert("L")
+        except Exception:
+            slog.warning("Cannot capture baseline for wait polling — proceeding")
+            return StepResult(
+                step=step, success=True, verification_method="",
+                evidence=f"Waiting for user: {message}",
+            )
+
+        elapsed = 0.0
+        while elapsed < self._WAIT_TIMEOUT_S:
+            await asyncio.sleep(self._WAIT_POLL_INTERVAL_S)
+            elapsed += self._WAIT_POLL_INTERVAL_S
+
+            try:
+                current_b64 = await self.coordinator.capture_screenshot()
+                current_bytes = base64.b64decode(current_b64)
+                current_img = Image.open(io.BytesIO(current_bytes)).convert("L")
+
+                # Pixel-level diff ratio
+                diff = self._image_diff_ratio(baseline_img, current_img)
+                if diff >= self._WAIT_DIFF_THRESHOLD:
+                    slog.info(
+                        "Screen changed — resuming",
+                        diff_ratio=round(diff, 4),
+                        waited_s=round(elapsed, 1),
+                    )
+                    print(f"  [RESUMED] Screen changed ({diff:.1%}) after {elapsed:.0f}s")
+                    return StepResult(
+                        step=step, success=True, verification_method="pixel_diff",
+                        evidence=f"Screen changed ({diff:.1%}) after {elapsed:.0f}s wait",
+                    )
+            except Exception:
+                pass  # Screenshot capture failed — keep polling
+
+        slog.warning("wait_for_user timed out", timeout_s=self._WAIT_TIMEOUT_S)
+        print(f"  [TIMEOUT] No screen change detected after {self._WAIT_TIMEOUT_S}s")
+        return StepResult(
+            step=step, success=True, verification_method="timeout",
+            evidence=f"Timed out after {self._WAIT_TIMEOUT_S}s — proceeding anyway",
+        )
+
+    @staticmethod
+    def _image_diff_ratio(img_a, img_b) -> float:
+        """Compute the fraction of pixels that differ between two grayscale PIL images."""
+        if img_a.size != img_b.size:
+            img_b = img_b.resize(img_a.size)
+        pixels_a = img_a.tobytes()
+        pixels_b = img_b.tobytes()
+        if len(pixels_a) != len(pixels_b):
+            return 1.0
+        diff_count = sum(1 for a, b in zip(pixels_a, pixels_b) if abs(a - b) > 20)
+        return diff_count / len(pixels_a)
 
     def _get_confidence_threshold(self, step: ActionStep) -> float:
         """Return the confidence threshold for a step (Rec 2).
