@@ -596,7 +596,7 @@ class AutomationAgent:
                     )
                     print(f"  [RESUMED] Screen changed ({diff:.1%}) after {elapsed:.0f}s")
                     return StepResult(
-                        step=step, success=True, verification_method="pixel_diff",
+                        step=step, success=True, verification_method="",
                         evidence=f"Screen changed ({diff:.1%}) after {elapsed:.0f}s wait",
                     )
             except Exception:
@@ -605,7 +605,7 @@ class AutomationAgent:
         slog.warning("wait_for_user timed out", timeout_s=self._WAIT_TIMEOUT_S)
         print(f"  [TIMEOUT] No screen change detected after {self._WAIT_TIMEOUT_S}s")
         return StepResult(
-            step=step, success=True, verification_method="timeout",
+            step=step, success=True, verification_method="",
             evidence=f"Timed out after {self._WAIT_TIMEOUT_S}s — proceeding anyway",
         )
 
