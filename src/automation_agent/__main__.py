@@ -94,7 +94,7 @@ async def run_agent(
 
     # Initialize components
     planner = ActionPlannerImpl(config)
-    skill_registry = SkillRegistryImpl()
+    skill_registry = SkillRegistryImpl(config=config)
     coordinator = ScreenCoordinatorImpl(config)
     actuator = create_actuator(config)
     logger.info("using_actuator", actuator=type(actuator).__name__)
