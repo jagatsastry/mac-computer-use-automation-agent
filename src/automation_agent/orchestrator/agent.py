@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import io
+import re
 import time
 from typing import Optional, Tuple
 
@@ -538,7 +539,8 @@ class AutomationAgent:
             debug_dir = self.logger.run_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
             ts = int(time.time() * 1000)
-            path = debug_dir / f"find_{ts}.jpg"
+            slug = re.sub(r"[^a-zA-Z0-9]+", "_", description)[:60].strip("_")
+            path = debug_dir / f"find_{ts}_{slug}.jpg"
             img.save(str(path), format="JPEG", quality=90)
             slog.debug("Debug image saved", path=str(path))
         except Exception:
