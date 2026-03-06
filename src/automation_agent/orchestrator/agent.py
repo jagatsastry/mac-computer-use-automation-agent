@@ -476,7 +476,8 @@ class AutomationAgent:
                 pass  # Fallback: no candidates
 
         # Rec 4: capture screenshot and optionally crop to last successful region
-        screenshot_b64 = await self.coordinator.capture_screenshot()
+        original_b64 = await self.coordinator.capture_screenshot()
+        screenshot_b64 = original_b64
         crop_offset = None
 
         if self.last_successful_region is not None:
@@ -500,7 +501,7 @@ class AutomationAgent:
 
         # Save debug image with crosshair at predicted coordinates
         if result is not None:
-            self._save_debug_image(screenshot_b64, result, description)
+            self._save_debug_image(original_b64, result, description)
 
         return result
 
