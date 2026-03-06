@@ -17,7 +17,8 @@ logger = structlog.get_logger(__name__)
 # This is explicit — no heuristic guessing. If a model is not listed,
 # we raise an error rather than silently misinterpret coordinates.
 COORDINATE_SPACES: Dict[str, str] = {
-    "molmo": "normalized_0_100",  # Molmo returns 0-100 normalized coordinates (e.g. <point x="75.3">)
+    "molmo": "normalized_0_100",  # Molmo v1 returns 0-100 normalized coordinates
+    "molmo2": "normalized_0_1000",  # Molmo2 returns 0-1000 normalized coordinates
     "qwen3-vl": "normalized_0_1000",  # Qwen3-VL returns 0-1000 normalized
     "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
     "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
