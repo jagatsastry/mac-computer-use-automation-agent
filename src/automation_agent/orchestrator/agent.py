@@ -524,20 +524,28 @@ class AutomationAgent:
 
             draw = ImageDraw.Draw(img)
             x, y = location.x, location.y
-            r = 15  # crosshair radius
+            r = 30  # crosshair radius
             color = (255, 0, 0)  # red
-            width = 3
+            outline = (0, 0, 0)  # black outline for contrast
+            w = 5
 
-            # Crosshair
-            draw.line([(x - r, y), (x + r, y)], fill=color, width=width)
-            draw.line([(x, y - r), (x, y + r)], fill=color, width=width)
-            # Circle
-            draw.ellipse(
-                [(x - r, y - r), (x + r, y + r)], outline=color, width=width
+            # Black outline first, then red on top
+            for c, off in [(outline, 2), (color, 0)]:
+                draw.line([(x - r, y), (x + r, y)], fill=c, width=w + off)
+                draw.line([(x, y - r), (x, y + r)], fill=c, width=w + off)
+                draw.ellipse(
+                    [(x - r, y - r), (x + r, y + r)], outline=c, width=w + off
+                )
+
+            # Label with background box
+            label = f"({x},{y}) {description[:50]}"
+            lx, ly = x + r + 6, y - 12
+            bbox = draw.textbbox((lx, ly), label)
+            draw.rectangle(
+                [bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2],
+                fill=(0, 0, 0),
             )
-            # Label
-            label = f"({x},{y}) {description[:40]}"
-            draw.text((x + r + 4, y - 8), label, fill=color)
+            draw.text((lx, ly), label, fill=(255, 255, 0))
 
             debug_dir = self.logger.run_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
