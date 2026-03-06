@@ -461,9 +461,12 @@ class AutomationAgent:
         if self.grounding_router is not None:
             gr = await self.grounding_router.find_element(description)
             if gr is not None:
-                return FindElementResult(
+                result = FindElementResult(
                     x=gr.x, y=gr.y, source=gr.strategy_used.value
                 )
+                screenshot_b64 = await self.coordinator.capture_screenshot()
+                self._save_debug_image(screenshot_b64, result, description)
+                return result
             return None
 
         # Rec 1: get accessibility candidates if actuator supports it
@@ -543,8 +546,8 @@ class AutomationAgent:
             path = debug_dir / f"find_{ts}_{slug}.jpg"
             img.save(str(path), format="JPEG", quality=90)
             slog.debug("Debug image saved", path=str(path))
-        except Exception:
-            pass  # Never block execution for debug images
+        except Exception as exc:
+            slog.warning("Debug image save failed", error=str(exc))
 
     async def _wait_for_user(self, step: ActionStep) -> StepResult:
         """Wait for the user to complete an action by polling for screen changes.
