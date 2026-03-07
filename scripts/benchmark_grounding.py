@@ -78,6 +78,8 @@ COORDINATE_SPACES: Dict[str, str] = {
     "qwen2-vl": "normalized_0_1000",
     "claude-sonnet-4-20250514": "pixel",
     "claude-3-5-sonnet-20241022": "pixel",  # Computer-use model
+    "gpt-4o": "pixel",
+    "gpt-5.4": "pixel",
 }
 
 
@@ -280,6 +282,8 @@ PRICING = {
     "qwen2.5-vl-llamacpp": {"input": 0.0, "output": 0.0},
     "molmo-mlx": {"input": 0.0, "output": 0.0},  # local, free
     "molmo2-mlx": {"input": 0.0, "output": 0.0},  # local, free
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt-5.4": {"input": 5.00, "output": 20.00},  # estimated
 }
 
 
@@ -336,6 +340,14 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "type": "openai_compat",
         "url": "http://localhost:8092/v1/chat/completions",
         "model": "mlx-community/Molmo2-8B-5bit",
+    },
+    "gpt-4o": {
+        "type": "openai",
+        "model": "gpt-4o",
+    },
+    "gpt-5.4": {
+        "type": "openai",
+        "model": "gpt-5.4",
     },
 }
 
@@ -400,11 +412,18 @@ def check_anthropic_backend() -> bool:
         return False
 
 
+def check_openai_backend() -> bool:
+    """Check if the OpenAI backend is available (API key set)."""
+    return bool(os.environ.get("OPENAI_API_KEY"))
+
+
 def check_backend(name: str, cfg: Dict[str, str]) -> bool:
     """Check if a backend is available."""
     cfg_type = cfg["type"]
     if cfg_type in ("anthropic", "anthropic_computer_use"):
         return check_anthropic_backend()
+    elif cfg_type == "openai":
+        return check_openai_backend()
     elif cfg_type == "openai_compat":
         return check_openai_compat_backend(cfg["url"])
     elif cfg_type == "ollama_native":
@@ -471,6 +490,54 @@ def call_openai_compat_backend(
         url,
         data=data,
         headers={"Content-Type": "application/json"},
+    )
+
+    start = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read())
+    elapsed = time.perf_counter() - start
+
+    content = result["choices"][0]["message"]["content"]
+    return content, elapsed
+
+
+def call_openai_backend(
+    model: str, image_b64: str, prompt: str,
+    media_type: str = "image/png",
+) -> Tuple[str, float]:
+    """Call the OpenAI API (GPT-4o, GPT-5.4, etc.) with a vision prompt.
+
+    Requires OPENAI_API_KEY environment variable.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not set")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+        "max_tokens": 256,
+    }
+
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
     )
 
     start = time.perf_counter()
@@ -886,6 +953,11 @@ def run_sample(
         if cfg["type"] == "openai_compat":
             raw_response, latency = call_openai_compat_backend(
                 cfg["url"], cfg["model"], image_b64, prompt,
+                media_type=media_type,
+            )
+        elif cfg["type"] == "openai":
+            raw_response, latency = call_openai_backend(
+                cfg["model"], image_b64, prompt,
                 media_type=media_type,
             )
         elif cfg["type"] == "ollama_native":
