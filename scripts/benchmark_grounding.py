@@ -537,7 +537,7 @@ def call_openai_backend(
                 ],
             }
         ],
-        "max_tokens": 256,
+        "max_completion_tokens": 256,
     }
 
     data = json.dumps(payload).encode()
