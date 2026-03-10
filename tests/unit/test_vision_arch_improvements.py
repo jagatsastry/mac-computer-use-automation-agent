@@ -868,6 +868,76 @@ class TestConfidenceGating:
         result = await agent._dispatch_action(step)
         actuator.click.assert_called_once_with(100, 200)
 
+    @pytest.mark.asyncio
+    async def test_click_scales_image_coords_to_logical_screen_space(self, tmp_path):
+        """Vision coords are mapped back to logical screen coords before clicking."""
+        from automation_agent.shared_models import ActionStep
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        coordinator = AsyncMock()
+        coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(x=512, y=384, confidence=0.8, source="vision")
+        )
+        coordinator.describe_screen = AsyncMock(return_value="screen")
+        coordinator.verify_condition = AsyncMock(return_value=True)
+        coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())
+        coordinator.capture = MagicMock()
+        coordinator.capture.get_screen_size = MagicMock(return_value=(1512, 982))
+
+        actuator = MagicMock()
+        actuator.click = MagicMock(return_value={"success": True})
+        actuator.get_state = MagicMock(return_value={"app_name": "X", "window_title": "Y"})
+
+        agent = _make_agent(log_dir, actuator=actuator, coordinator=coordinator)
+        agent._validate_candidate = AsyncMock(return_value=True)
+        agent._get_logical_screen_size = MagicMock(return_value=(1512, 982))
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Continue button"},
+            verify="Continue screen shown",
+        )
+
+        result = await agent._dispatch_action(step)
+
+        actuator.click.assert_called_once_with(756, 491)
+        assert result["image_x"] == 512
+        assert result["image_y"] == 384
+        assert result["screen_x"] == 756
+        assert result["screen_y"] == 491
+
+    @pytest.mark.asyncio
+    async def test_open_url_address_bar_fallback_runs_sequence(self, tmp_path):
+        """Retry metadata for open_url uses the browser address bar sequence."""
+        from automation_agent.shared_models import ActionStep
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        actuator = MagicMock()
+        actuator.press_key = MagicMock(return_value={"success": True, "output": "pressed"})
+        actuator.type_text = MagicMock(return_value={"success": True, "output": "typed"})
+        actuator.get_state = MagicMock(return_value={"app_name": "Safari", "window_title": "Test"})
+
+        agent = _make_agent(log_dir, actuator=actuator)
+
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://example.com", "_address_bar_fallback": True},
+            verify="Example page visible",
+        )
+
+        result = await agent._dispatch_action(step)
+
+        assert result["success"] is True
+        assert actuator.press_key.call_args_list == [
+            call(["cmd", "l"]),
+            call(["return"]),
+        ]
+        actuator.type_text.assert_called_once_with("https://example.com")
+
 
 # ===========================================================================
 # REC 3: Pre-click two-pass validation

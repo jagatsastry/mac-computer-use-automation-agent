@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Optional, List
 
-from .config import LogLevel, ModelProvider
+from .config import LogLevel, ModelProvider, StatusUIMode
 from .version import __description__, __version__
 
 
@@ -80,6 +80,12 @@ Examples:
     )
     parser.add_argument("--log-dir", type=Path, metavar="DIR", help="Directory for log files")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--status-ui",
+        type=str,
+        choices=[mode.value for mode in StatusUIMode],
+        help="Show a live on-screen status UI during execution",
+    )
 
     # Execution
     parser.add_argument(

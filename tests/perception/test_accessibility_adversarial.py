@@ -23,24 +23,46 @@ import pytest
 # pyobjc may not be installed in the test environment. We mock the entire
 # framework hierarchy before importing the module under test.
 
-_mock_appkit = MagicMock()
-_mock_app_services = MagicMock()
-_mock_app_services.AXUIElementCreateSystemWide = MagicMock()
-_mock_app_services.AXUIElementCreateApplication = MagicMock()
-_mock_app_services.AXUIElementCopyAttributeValue = MagicMock()
+def _ensure_mock_module(name: str) -> MagicMock:
+    module = sys.modules.get(name)
+    if isinstance(module, MagicMock):
+        return module
+    mocked = MagicMock(name=name)
+    sys.modules[name] = mocked
+    return mocked
 
-sys.modules.setdefault("AppKit", _mock_appkit)
-sys.modules.setdefault("ApplicationServices", _mock_app_services)
-sys.modules.setdefault("CoreFoundation", MagicMock())
-sys.modules.setdefault("Quartz", MagicMock())
-sys.modules.setdefault("objc", MagicMock())
-sys.modules.setdefault("Foundation", MagicMock())
-sys.modules.setdefault("PyObjCTools", MagicMock())
+
+_ensure_mock_module("AppKit")
+_ensure_mock_module("ApplicationServices")
+_ensure_mock_module("CoreFoundation")
+_ensure_mock_module("Quartz")
+_ensure_mock_module("objc")
+_ensure_mock_module("Foundation")
+_ensure_mock_module("PyObjCTools")
+
+_shared_appkit = sys.modules["AppKit"]
+_shared_app_services = sys.modules["ApplicationServices"]
+_shared_app_services.AXUIElementCreateSystemWide = MagicMock()
+_shared_app_services.AXUIElementCreateApplication = MagicMock()
+_shared_app_services.AXUIElementCopyAttributeValue = MagicMock()
 
 from automation_agent.perception.accessibility import (  # noqa: E402
     AccessibilityBridge,
     AXElement,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_mocks():
+    """Reset shared module-level mocks before and after each test."""
+    _shared_appkit.reset_mock(return_value=True, side_effect=True)
+    _shared_app_services.reset_mock(return_value=True, side_effect=True)
+    _shared_app_services.AXUIElementCreateSystemWide = MagicMock()
+    _shared_app_services.AXUIElementCreateApplication = MagicMock()
+    _shared_app_services.AXUIElementCopyAttributeValue = MagicMock()
+    yield
+    _shared_appkit.reset_mock(return_value=True, side_effect=True)
+    _shared_app_services.reset_mock(return_value=True, side_effect=True)
 
 
 # ============================================================================
@@ -302,7 +324,7 @@ class TestGetFrontmostApp:
     def test_returns_none_when_no_active_app(self):
         """No active application (e.g., login screen) -- should return None."""
         bridge = AccessibilityBridge()
-        _mock_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = (
+        _shared_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = (
             None
         )
         result = bridge.get_frontmost_app()
@@ -312,7 +334,7 @@ class TestGetFrontmostApp:
     def test_returns_app_info_dict(self):
         """Normal case: active application exists."""
         bridge = AccessibilityBridge()
-        _mock_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = {
+        _shared_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = {
             "NSApplicationName": "Safari",
             "NSApplicationProcessIdentifier": 12345,
             "NSApplicationBundleIdentifier": "com.apple.Safari",
@@ -327,7 +349,7 @@ class TestGetFrontmostApp:
     def test_missing_keys_in_active_app(self):
         """Active app dict is missing some expected keys -- should use defaults."""
         bridge = AccessibilityBridge()
-        _mock_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = (
+        _shared_appkit.NSWorkspace.sharedWorkspace.return_value.activeApplication.return_value = (
             {}
         )
         result = bridge.get_frontmost_app()
@@ -344,13 +366,13 @@ class TestGetFrontmostApp:
         It must NOT silently return garbage data.
         """
         bridge = AccessibilityBridge()
-        _mock_appkit.NSWorkspace.sharedWorkspace.side_effect = RuntimeError(
+        _shared_appkit.NSWorkspace.sharedWorkspace.side_effect = RuntimeError(
             "Accessibility permission denied"
         )
         with pytest.raises(RuntimeError):
             bridge.get_frontmost_app()
         # Reset the side_effect for subsequent tests
-        _mock_appkit.NSWorkspace.sharedWorkspace.side_effect = None
+        _shared_appkit.NSWorkspace.sharedWorkspace.side_effect = None
 
     @pytest.mark.unit
     def test_app_crashes_between_calls(self):
@@ -359,7 +381,7 @@ class TestGetFrontmostApp:
         Simulates the app disappearing between two consecutive calls.
         """
         bridge = AccessibilityBridge()
-        workspace_mock = _mock_appkit.NSWorkspace.sharedWorkspace.return_value
+        workspace_mock = _shared_appkit.NSWorkspace.sharedWorkspace.return_value
         workspace_mock.activeApplication.side_effect = [
             {"NSApplicationName": "Safari", "NSApplicationProcessIdentifier": 1},
             None,
@@ -1252,7 +1274,7 @@ class TestAXAPIErrorCodes:
         The bridge should handle this without crashing.
         """
         bridge = AccessibilityBridge()
-        _mock_app_services.AXUIElementCopyAttributeValue.return_value = (
+        _shared_app_services.AXUIElementCopyAttributeValue.return_value = (
             -25204,  # kAXErrorCannotComplete
             None,
         )
@@ -1270,12 +1292,12 @@ class TestAXAPIErrorCodes:
         The bridge should raise a clear error or return None, not hang.
         """
         bridge = AccessibilityBridge()
-        _mock_app_services.AXUIElementCreateSystemWide.side_effect = (
+        _shared_app_services.AXUIElementCreateSystemWide.side_effect = (
             RuntimeError("AX API disabled")
         )
         # The bridge should handle this during initialization or first use
         # Reset
-        _mock_app_services.AXUIElementCreateSystemWide.side_effect = None
+        _shared_app_services.AXUIElementCreateSystemWide.side_effect = None
 
     @pytest.mark.unit
     def test_invalid_ui_element_during_traversal(self):

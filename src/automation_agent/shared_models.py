@@ -40,6 +40,18 @@ class FindElementResult:
     confidence: float = 0.0  # 0.0 = unknown/not reported, 1.0 = certain
     source: str = ""         # "accessibility", "vision", "grounding"
     raw_response: str = ""
+    screen_x: Optional[int] = None
+    screen_y: Optional[int] = None
+    image_width: int = 0
+    image_height: int = 0
+
+    def __getitem__(self, key: str) -> Any:
+        """Provide dict-like compatibility for older callers/tests."""
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Provide dict-like compatibility for older callers/tests."""
+        return getattr(self, key, default)
 
 
 @dataclass

@@ -101,6 +101,69 @@ class TestSkillMatching:
         call_kwargs = mock_planner.plan.call_args
         assert call_kwargs.kwargs.get("skill_context") is None
 
+    async def test_trivial_done_skill_plan_falls_back_to_compiled_steps(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """A matched skill should execute compiled fallback steps when planner returns only done."""
+        mock_skill_registry.match.return_value = {
+            "skill_name": "return-amazon-order",
+            "params": {"item": "blue headphones"},
+            "expanded_steps": (
+                "1. Use open_url to navigate to https://www.amazon.com/gp/your-account/order-history\n"
+                "   - verify: Amazon orders page or login page visible\n"
+                "2. If login page is visible, wait for user to sign in\n"
+                "   - verify: Orders page loaded with search functionality\n"
+            ),
+        }
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([ActionStep(action="done", params={}, verify="")])
+        )
+        mock_actuator.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Blank Start Page",
+        }
+        mock_coordinator.verify_condition = AsyncMock(
+            side_effect=[False, False, False, True]
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute(
+            "Return my blue headphones on Amazon, but stop as soon as the Amazon orders page or sign-in page is visible."
+        )
+
+        assert result.success is True
+        mock_actuator.open_url.assert_called_once_with(
+            "https://www.amazon.com/gp/your-account/order-history"
+        )
+
+    async def test_trivial_done_skill_plan_is_accepted_when_target_already_visible(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """A done-only plan is acceptable when the compiled skill target already verifies."""
+        mock_skill_registry.match.return_value = {
+            "skill_name": "open-app-and-navigate",
+            "params": {"app_name": "Safari"},
+            "expanded_steps": "1. Open Safari\n   - verify: Safari is frontmost app\n",
+        }
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([ActionStep(action="done", params={}, verify="")])
+        )
+        mock_actuator.get_state.return_value = {"app_name": "Safari"}
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Open Safari")
+
+        assert result.success is True
+        mock_actuator.activate_app.assert_not_called()
+
 
 class TestElementFinding:
     """Tests for element finding in click actions."""
@@ -271,7 +334,9 @@ class TestFailureHandling:
         """8. Verify fail + on_fail=retry_different triggers retry."""
         # First verify fails, second succeeds
         verify_results = iter([False, True])
-        mock_coordinator.verify_condition = AsyncMock(side_effect=lambda cond: next(verify_results))
+        mock_coordinator.verify_condition = AsyncMock(
+            side_effect=lambda cond, **kwargs: next(verify_results)
+        )
 
         mock_planner.plan = AsyncMock(
             return_value=_make_plan([
@@ -453,6 +518,38 @@ class TestSpecialSteps:
         wait_results = [sr for sr in result.steps if sr.step.action == "wait_for_user"]
         assert len(wait_results) == 1
         assert "Waiting for user" in wait_results[0].evidence
+
+    async def test_wait_for_user_skips_when_condition_is_not_present(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Conditional waits should skip when their precondition is absent."""
+        mock_coordinator.verify_condition = AsyncMock(return_value=False)
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="wait_for_user",
+                    params={
+                        "message": "Please sign in to Amazon",
+                        "condition": "Amazon login page is visible",
+                    },
+                    verify="",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Do something requiring login")
+
+        assert result.success is True
+        wait_results = [sr for sr in result.steps if sr.step.action == "wait_for_user"]
+        assert len(wait_results) == 1
+        assert "Skipped wait" in wait_results[0].evidence
+        mock_coordinator.capture_screenshot.assert_not_awaited()
 
     async def test_done_step_returns_success(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
@@ -701,6 +798,117 @@ class TestBugFixes:
         assert strategies[0] != strategies[1], (
             f"Retry strategies should differ: {strategies}"
         )
+
+    async def test_click_retry_can_change_action_type(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Second click retry uses a real alternate action instead of ignored params."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Continue button"},
+            verify="Next screen shown",
+            on_fail="retry_different",
+            max_retries=3,
+        )
+        prev = StepResult(
+            step=step,
+            success=False,
+            evidence="not found",
+            retry_count=1,
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "keyboard_fallback_enter"
+        assert retry_step.action == "press_key"
+        assert retry_step.params == {"keys": ["return"]}
+
+    async def test_search_click_retry_scrolls_to_top_before_retrying(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Search-field retries should recover viewport before another click."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        step = ActionStep(
+            action="click",
+            params={"element": "search orders text field"},
+            verify="Search bar is focused",
+            on_fail="retry_different",
+            max_retries=3,
+        )
+        prev = StepResult(
+            step=step,
+            success=False,
+            evidence="not found",
+            retry_count=1,
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "jump_to_page_top_and_retry_click"
+        assert retry_step.action == "click"
+        assert retry_step.params["_pre_keys"] == ["cmd", "up"]
+
+    async def test_dispatch_press_key_accepts_legacy_key_param(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Legacy planner output with key='Return' should still execute."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        step = ActionStep(action="press_key", params={"key": "Return"}, verify="")
+        result = await agent._dispatch_action(step)
+
+        assert result["success"] is True
+        mock_actuator.press_key.assert_called_once_with(["return"])
+
+    def test_compile_conditional_wait_extracts_visibility_condition(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Conditional wait instructions should carry a machine-checkable condition."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        steps = agent._compile_skill_instruction(
+            "If login page is visible, wait for user to sign in",
+            "",
+        )
+
+        assert steps is not None
+        assert len(steps) == 1
+        assert steps[0].action == "wait_for_user"
+        assert steps[0].params["condition"] == "login page is visible"
+
+    def test_compile_navigate_url_becomes_open_url(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Navigate-to URL instructions should produce open_url, not a click."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        steps = agent._compile_skill_instruction(
+            "Navigate to https://www.amazon.com/gp/your-account/order-history",
+            "Amazon orders page visible",
+        )
+
+        assert steps is not None
+        assert len(steps) == 1
+        assert steps[0].action == "open_url"
+        assert steps[0].params == {"url": "https://www.amazon.com/gp/your-account/order-history"}
 
     async def test_verify_start_and_action_start_events_logged(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir

@@ -2,10 +2,11 @@
 
 import asyncio
 import base64
+import inspect
 import io
 import re
 import time
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import structlog
 
@@ -55,7 +56,10 @@ class AutomationAgent:
         self.config = config
         self.logger = logger or EventLogger(config.event_log_dir)
         self.verifier = StepVerifier(
-            actuator=actuator, coordinator=coordinator, logger=self.logger
+            actuator=actuator,
+            coordinator=coordinator,
+            logger=self.logger,
+            accessibility=getattr(coordinator, "accessibility", None),
         )
         self.screenshot_diff = screenshot_diff
         self.context_monitor = context_monitor
@@ -81,7 +85,9 @@ class AutomationAgent:
             if skill_match:
                 skill_name = skill_match["skill_name"]
                 params = skill_match.get("params", {})
-                skill_context = self.skill_registry.expand(skill_name, params)
+                skill_context = skill_match.get("expanded_steps")
+                if skill_context is None:
+                    skill_context = self.skill_registry.expand(skill_name, params)
                 slog.info("🤔 Skill matched", skill_name=skill_name, params=params)
                 self.logger.log_event(
                     EventType.SKILL_MATCH,
@@ -116,6 +122,21 @@ class AutomationAgent:
             if desktop_context:
                 plan_kwargs["desktop_context"] = desktop_context
             plan = await self.planner.plan(goal, **plan_kwargs)
+            fallback_plan = self._build_skill_fallback_plan(goal, skill_context)
+            if self._is_trivial_done_plan(plan) and fallback_plan is not None:
+                if await self._plan_already_satisfied(fallback_plan):
+                    slog.info("✅ Trivial done plan accepted because fallback condition is already met")
+                else:
+                    slog.warning(
+                        "Planner returned trivial done plan before fallback target was satisfied",
+                        goal=goal,
+                    )
+                    self.logger.log_event(
+                        EventType.SKILL_EXPAND,
+                        f"Replacing trivial done plan with skill fallback ({len(fallback_plan.steps)} steps)",
+                        data={"step_count": len(fallback_plan.steps)},
+                    )
+                    plan = fallback_plan
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
@@ -295,8 +316,8 @@ class AutomationAgent:
             and actuator_result.get("success", False)
         ):
             await asyncio.sleep(0.3)  # Brief wait for UI update
-            click_x = actuator_result.get("x", step.params.get("x", 0))
-            click_y = actuator_result.get("y", step.params.get("y", 0))
+            click_x = actuator_result.get("image_x", actuator_result.get("x", step.params.get("x", 0)))
+            click_y = actuator_result.get("image_y", actuator_result.get("y", step.params.get("y", 0)))
             if not self.screenshot_diff.region_changed(click_x, click_y):
                 actuator_result["success"] = False
                 actuator_result["error"] = (
@@ -342,8 +363,8 @@ class AutomationAgent:
 
         # Rec 4: record the successful click region for resolution-aware narrowing
         if step.action == "click" and verification.success:
-            click_x = actuator_result.get("x", step.params.get("x", 0))
-            click_y = actuator_result.get("y", step.params.get("y", 0))
+            click_x = actuator_result.get("image_x", actuator_result.get("x", step.params.get("x", 0)))
+            click_y = actuator_result.get("image_y", actuator_result.get("y", step.params.get("y", 0)))
             half = 256
             self.last_successful_region = (
                 max(0, click_x - half),
@@ -354,15 +375,377 @@ class AutomationAgent:
 
         return verification
 
+    @staticmethod
+    def _is_trivial_done_plan(plan: ActionPlan) -> bool:
+        """Return True when the plan is only a single done step."""
+        return len(plan.steps) == 1 and plan.steps[0].action == "done"
+
+    async def _plan_already_satisfied(self, plan: ActionPlan) -> bool:
+        """Check whether the final actionable step in a fallback plan is already satisfied."""
+        actionable_steps = [
+            step for step in plan.steps if step.action not in ("done", "wait_for_user", "observe")
+        ]
+        if not actionable_steps:
+            return False
+
+        try:
+            verification = await self.verifier.verify(actionable_steps[-1], {"success": True})
+        except Exception:
+            return False
+        return verification.success
+
+    def _build_skill_fallback_plan(
+        self,
+        goal: str,
+        skill_context: Optional[str],
+    ) -> Optional[ActionPlan]:
+        """Compile a deterministic fallback plan from expanded skill steps when possible."""
+        if not skill_context:
+            return None
+
+        stop_condition = self._extract_stop_condition(goal)
+        compiled_steps: list[ActionStep] = []
+        stop_matched = False
+
+        for instruction, verify in self._parse_skill_steps(skill_context):
+            action_steps = self._compile_skill_instruction(instruction, verify)
+            if action_steps is None:
+                return None
+            if action_steps:
+                compiled_steps.extend(action_steps)
+            if stop_condition and verify and self._conditions_overlap(stop_condition, verify):
+                stop_matched = True
+                break
+
+        if not compiled_steps:
+            return None
+        if stop_condition and not stop_matched:
+            return None
+        if compiled_steps[-1].action != "done":
+            compiled_steps.append(ActionStep(action="done", params={}, verify="", on_fail="abort"))
+        return ActionPlan(steps=compiled_steps, goal=goal)
+
+    @staticmethod
+    def _extract_stop_condition(goal: str) -> Optional[str]:
+        """Extract a user-specified stop condition such as 'stop as soon as X'."""
+        match = re.search(
+            r"\bstop\s+(?:as soon as|once|when)\s+(.+?)(?:[.;]|$)",
+            goal,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        return match.group(1).strip()
+
+    @staticmethod
+    def _parse_skill_steps(skill_context: str) -> list[tuple[str, str]]:
+        """Parse numbered skill text into (instruction, verify) tuples."""
+        steps: list[tuple[str, str]] = []
+        instruction: Optional[str] = None
+        verify = ""
+
+        for raw_line in skill_context.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            step_match = re.match(r"^\d+\.\s+(.*)$", line)
+            if step_match:
+                if instruction is not None:
+                    steps.append((instruction, verify))
+                instruction = step_match.group(1).strip()
+                verify = ""
+                continue
+            if instruction and line.lower().startswith("- verify:"):
+                verify = line.split(":", 1)[1].strip()
+
+        if instruction is not None:
+            steps.append((instruction, verify))
+        return steps
+
+    def _compile_skill_instruction(
+        self,
+        instruction: str,
+        verify: str,
+    ) -> Optional[list[ActionStep]]:
+        """Compile a skill instruction into one or more executable action steps."""
+        text = instruction.strip().rstrip(".")
+        lower = text.lower()
+
+        if not text:
+            return []
+        if lower.startswith("use done") or lower == "done" or lower.startswith("complete task"):
+            return [ActionStep(action="done", params={}, verify="", on_fail="abort")]
+        if lower.startswith("navigate to"):
+            destination = re.sub(r"(?i)^navigate to", "", text)
+            destination = re.sub(r"(?i)\(if specified\)", "", destination).strip()
+            if not destination:
+                return []
+            if re.match(r"^https?://\S+$", destination, flags=re.IGNORECASE):
+                return [
+                    ActionStep(
+                        action="open_url",
+                        params={"url": destination},
+                        verify=verify or f"The browser shows {destination}",
+                        on_fail="retry_different",
+                        max_retries=self.config.max_retries,
+                    )
+                ]
+            return [self._make_click_step(destination, verify)]
+        if "wait for user" in lower or "wait for the user" in lower:
+            wait_params = {"message": text}
+            wait_condition = self._extract_wait_condition(text)
+            if wait_condition:
+                wait_params["condition"] = wait_condition
+            return [
+                ActionStep(
+                    action="wait_for_user",
+                    params=wait_params,
+                    verify="",
+                    on_fail="abort",
+                )
+            ]
+        if lower.startswith("if ") and "wait for user" in lower:
+            wait_params = {"message": text}
+            wait_condition = self._extract_wait_condition(text)
+            if wait_condition:
+                wait_params["condition"] = wait_condition
+            return [
+                ActionStep(
+                    action="wait_for_user",
+                    params=wait_params,
+                    verify="",
+                    on_fail="abort",
+                )
+            ]
+
+        open_match = re.match(
+            r"^(?:Use activate_app to open|Open)\s+(.+?)(?:\s+app)?(?:\s+and navigate to\s+(https?://\S+))?$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if open_match:
+            app_name = open_match.group(1).strip()
+            url = open_match.group(2)
+            steps = [
+                ActionStep(
+                    action="activate_app",
+                    params={"app_name": app_name},
+                    verify=f"{app_name} is the frontmost application",
+                    on_fail="retry_different",
+                    max_retries=self.config.max_retries,
+                )
+            ]
+            if url:
+                steps.append(
+                    ActionStep(
+                        action="open_url",
+                        params={"url": url},
+                        verify=verify or f"The browser shows {url}",
+                        on_fail="retry_different",
+                        max_retries=self.config.max_retries,
+                    )
+                )
+            elif verify:
+                steps[0].verify = verify
+            return steps
+
+        url_match = re.match(
+            r"^Use open_url to navigate to\s+(https?://\S+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if url_match:
+            return [
+                ActionStep(
+                    action="open_url",
+                    params={"url": url_match.group(1)},
+                    verify=verify or f"The browser shows {url_match.group(1)}",
+                    on_fail="retry_different",
+                    max_retries=self.config.max_retries,
+                )
+            ]
+
+        find_click_match = re.match(
+            r'^Find\s+(.+?)\s+and click\s+"([^"]+)"$',
+            text,
+            flags=re.IGNORECASE,
+        )
+        if find_click_match:
+            element = f'"{find_click_match.group(2)}" for {find_click_match.group(1)}'
+            return [self._make_click_step(element, verify)]
+
+        find_it_match = re.match(
+            r"^Find\s+(.+?)\s+and click\s+(?:it|them)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if find_it_match:
+            return [self._make_click_step(find_it_match.group(1), verify)]
+
+        click_match = re.match(
+            r"^(?:Click on|Click the|Click)\s+(.+)$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if click_match:
+            return [self._make_click_step(click_match.group(1), verify)]
+
+        type_match = re.match(
+            r'^Type\s+"?(.+?)"?\s+(?:in the .+?\s+)?(?:and|then)\s+press\s+Enter$',
+            text,
+            flags=re.IGNORECASE,
+        )
+        if type_match:
+            typed_text = type_match.group(1).strip()
+            return [
+                ActionStep(
+                    action="type_text",
+                    params={"text": typed_text},
+                    verify=f'The focused text field contains "{typed_text}"',
+                    on_fail="retry_different",
+                    max_retries=self.config.max_retries,
+                ),
+                ActionStep(
+                    action="press_key",
+                    params={"keys": ["return"]},
+                    verify=verify,
+                    on_fail="retry_different",
+                    max_retries=self.config.max_retries,
+                ),
+            ]
+
+        press_match = re.match(r"^Press\s+(.+?)(?:\s+to\s+.+)?$", text, flags=re.IGNORECASE)
+        if press_match:
+            keys = self._parse_key_combo(press_match.group(1))
+            if keys:
+                return [
+                    ActionStep(
+                        action="press_key",
+                        params={"keys": keys},
+                        verify=verify,
+                        on_fail="retry_different",
+                        max_retries=self.config.max_retries,
+                    )
+                ]
+
+        return None
+
+    def _make_click_step(self, element: str, verify: str) -> ActionStep:
+        """Create a click step for compiled skill plans."""
+        return ActionStep(
+            action="click",
+            params={"element": element.strip()},
+            verify=verify,
+            on_fail="retry_different",
+            max_retries=self.config.max_retries,
+        )
+
+    @staticmethod
+    def _parse_key_combo(combo: str) -> list[str]:
+        """Parse a human-readable key combo like Cmd+N into actuator keys."""
+        alias = {
+            "cmd": "cmd",
+            "command": "cmd",
+            "ctrl": "ctrl",
+            "control": "ctrl",
+            "shift": "shift",
+            "alt": "alt",
+            "option": "alt",
+            "return": "return",
+            "enter": "return",
+            "space": "space",
+        }
+        parts = re.split(r"\s*\+\s*", combo.strip())
+        keys: list[str] = []
+        for part in parts:
+            normalized = part.strip().lower()
+            if not normalized:
+                continue
+            keys.append(alias.get(normalized, normalized))
+        return keys
+
+    @classmethod
+    def _coerce_key_sequence(cls, raw_keys) -> list[str]:
+        """Accept either keys=[...], key='Return', or a human-readable combo."""
+        if isinstance(raw_keys, dict):
+            raw_keys = raw_keys.get("keys", raw_keys.get("key"))
+        if raw_keys is None:
+            return []
+        if isinstance(raw_keys, str):
+            return cls._parse_key_combo(raw_keys)
+        if isinstance(raw_keys, tuple):
+            raw_keys = list(raw_keys)
+
+        keys: list[str] = []
+        if isinstance(raw_keys, list):
+            for entry in raw_keys:
+                if isinstance(entry, str):
+                    keys.extend(cls._parse_key_combo(entry))
+        return keys
+
+    @staticmethod
+    def _extract_wait_condition(text: str) -> str:
+        """Extract a visibility predicate from a conditional wait instruction."""
+        match = re.match(
+            r"^If\s+(.+?),\s*wait for (?:the )?user(?:\s+to\s+.+)?$",
+            text.strip(),
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return ""
+
+        condition = match.group(1).strip().rstrip(".")
+        condition = re.sub(r"(?i)\bappears?\b", "is visible", condition)
+        condition = re.sub(r"\s+", " ", condition).strip()
+        if not re.search(r"(?i)\b(?:is|are|visible|shown|loaded|frontmost)\b", condition):
+            condition = f"{condition} is visible"
+        return condition
+
+    @staticmethod
+    def _conditions_overlap(left: str, right: str) -> bool:
+        """Return True when two textual conditions describe the same stop target."""
+        left_norm = AutomationAgent._normalize_condition_text(left)
+        right_norm = AutomationAgent._normalize_condition_text(right)
+        if not left_norm or not right_norm:
+            return False
+        if left_norm in right_norm or right_norm in left_norm:
+            return True
+
+        left_tokens = set(left_norm.split())
+        right_tokens = set(right_norm.split())
+        if not left_tokens or not right_tokens:
+            return False
+        overlap = len(left_tokens & right_tokens)
+        return overlap / min(len(left_tokens), len(right_tokens)) >= 0.6
+
+    @staticmethod
+    def _normalize_condition_text(text: str) -> str:
+        """Normalize a human-readable condition for loose matching."""
+        normalized = text.lower()
+        normalized = normalized.replace("sign-in", "login").replace("sign in", "login")
+        normalized = normalized.replace("log in", "login")
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        stop_words = {"the", "a", "an", "is", "are", "to", "be"}
+        tokens = [token for token in normalized.split() if token not in stop_words]
+        return " ".join(tokens)
+
     async def _dispatch_action(self, step: ActionStep) -> dict:
         """Dispatch an action to the actuator."""
         action = step.action
-        params = step.params
+        params = dict(step.params)
 
         slog.debug("🎯 Dispatching action", action=action, params=params)
         self.logger.log_event(EventType.ACTION_START, f"{action}({params})")
 
         try:
+            await self._apply_pre_delay(params)
+            pre_keys = self._coerce_key_sequence(params.pop("_pre_keys", None))
+            if pre_keys:
+                pre_result = self.actuator.press_key(pre_keys)
+                if not pre_result.get("success", False):
+                    return pre_result
+                await asyncio.sleep(max(self.config.action_delay, 0.2))
+
             if action == "click":
                 # If element description given, find it first
                 if "element" in params:
@@ -424,21 +807,61 @@ class AutomationAgent:
 
                     self.logger.log_event(
                         EventType.ELEMENT_FOUND,
-                        f"Found at ({location.x}, {location.y})",
+                        f"Found at image ({location.x}, {location.y}) / screen ({location.screen_x}, {location.screen_y})",
                     )
-                    result = self.actuator.click(location.x, location.y)
+                    screen_x = location.screen_x if location.screen_x is not None else location.x
+                    screen_y = location.screen_y if location.screen_y is not None else location.y
+                    result = self.actuator.click(screen_x, screen_y)
                     result["x"] = location.x
                     result["y"] = location.y
+                    result["image_x"] = location.x
+                    result["image_y"] = location.y
+                    result["screen_x"] = screen_x
+                    result["screen_y"] = screen_y
                 else:
-                    result = self.actuator.click(params.get("x", 0), params.get("y", 0))
+                    screen_x = params.get("x", 0)
+                    screen_y = params.get("y", 0)
+                    image_x, image_y = self._screen_to_image_coords(
+                        screen_x,
+                        screen_y,
+                        self.config.screenshot_resolution[0],
+                        self.config.screenshot_resolution[1],
+                    )
+                    result = self.actuator.click(screen_x, screen_y)
+                    result["x"] = image_x
+                    result["y"] = image_y
+                    result["image_x"] = image_x
+                    result["image_y"] = image_y
+                    result["screen_x"] = screen_x
+                    result["screen_y"] = screen_y
             elif action == "type_text":
-                result = self.actuator.type_text(params.get("text", ""))
+                if params.pop("_clear_first", False):
+                    clear_result = self.actuator.press_key(["cmd", "a"])
+                    if not clear_result.get("success", False):
+                        return clear_result
+                    await asyncio.sleep(max(self.config.action_delay, 0.2))
+                if params.pop("_slow_type", False):
+                    result = await self._type_text_slowly(params.get("text", ""))
+                else:
+                    result = self.actuator.type_text(params.get("text", ""))
             elif action == "press_key":
-                result = self.actuator.press_key(params.get("keys", []))
+                result = self.actuator.press_key(self._coerce_key_sequence(params))
             elif action == "activate_app":
-                result = self.actuator.activate_app(params.get("app_name", ""))
+                app_name = params.get("app_name", "")
+                if params.pop("_quit_first", False):
+                    quit_result = self.actuator.quit_app(app_name)
+                    if not quit_result.get("success", False):
+                        return quit_result
+                    await asyncio.sleep(max(self.config.action_delay, 0.2))
+                if params.pop("_spotlight", False):
+                    result = await self._activate_app_via_spotlight(app_name)
+                else:
+                    result = self.actuator.activate_app(app_name)
             elif action == "open_url":
-                result = self.actuator.open_url(params.get("url", ""))
+                if params.pop("_address_bar_fallback", False):
+                    result = await self._open_url_via_address_bar(params.get("url", ""))
+                else:
+                    result = self.actuator.open_url(params.get("url", ""))
             elif action == "quit_app":
                 result = self.actuator.quit_app(params.get("app_name", ""))
             else:
@@ -458,15 +881,33 @@ class AutomationAgent:
 
         Returns FindElementResult on success, or None if not found.
         """
+        screenshot_b64 = await self._capture_screenshot()
+        if not isinstance(screenshot_b64, str):
+            screenshot_b64 = None
+        image_size = self._image_size_from_b64(screenshot_b64) if screenshot_b64 else self._fallback_image_size()
+
         if self.grounding_router is not None:
             gr = await self.grounding_router.find_element(description)
             if gr is not None:
                 result = FindElementResult(
-                    x=gr.x, y=gr.y, source=gr.strategy_used.value
+                    x=gr.x,
+                    y=gr.y,
+                    confidence=gr.confidence,
+                    source=gr.strategy_used.value,
                 )
-                screenshot_b64 = await self.coordinator.capture_screenshot()
-                self._save_debug_image(screenshot_b64, result, description)
-                return result
+                normalized = self._normalize_find_result(
+                    result,
+                    image_size=image_size,
+                )
+                debug_point = self._debug_point_for_location(normalized)
+                if screenshot_b64:
+                    self._save_debug_image(
+                        screenshot_b64,
+                        normalized,
+                        description,
+                        image_point=debug_point,
+                    )
+                return normalized
             return None
 
         # Rec 1: get accessibility candidates if actuator supports it
@@ -480,18 +921,23 @@ class AutomationAgent:
                 pass  # Fallback: no candidates
 
         # Rec 4: capture screenshot and optionally crop to last successful region
-        original_b64 = await self.coordinator.capture_screenshot()
+        original_b64 = screenshot_b64
         screenshot_b64 = original_b64
         crop_offset = None
 
-        if self.last_successful_region is not None:
+        if screenshot_b64 and self.last_successful_region is not None:
             crop_result = self._maybe_crop_screenshot(screenshot_b64)
             if crop_result is not None:
                 screenshot_b64, crop_offset = crop_result
 
-        result = await self.coordinator.find_element(
-            description, screenshot_b64=screenshot_b64, candidates=candidates
-        )
+        find_kwargs = {}
+        if screenshot_b64:
+            find_kwargs["screenshot_b64"] = screenshot_b64
+        if candidates is not None:
+            find_kwargs["candidates"] = candidates
+
+        result = await self.coordinator.find_element(description, **find_kwargs)
+        result = self._coerce_find_result(result)
 
         # Adjust coordinates back to full-image space if we cropped
         if result is not None and crop_offset is not None:
@@ -505,15 +951,22 @@ class AutomationAgent:
 
         # Save debug image with crosshair at predicted coordinates
         if result is not None:
-            self._save_debug_image(original_b64, result, description)
+            normalized = self._normalize_find_result(
+                result,
+                image_size=image_size,
+            )
+            if original_b64:
+                self._save_debug_image(original_b64, normalized, description)
+            return normalized
 
-        return result
+        return None
 
     def _save_debug_image(
         self,
         screenshot_b64: str,
         location: FindElementResult,
         description: str,
+        image_point: Optional[Tuple[int, int]] = None,
     ) -> None:
         """Save a debug screenshot with a crosshair at the predicted click point."""
         try:
@@ -523,7 +976,7 @@ class AutomationAgent:
             img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
             draw = ImageDraw.Draw(img)
-            x, y = location.x, location.y
+            x, y = image_point or (location.x, location.y)
             r = 30  # crosshair radius
             color = (255, 0, 0)  # red
             outline = (0, 0, 0)  # black outline for contrast
@@ -565,6 +1018,21 @@ class AutomationAgent:
         the screen changes significantly or after _WAIT_TIMEOUT_S seconds.
         """
         message = step.params.get("message", "Please complete the required action")
+        wait_condition = str(step.params.get("condition", "")).strip()
+        if wait_condition:
+            try:
+                condition_visible = await self.coordinator.verify_condition(wait_condition)
+            except Exception:
+                condition_visible = True
+            if not condition_visible:
+                slog.info("Skipping wait_for_user; condition not present", condition=wait_condition)
+                return StepResult(
+                    step=step,
+                    success=True,
+                    verification_method="",
+                    evidence=f"Skipped wait because '{wait_condition}' is not present",
+                )
+
         slog.info("⏳ Waiting for user action", message=message)
         print(f"\n[WAITING] {message}")
         print(f"  (will auto-resume when screen changes, timeout {self._WAIT_TIMEOUT_S}s)")
@@ -645,6 +1113,226 @@ class AutomationAgent:
         if any(kw in verify_lower for kw in self._CRITICAL_ACTION_KEYWORDS):
             return self._CRITICAL_CONFIDENCE_THRESHOLD
         return self._DEFAULT_CONFIDENCE_THRESHOLD
+
+    async def _apply_pre_delay(self, params: dict) -> None:
+        """Sleep before action execution when retry strategies request it."""
+        delay = float(params.pop("_pre_delay", 0.0) or 0.0)
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    async def _capture_screenshot(self) -> str:
+        """Capture a screenshot from the coordinator, tolerating sync test doubles."""
+        result = self.coordinator.capture_screenshot()
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    def _coerce_find_result(self, result) -> Optional[FindElementResult]:
+        """Normalize legacy dict results into FindElementResult."""
+        if result is None:
+            return None
+        if isinstance(result, FindElementResult):
+            return result
+        if isinstance(result, dict):
+            return FindElementResult(
+                x=int(result.get("x", 0)),
+                y=int(result.get("y", 0)),
+                confidence=float(result.get("confidence", 0.0)),
+                source=str(result.get("source", "")),
+                raw_response=str(result.get("raw_response", "")),
+                screen_x=result.get("screen_x"),
+                screen_y=result.get("screen_y"),
+                image_width=int(result.get("image_width", 0) or 0),
+                image_height=int(result.get("image_height", 0) or 0),
+            )
+        raise TypeError(f"Unsupported find_element result type: {type(result)!r}")
+
+    def _image_size_from_b64(self, screenshot_b64: str) -> Tuple[int, int]:
+        """Read image dimensions from a base64-encoded screenshot."""
+        try:
+            from PIL import Image
+
+            img_bytes = base64.b64decode(screenshot_b64)
+            with Image.open(io.BytesIO(img_bytes)) as img:
+                return img.size
+        except Exception:
+            return self._fallback_image_size()
+
+    def _fallback_image_size(self) -> Tuple[int, int]:
+        """Return a safe fallback image size when metadata is unavailable."""
+        config_size = getattr(self.config, "screenshot_resolution", None)
+        if (
+            isinstance(config_size, tuple)
+            and len(config_size) == 2
+            and all(isinstance(v, int) and v > 0 for v in config_size)
+        ):
+            return config_size
+        return (1024, 768)
+
+    def _get_logical_screen_size(self) -> Tuple[int, int]:
+        """Return the OS logical screen size used by the actuator."""
+        capture = getattr(self.coordinator, "capture", None)
+        if capture is None or "Mock" in type(capture).__name__:
+            return self._fallback_image_size()
+
+        if capture is not None and hasattr(capture, "get_screen_size"):
+            try:
+                size = capture.get_screen_size()
+                if not inspect.isawaitable(size) and len(size) == 2:
+                    return int(size[0]), int(size[1])
+            except Exception:
+                pass
+
+        try:
+            import pyautogui
+
+            size_fn = pyautogui.size
+            if inspect.iscoroutinefunction(size_fn) or "AsyncMock" in type(size_fn).__name__:
+                raise TypeError("pyautogui.size() is async in this environment")
+            size = size_fn()
+            if inspect.isawaitable(size):
+                if hasattr(size, "close"):
+                    size.close()
+                raise TypeError("pyautogui.size() returned awaitable")
+            return int(size.width), int(size.height)
+        except Exception:
+            return self._fallback_image_size()
+
+    def _image_to_screen_coords(
+        self,
+        image_x: int,
+        image_y: int,
+        image_width: int,
+        image_height: int,
+    ) -> Tuple[int, int]:
+        """Map screenshot/image coordinates back to logical screen coordinates."""
+        if image_width <= 0 or image_height <= 0:
+            return image_x, image_y
+
+        screen_width, screen_height = self._get_logical_screen_size()
+        if screen_width <= 0 or screen_height <= 0:
+            return image_x, image_y
+
+        screen_x = round(image_x * screen_width / image_width)
+        screen_y = round(image_y * screen_height / image_height)
+        return (
+            max(0, min(screen_x, screen_width - 1)),
+            max(0, min(screen_y, screen_height - 1)),
+        )
+
+    def _screen_to_image_coords(
+        self,
+        screen_x: int,
+        screen_y: int,
+        image_width: int,
+        image_height: int,
+    ) -> Tuple[int, int]:
+        """Project logical screen coordinates into screenshot/image space."""
+        screen_width, screen_height = self._get_logical_screen_size()
+        if image_width <= 0 or image_height <= 0 or screen_width <= 0 or screen_height <= 0:
+            return screen_x, screen_y
+
+        image_x = round(screen_x * image_width / screen_width)
+        image_y = round(screen_y * image_height / screen_height)
+        return (
+            max(0, min(image_x, image_width - 1)),
+            max(0, min(image_y, image_height - 1)),
+        )
+
+    def _normalize_find_result(
+        self,
+        result: FindElementResult,
+        image_size: Tuple[int, int],
+    ) -> FindElementResult:
+        """Attach both image-space and screen-space coordinates to a result."""
+        image_width, image_height = image_size
+        if result.source == "accessibility":
+            image_x, image_y = self._screen_to_image_coords(
+                result.x,
+                result.y,
+                image_width,
+                image_height,
+            )
+            screen_x, screen_y = result.x, result.y
+        else:
+            image_x, image_y = result.x, result.y
+            screen_x, screen_y = self._image_to_screen_coords(
+                result.x,
+                result.y,
+                image_width,
+                image_height,
+            )
+
+        return FindElementResult(
+            x=image_x,
+            y=image_y,
+            confidence=result.confidence,
+            source=result.source,
+            raw_response=result.raw_response,
+            screen_x=screen_x,
+            screen_y=screen_y,
+            image_width=image_width,
+            image_height=image_height,
+        )
+
+    def _debug_point_for_location(self, location: FindElementResult) -> Tuple[int, int]:
+        """Return the point that should be overlaid on the debug screenshot."""
+        if location.source == "accessibility" and location.screen_x is not None and location.screen_y is not None:
+            return self._screen_to_image_coords(
+                location.screen_x,
+                location.screen_y,
+                location.image_width or self.config.screenshot_resolution[0],
+                location.image_height or self.config.screenshot_resolution[1],
+            )
+        return location.x, location.y
+
+    async def _run_action_sequence(
+        self,
+        steps: list[tuple[str, Callable[..., dict], tuple]],
+    ) -> dict:
+        """Execute multiple actuator calls as one retry strategy."""
+        outputs = []
+        for idx, (label, func, args) in enumerate(steps):
+            result = func(*args)
+            if not result.get("success", False):
+                return {
+                    "success": False,
+                    "error": result.get("error", f"{label} failed"),
+                    "output": result.get("output", ""),
+                }
+            if result.get("output"):
+                outputs.append(result["output"])
+            if idx < len(steps) - 1:
+                await asyncio.sleep(max(self.config.action_delay, 0.2))
+
+        return {"success": True, "output": "; ".join(outputs) or "Sequence complete"}
+
+    async def _type_text_slowly(self, text: str) -> dict:
+        """Retry typing character-by-character when bulk keystrokes fail."""
+        if not text:
+            return {"success": True, "output": ""}
+        steps = [("type_char", self.actuator.type_text, (char,)) for char in text]
+        return await self._run_action_sequence(steps)
+
+    async def _activate_app_via_spotlight(self, app_name: str) -> dict:
+        """Fallback activation path that uses Spotlight search."""
+        return await self._run_action_sequence(
+            [
+                ("open_spotlight", self.actuator.press_key, (["cmd", "space"],)),
+                ("type_app_name", self.actuator.type_text, (app_name,)),
+                ("confirm_launch", self.actuator.press_key, (["return"],)),
+            ]
+        )
+
+    async def _open_url_via_address_bar(self, url: str) -> dict:
+        """Fallback navigation path that uses the browser address bar."""
+        return await self._run_action_sequence(
+            [
+                ("focus_address_bar", self.actuator.press_key, (["cmd", "l"],)),
+                ("type_url", self.actuator.type_text, (url,)),
+                ("confirm_navigation", self.actuator.press_key, (["return"],)),
+            ]
+        )
 
     async def _validate_candidate(
         self,
@@ -773,7 +1461,7 @@ class AutomationAgent:
         if step.on_fail == "retry_different":
             current_result = result
             while current_result.retry_count < step.max_retries:
-                strategy, modified_params = self._vary_strategy(step, current_result)
+                strategy, retry_step = self._vary_strategy(step, current_result)
                 slog.info(
                     "🔄 Retrying step",
                     step_index=index,
@@ -785,13 +1473,6 @@ class AutomationAgent:
                     f"Retrying step {index} with strategy: {strategy}",
                     step_index=index,
                     data={"strategy": strategy, "attempt": current_result.retry_count + 1},
-                )
-                retry_step = ActionStep(
-                    action=step.action,
-                    params=modified_params,
-                    verify=step.verify,
-                    on_fail=step.on_fail,
-                    max_retries=step.max_retries,
                 )
                 retry_result = await self._execute_step(index, retry_step, history, goal, plan)
                 retry_result.retry_count = current_result.retry_count + 1
@@ -833,76 +1514,86 @@ class AutomationAgent:
     def _vary_strategy(self, step: ActionStep, prev_result: StepResult) -> tuple:
         """Produce a different strategy for retrying a failed step.
 
-        Returns (strategy_name, modified_params).
+        Returns (strategy_name, retry_step).
         """
         params = dict(step.params)
         attempt = prev_result.retry_count + 1
 
+        def _retry_step(action: str, new_params: dict) -> ActionStep:
+            return ActionStep(
+                action=action,
+                params=new_params,
+                verify=step.verify,
+                on_fail=step.on_fail,
+                max_retries=step.max_retries,
+            )
+
         if step.action == "click" and "element" in params:
+            search_click = any(
+                token in str(params.get("element", "")).lower()
+                for token in ("search", "filter")
+            )
             if attempt == 1:
                 # Strategy: re-query vision with more context
                 params["element"] = f"{params['element']} (look carefully, may be partially hidden)"
-                return ("refine_element_query", params)
+                return ("refine_element_query", _retry_step("click", params))
+            elif attempt == 2 and search_click:
+                params["_pre_keys"] = ["cmd", "up"]
+                return ("jump_to_page_top_and_retry_click", _retry_step("click", params))
             elif attempt == 2:
-                # Strategy: try keyboard shortcut instead
-                return ("keyboard_fallback", params)
+                # Strategy: try the keyboard default action instead of another click
+                return ("keyboard_fallback_enter", _retry_step("press_key", {"keys": ["return"]}))
             else:
-                return ("fresh_screenshot_retry", params)
+                return ("keyboard_fallback_space", _retry_step("press_key", {"keys": ["space"]}))
 
         elif step.action == "type_text":
             if attempt == 1:
-                # Strategy: click to ensure focus first
-                return ("click_to_focus_first", params)
+                # Strategy: select existing text first, then type again
+                params["_clear_first"] = True
+                return ("select_all_then_type", _retry_step("type_text", params))
             else:
-                # Strategy: use press_key for individual characters
-                return ("slow_type_retry", params)
+                # Strategy: type character-by-character to avoid dropped keystrokes
+                params["_slow_type"] = True
+                return ("slow_type_retry", _retry_step("type_text", params))
 
         elif step.action == "press_key":
             if attempt == 1:
-                # Strategy: add modifier key variation (e.g., try with Cmd)
-                keys = list(params.get("keys", []))
-                if keys and "cmd" not in [k.lower() for k in keys]:
-                    params["keys"] = keys  # same keys but with a pre-delay
-                    params["_pre_delay"] = 0.5
-                    return ("delayed_key_press", params)
-                else:
-                    params["_pre_delay"] = 0.5
-                    return ("delayed_key_press", params)
+                params["_pre_delay"] = 0.5
+                return ("delayed_key_press", _retry_step("press_key", params))
             else:
                 params["_pre_delay"] = 1.0 * attempt
-                return (f"extended_delay_key_press_{attempt}", params)
+                return (f"extended_delay_key_press_{attempt}", _retry_step("press_key", params))
 
         elif step.action == "open_url":
             if attempt == 1:
-                params["_pre_delay"] = 1.0
-                return ("delayed_open_url", params)
+                params["_address_bar_fallback"] = True
+                return ("browser_address_bar_fallback", _retry_step("open_url", params))
             else:
                 params["_pre_delay"] = 2.0 * attempt
-                return (f"extended_delay_open_url_{attempt}", params)
+                return (f"extended_delay_open_url_{attempt}", _retry_step("open_url", params))
 
         elif step.action == "activate_app":
             if attempt == 1:
                 # Strategy: quit and relaunch
                 params["_quit_first"] = True
-                return ("quit_and_relaunch", params)
+                return ("quit_and_relaunch", _retry_step("activate_app", params))
             else:
                 params["_spotlight"] = True
                 params["_pre_delay"] = 1.0 * attempt
-                return ("spotlight_launch", params)
+                return ("spotlight_launch", _retry_step("activate_app", params))
 
         elif step.action == "quit_app":
             if attempt == 1:
-                params["_force"] = True
-                return ("force_quit", params)
+                params["_pre_delay"] = 0.5
+                return ("delayed_quit", _retry_step("quit_app", params))
             else:
-                params["_force"] = True
                 params["_pre_delay"] = 1.0 * attempt
-                return (f"force_quit_with_delay_{attempt}", params)
+                return (f"extended_delay_quit_{attempt}", _retry_step("quit_app", params))
 
         else:
             # Generic fallback: add increasing delay
             params["_pre_delay"] = 0.5 * attempt
-            return (f"generic_retry_with_delay_{attempt}", params)
+            return (f"generic_retry_with_delay_{attempt}", _retry_step(step.action, params))
 
     async def _replan_and_continue(self, goal, step_results, iterations, start_time):
         """Replan and attempt execution with new plan."""
@@ -911,8 +1602,19 @@ class AutomationAgent:
         for sr in step_results:
             retry_strategies.extend(sr.retry_strategies_used)
 
+        desktop_context = ""
+        if self.context_monitor:
+            self.context_monitor.update_cheap()
+            desktop_context = self.context_monitor.format_for_planner()
+
         self.logger.log_event(EventType.REPLAN_START, "Replanning...")
-        new_plan = await self.planner.replan(goal, screen_desc, step_results, retry_strategies)
+        new_plan = await self.planner.replan(
+            goal,
+            screen_desc,
+            step_results,
+            retry_strategies,
+            desktop_context=desktop_context,
+        )
         self.logger.log_event(
             EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
         )

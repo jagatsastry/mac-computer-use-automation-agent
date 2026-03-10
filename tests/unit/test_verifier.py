@@ -4,7 +4,8 @@ All components (actuator, coordinator) are mocked -- no real API calls.
 """
 
 import base64
-from unittest.mock import AsyncMock, MagicMock, patch
+import io
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,6 +18,15 @@ from automation_agent.shared_models import ActionStep, StepResult
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _make_jpeg_b64(width: int = 100, height: int = 100) -> str:
+    from PIL import Image
+
+    img = Image.new("RGB", (width, height), color=(240, 240, 240))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 @pytest.fixture
@@ -39,9 +49,7 @@ def mock_coord():
     """Mock coordinator for verifier tests."""
     coord = AsyncMock()
     coord.verify_condition = AsyncMock(return_value=True)
-    coord.capture_screenshot = AsyncMock(
-        return_value=base64.b64encode(b"fake_screenshot_data").decode()
-    )
+    coord.capture_screenshot = AsyncMock(return_value=_make_jpeg_b64())
     return coord
 
 
@@ -49,6 +57,14 @@ def mock_coord():
 def logger(tmp_log_dir):
     """Real EventLogger writing to a temp directory."""
     return EventLogger(tmp_log_dir)
+
+
+@pytest.fixture
+def mock_accessibility():
+    bridge = MagicMock()
+    bridge.get_frontmost_app = MagicMock(return_value={"name": "Calculator"})
+    bridge.get_focused_element = MagicMock(return_value=None)
+    return bridge
 
 
 # ---------------------------------------------------------------------------
@@ -112,11 +128,39 @@ class TestTier1Verification:
 
         # Should have escalated to tier 2 (vision)
         assert result.verification_method == "vision"
-        mock_coord.verify_condition.assert_awaited_once_with("Button appears pressed")
+        mock_coord.verify_condition.assert_awaited_once()
+        assert mock_coord.verify_condition.call_args.args[0] == "Button appears pressed"
+        assert "screenshot_b64" in mock_coord.verify_condition.call_args.kwargs
 
         # Check that escalation was logged
         event_types = [e.event_type for e in logger.events]
         assert EventType.VERIFY_ESCALATE in event_types
+
+    async def test_tier0_accessibility_confirms_focused_text(
+        self, mock_coord, mock_accessibility, logger
+    ):
+        focused = MagicMock()
+        focused.value = "hello world"
+        focused.title = None
+        focused.description = None
+        mock_accessibility.get_focused_element.return_value = focused
+
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello"},
+            verify="Text field contains hello",
+        )
+        verifier = StepVerifier(
+            coordinator=mock_coord,
+            logger=logger,
+            accessibility=mock_accessibility,
+        )
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+        assert result.verification_method == "accessibility"
+        mock_coord.verify_condition.assert_not_called()
 
 
 class TestTier2Verification:
@@ -137,6 +181,10 @@ class TestTier2Verification:
         assert result.success is True
         assert result.verification_method == "vision"
         assert "Vision confirms" in result.evidence
+        mock_coord.verify_condition.assert_awaited_once_with(
+            "Submit button visible",
+            screenshot_b64=ANY,
+        )
 
     async def test_tier2_denies(self, mock_coord, logger):
         """5. Tier 2 denies condition with evidence."""
@@ -155,6 +203,44 @@ class TestTier2Verification:
         assert result.verification_method == "vision"
         assert "Vision denies" in result.evidence
         assert "hello" in result.evidence
+        assert mock_coord.verify_condition.await_count == 2
+
+    async def test_open_url_tier1_matches_window_title(self, mock_act, logger):
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Example Domain",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://example.com"},
+            verify="Example page visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+        assert result.verification_method == "actuator_state"
+        assert "matches destination URL" in result.evidence
+
+    async def test_click_region_verification_uses_local_crop(self, mock_coord, logger):
+        step = ActionStep(
+            action="click",
+            params={"element": "Continue button"},
+            verify="Continue button appears pressed",
+        )
+        verifier = StepVerifier(coordinator=mock_coord, logger=logger)
+
+        result = await verifier.verify(
+            step,
+            {"success": True, "output": "", "image_x": 50, "image_y": 50},
+        )
+
+        assert result.success is True
+        assert "clicked region" in result.evidence
+        first_call = mock_coord.verify_condition.call_args_list[0]
+        assert first_call.args[0] == "Continue button appears pressed"
+        assert "screenshot_b64" in first_call.kwargs
 
 
 class TestNoVerifyCondition:

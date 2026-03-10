@@ -240,10 +240,32 @@ class TestFindElement:
     @pytest.mark.unit
     async def test_ocr_strategy_stub_returns_none(self, router):
         """OCR stub returns None; vision fallback should succeed."""
+        router.accessibility.find_element_by_description.return_value = None
         result = await router.find_element("text that says Welcome")
         # OCR first (returns None), then vision
         assert result is not None
         assert result.strategy_used == GroundingStrategy.VISION
+
+    @pytest.mark.unit
+    async def test_accessibility_preflight_can_handle_text_queries(
+        self, mock_accessibility, mock_vision
+    ):
+        mock_accessibility.find_element_by_description.return_value = AXElement(
+            role="AXStaticText",
+            title="Welcome",
+            position=(300, 400),
+            size=(120, 20),
+        )
+        router = GroundingRouter(
+            accessibility=mock_accessibility,
+            vision_coordinator=mock_vision,
+        )
+
+        result = await router.find_element("text that says Welcome")
+
+        assert result is not None
+        assert result.strategy_used == GroundingStrategy.ACCESSIBILITY
+        mock_vision.find_element.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

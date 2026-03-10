@@ -336,6 +336,13 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "url": "http://localhost:11434/api/chat",
         "model": "qwen3-vl:latest",
     },
+    "qwen2.5-vl-ollama": {
+        # Backward-compatible alias used by older benchmarks/tests.
+        # Ollama exposes an OpenAI-compatible /v1/chat/completions endpoint.
+        "type": "openai_compat",
+        "url": "http://localhost:11434/v1/chat/completions",
+        "model": "qwen2.5-vl:latest",
+    },
     "qwen2.5-vl-llamacpp": {
         "type": "openai_compat",
         "url": "http://localhost:8090/v1/chat/completions",

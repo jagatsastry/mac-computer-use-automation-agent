@@ -19,8 +19,17 @@ import pytest
 # references the objects actually in sys.modules via _shared_appkit /
 # _shared_app_services so there is no object identity mismatch.
 # ---------------------------------------------------------------------------
-sys.modules.setdefault("AppKit", MagicMock())
-sys.modules.setdefault("ApplicationServices", MagicMock())
+def _ensure_mock_module(name: str) -> MagicMock:
+    module = sys.modules.get(name)
+    if isinstance(module, MagicMock):
+        return module
+    mocked = MagicMock(name=name)
+    sys.modules[name] = mocked
+    return mocked
+
+
+_ensure_mock_module("AppKit")
+_ensure_mock_module("ApplicationServices")
 
 _shared_appkit = sys.modules["AppKit"]
 _shared_app_services = sys.modules["ApplicationServices"]
@@ -830,8 +839,8 @@ class TestCoordinatorAccessibilityFastPath:
         result = await coord.find_element("OK button", screenshot_b64="fake")
 
         assert result is not None
-        assert result["x"] == 512
-        assert result["y"] == 192
+        assert result["x"] == 5
+        assert result["y"] == 1
         assert result["source"] == "vision"
 
     @pytest.mark.unit

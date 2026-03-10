@@ -104,6 +104,16 @@ class ScreenCapture:
         """
         return base64.b64encode(self.capture()).decode()
 
+    def get_screen_size(self) -> Tuple[int, int]:
+        """Return the logical screen size used for input actions."""
+        try:
+            import pyautogui
+
+            size = pyautogui.size()
+            return int(size.width), int(size.height)
+        except Exception:
+            return self.target_resolution
+
     def save(self, path: str) -> str:
         """Capture and save to file.
 

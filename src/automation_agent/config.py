@@ -23,6 +23,13 @@ class ModelProvider(str, Enum):
     ANTHROPIC = "anthropic"
 
 
+class StatusUIMode(str, Enum):
+    """Supported live status UI modes."""
+
+    OFF = "off"
+    OVERLAY = "overlay"
+
+
 class AgentConfig(BaseSettings):
     """
     Main configuration for the automation agent.
@@ -208,6 +215,27 @@ class AgentConfig(BaseSettings):
     log_structured: bool = Field(
         default=True,
         description="Enable structured JSON logging",
+    )
+
+    # Live status UI
+    status_ui: StatusUIMode = Field(
+        default=StatusUIMode.OFF,
+        description="Show a live on-screen status UI during execution",
+    )
+    status_overlay_poll_interval: float = Field(
+        default=0.25,
+        description="How often the floating status overlay polls for new events",
+        gt=0.0,
+    )
+    status_overlay_max_lines: int = Field(
+        default=200,
+        description="Maximum number of log lines retained in the status overlay",
+        gt=0,
+    )
+    status_overlay_linger_seconds: float = Field(
+        default=15.0,
+        description="How long the status overlay stays visible after completion",
+        ge=0.0,
     )
 
     # Safety Configuration

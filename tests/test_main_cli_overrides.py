@@ -2,7 +2,7 @@
 
 from automation_agent.__main__ import apply_cli_overrides
 from automation_agent.cli import parse_args
-from automation_agent.config import AgentConfig, ModelProvider
+from automation_agent.config import AgentConfig, ModelProvider, StatusUIMode
 
 
 def test_molmo_flag_forces_local_vision_model():
@@ -27,3 +27,13 @@ def test_openrouter_key_override():
     apply_cli_overrides(config, args)
 
     assert config.openrouter_api_key == "sk-test"
+
+
+def test_status_ui_override():
+    """--status-ui should update config."""
+    config = AgentConfig(_env_file=None, status_ui=StatusUIMode.OFF)
+    args = parse_args(["--status-ui", "overlay", "Track progress"])
+
+    apply_cli_overrides(config, args)
+
+    assert config.status_ui == "overlay"

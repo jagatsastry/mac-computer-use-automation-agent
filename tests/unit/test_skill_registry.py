@@ -252,7 +252,7 @@ class TestMatchWithRouter:
 
     @pytest.mark.asyncio
     async def test_match_router_returns_none_falls_back_to_keywords(self, tmp_path):
-        """When LLM router returns None, keyword fallback is used."""
+        """When router misses, fallback skips skills it cannot safely expand."""
         skill_dir = tmp_path / "skills"
         skill_dir.mkdir()
         (skill_dir / "test_skill.md").write_text(SAMPLE_SKILL_CONTENT)
@@ -263,14 +263,11 @@ class TestMatchWithRouter:
         registry._router = mock_router
 
         result = await registry.match("I want to test something")
-        assert result is not None
-        assert result["skill_name"] == "test-skill"
-        # Keyword fallback returns empty params
-        assert result["params"] == {}
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_match_no_router_uses_keyword_fallback(self, tmp_path):
-        """When no router configured, keyword fallback is used directly."""
+        """Without a router, fallback still refuses unsafe parameterized skills."""
         skill_dir = tmp_path / "skills"
         skill_dir.mkdir()
         (skill_dir / "test_skill.md").write_text(SAMPLE_SKILL_CONTENT)
@@ -279,8 +276,38 @@ class TestMatchWithRouter:
         assert registry._router is None  # No config = no router
 
         result = await registry.match("I want to test something")
-        assert result is not None
-        assert result["skill_name"] == "test-skill"
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_keyword_fallback_skips_skills_missing_required_params(self, tmp_path):
+        """Fallback should not return a skill it cannot safely expand."""
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        content = textwrap.dedent("""\
+            ---
+            name: open-app-and-navigate
+            description: Open an app
+            trigger-keywords: [open, launch]
+            parameters:
+              app_name:
+                type: string
+                required: true
+            requires:
+              os: darwin
+            success-condition: App open
+            ---
+
+            ## Steps
+            1. Open {{app_name}}
+               - verify: app is open
+        """)
+        (skill_dir / "open_app.md").write_text(content)
+
+        registry = SkillRegistryImpl(skill_dir=skill_dir)
+
+        result = await registry.match("Open Calculator")
+
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

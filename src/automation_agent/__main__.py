@@ -12,6 +12,7 @@ from .orchestrator import AutomationAgent
 from .actuator import create_actuator
 from .planner import ActionPlannerImpl
 from .skills import SkillRegistryImpl
+from .status import StatusOverlayController
 from .vision import ScreenCoordinatorImpl
 
 
@@ -48,6 +49,8 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.log_file_level = level
     if args.log_dir:
         config.log_dir = args.log_dir
+    if hasattr(args, "status_ui") and args.status_ui:
+        config.status_ui = args.status_ui
 
     # Molmo mode: force local vision model for coordinate grounding
     if hasattr(args, "molmo") and args.molmo:
@@ -113,15 +116,18 @@ async def run_agent(
         except Exception:
             pass
 
-        try:
-            from .orchestrator.grounding_router import GroundingRouter
-            grounding_router = GroundingRouter(
-                accessibility=coordinator.accessibility,
-                vision_coordinator=coordinator,
-            )
-            logger.info("grounding_router_enabled")
-        except Exception:
-            pass
+    try:
+        from .orchestrator.grounding_router import GroundingRouter
+        grounding_router = GroundingRouter(
+            accessibility=coordinator.accessibility,
+            vision_coordinator=coordinator,
+        )
+        logger.info(
+            "grounding_router_enabled",
+            accessibility=bool(coordinator.accessibility),
+        )
+    except Exception:
+        pass
 
     try:
         from .orchestrator.screenshot_diff import ScreenshotDiffVerifier
@@ -141,6 +147,7 @@ async def run_agent(
         context_monitor=context_monitor,
         grounding_router=grounding_router,
     )
+    status_overlay = StatusOverlayController(config=config, events_file=agent.logger.events_file)
 
     if dry_run:
         # Dry run - just plan without executing
@@ -186,6 +193,7 @@ async def run_agent(
     print(f"\n[INFO] Executing: {prompt}")
 
     try:
+        status_overlay.start()
         result = await agent.execute(prompt)
 
         if result.success:

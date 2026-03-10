@@ -1,9 +1,21 @@
 """Tests for configuration system."""
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
+
 from automation_agent.config import AgentConfig, LogLevel, ModelProvider, load_config
+
+
+@pytest.fixture(autouse=True)
+def _clear_agent_env(monkeypatch):
+    """Prevent repo .env or ambient AGENT_* vars from leaking into defaults tests."""
+    import os
+
+    for key in list(os.environ):
+        if key.startswith("AGENT_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 class TestAgentConfig:

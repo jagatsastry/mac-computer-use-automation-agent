@@ -319,8 +319,12 @@ class AccessibilityBridge:
                 if role and elem.role != role:
                     continue
                 if title_contains:
-                    elem_title = elem.title or ""
-                    if title_contains.lower() not in elem_title.lower():
+                    haystack = " ".join(
+                        part
+                        for part in (elem.title, elem.value, elem.description)
+                        if part
+                    ).lower()
+                    if title_contains.lower() not in haystack:
                         continue
                 if enabled_only and not elem.enabled:
                     continue
@@ -330,6 +334,84 @@ class AccessibilityBridge:
         except Exception:
             logger.debug("Failed to find elements", exc_info=True)
             return []
+
+    @staticmethod
+    def _normalize_text(text: Optional[str]) -> str:
+        """Normalize text for fuzzy accessibility matching."""
+        if not text:
+            return ""
+        return re.sub(r"\s+", " ", str(text).strip().lower())
+
+    @classmethod
+    def _extract_match_target(cls, description: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract a target role and text hint from a natural-language description."""
+        desc_lower = cls._normalize_text(description)
+        if not desc_lower:
+            return None, None
+
+        special_text_prefixes = {
+            "text that says ": "AXStaticText",
+            "label showing ": "AXStaticText",
+            "label ": "AXStaticText",
+            "heading ": "AXStaticText",
+        }
+        for prefix, role in special_text_prefixes.items():
+            if desc_lower.startswith(prefix):
+                target = desc_lower[len(prefix):].strip(" '\"")
+                return role, target or None
+
+        role: Optional[str] = None
+        text_hint: Optional[str] = None
+
+        sorted_keywords = sorted(_NL_ROLE_MAP.keys(), key=len, reverse=True)
+        for keyword in sorted_keywords:
+            if keyword in desc_lower:
+                role = _NL_ROLE_MAP[keyword]
+                remainder = desc_lower.replace(keyword, "", 1).strip()
+                remainder = re.sub(r"^(the|a|an)\s+", "", remainder).strip()
+                text_hint = remainder or None
+                break
+
+        if role is None:
+            return None, desc_lower.strip(" '\"") or None
+
+        return role, text_hint.strip(" '\"") if text_hint else None
+
+    @classmethod
+    def _element_match_score(cls, elem: AXElement, text_hint: Optional[str]) -> float:
+        """Score how well an element matches the requested text hint."""
+        if not text_hint:
+            return 1.0 if elem.enabled else 0.8
+
+        query = cls._normalize_text(text_hint)
+        fields = [
+            cls._normalize_text(elem.title),
+            cls._normalize_text(elem.value),
+            cls._normalize_text(elem.description),
+        ]
+
+        best = 0.0
+        query_tokens = set(query.split())
+        for field in fields:
+            if not field:
+                continue
+            if field == query:
+                best = max(best, 1.0)
+                continue
+            if query in field:
+                best = max(best, 0.9)
+                continue
+            field_tokens = set(field.split())
+            overlap = len(query_tokens & field_tokens) / max(len(query_tokens), 1)
+            if overlap > 0:
+                best = max(best, 0.45 + 0.4 * overlap)
+
+        if elem.focused:
+            best += 0.05
+        if elem.enabled:
+            best += 0.02
+
+        return min(best, 1.0)
 
     def find_element_by_description(self, description: str) -> Optional[AXElement]:
         """Find element matching a natural language description.
@@ -346,41 +428,54 @@ class AccessibilityBridge:
             The first matching AXElement, or None.
         """
         try:
-            desc_lower = description.lower().strip()
-            role: Optional[str] = None
-            title_hint: Optional[str] = None
+            role, text_hint = self._extract_match_target(description)
+            if role is None and text_hint is None:
+                return None
 
-            # Try to match role keywords (longest match first to prefer
-            # "radio button" over "button").
-            sorted_keywords = sorted(_NL_ROLE_MAP.keys(), key=len, reverse=True)
-            for keyword in sorted_keywords:
-                if keyword in desc_lower:
-                    role = _NL_ROLE_MAP[keyword]
-                    # Everything before the keyword is the title hint
-                    remainder = desc_lower.replace(keyword, "").strip()
-                    if remainder:
-                        # Remove common filler words
-                        remainder = re.sub(
-                            r"^(the|a|an)\s+", "", remainder
-                        ).strip()
-                        if remainder:
-                            title_hint = remainder
-                    break
-
-            if role is None:
-                # No role keyword found — treat entire description as title search
-                title_hint = desc_lower
-
+            enabled_only = role != "AXStaticText"
             matches = self.find_elements(
                 role=role,
-                title_contains=title_hint,
-                enabled_only=True,
+                title_contains=text_hint,
+                enabled_only=enabled_only,
             )
-            return matches[0] if matches else None
+            if not matches and role == "AXStaticText":
+                matches = self.find_elements(
+                    role=None,
+                    title_contains=text_hint,
+                    enabled_only=False,
+                )
+            if not matches:
+                return None
+
+            if not text_hint:
+                return matches[0]
+
+            return max(matches, key=lambda elem: self._element_match_score(elem, text_hint))
         except Exception:
             logger.debug(
                 "Failed to find element by description: %s", description, exc_info=True
             )
+            return None
+
+    def get_focused_element(self) -> Optional[AXElement]:
+        """Return the currently focused UI element for the frontmost app."""
+        try:
+            create_app = _resolve_ax_create_app()
+            if create_app is None:
+                return None
+
+            app_info = self.get_frontmost_app()
+            if not app_info or not app_info.get("pid"):
+                return None
+
+            app_ref = create_app(app_info["pid"])
+            focused_ref = _get_ax_attr(app_ref, "AXFocusedUIElement")
+            if focused_ref is None:
+                return None
+
+            return _ax_element_from_ref(focused_ref, 0, 0)
+        except Exception:
+            logger.debug("Failed to get focused element", exc_info=True)
             return None
 
     def get_interactive_elements(self) -> List[AXElement]:

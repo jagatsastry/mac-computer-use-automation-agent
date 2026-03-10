@@ -92,14 +92,48 @@ class GroundingRouter:
         # Default
         return [GroundingStrategy.ACCESSIBILITY, GroundingStrategy.VISION]
 
+    def _prefer_accessibility_first(self, description: str) -> bool:
+        """Return True when Accessibility should be attempted before classification."""
+        desc = description.lower()
+        if any(kw in desc for kw in _VISUAL_KEYWORDS):
+            return False
+        if any(kw in desc for kw in _POSITION_KEYWORDS):
+            return False
+        return True
+
     async def find_element(
         self, description: str
     ) -> Optional[GroundingResult]:
         """Find element using best available strategy with fallback."""
+        tried: set[GroundingStrategy] = set()
+
+        if self._prefer_accessibility_first(description):
+            try:
+                result = await self._ground_accessibility(description)
+                tried.add(GroundingStrategy.ACCESSIBILITY)
+                if result is not None:
+                    logger.debug(
+                        "Grounded '%s' via %s at (%d, %d)",
+                        description,
+                        result.strategy_used.value,
+                        result.x,
+                        result.y,
+                    )
+                    return result
+            except Exception:
+                logger.debug(
+                    "Accessibility-first lookup failed for '%s'",
+                    description,
+                    exc_info=True,
+                )
+
         strategies = self.classify(description)
         for strategy in strategies:
+            if strategy in tried:
+                continue
             try:
                 result = await self._try_strategy(strategy, description)
+                tried.add(strategy)
                 if result is not None:
                     logger.debug(
                         "Grounded '%s' via %s at (%d, %d)",
@@ -110,6 +144,25 @@ class GroundingRouter:
                 logger.debug(
                     "Strategy %s failed for '%s', trying next",
                     strategy.value, description, exc_info=True,
+                )
+
+        if GroundingStrategy.VISION not in tried and self.vision is not None:
+            try:
+                result = await self._ground_vision(description)
+                if result is not None:
+                    logger.debug(
+                        "Grounded '%s' via %s at (%d, %d)",
+                        description,
+                        result.strategy_used.value,
+                        result.x,
+                        result.y,
+                    )
+                    return result
+            except Exception:
+                logger.debug(
+                    "Final vision fallback failed for '%s'",
+                    description,
+                    exc_info=True,
                 )
         return None
 
@@ -139,7 +192,15 @@ class GroundingRouter:
             y=elem.center[1],
             strategy_used=GroundingStrategy.ACCESSIBILITY,
             confidence=0.95,
-            element_info={"role": elem.role, "title": elem.title},
+            element_info={
+                "role": elem.role,
+                "title": elem.title,
+                "value": elem.value,
+                "description": elem.description,
+                "position": elem.position,
+                "size": elem.size,
+                "focused": elem.focused,
+            },
         )
 
     async def _ground_vision(
@@ -151,11 +212,18 @@ class GroundingRouter:
         location = await self.vision.find_element(description)
         if not location:
             return None
+        x = location["x"] if isinstance(location, dict) else location.x
+        y = location["y"] if isinstance(location, dict) else location.y
+        confidence = (
+            location.get("confidence", 0.75)
+            if isinstance(location, dict)
+            else getattr(location, "confidence", 0.75)
+        )
         return GroundingResult(
-            x=location["x"],
-            y=location["y"],
+            x=x,
+            y=y,
             strategy_used=GroundingStrategy.VISION,
-            confidence=0.75,
+            confidence=confidence or 0.75,
         )
 
     async def _ground_ocr(
@@ -163,13 +231,8 @@ class GroundingRouter:
     ) -> Optional[GroundingResult]:
         """Find element via OCR text matching.
 
-        Uses pytesseract if available; returns None otherwise.
+        Screenshot OCR is intentionally disabled. Text grounding should use
+        Accessibility-first lookup when available, then fall back to vision.
         """
-        try:
-            import pytesseract  # noqa: F401
-        except ImportError:
-            logger.debug("pytesseract not available, skipping OCR strategy")
-            return None
-        # Full OCR implementation would capture screenshot, run pytesseract,
-        # and find the bounding box of matching text.  Stubbed for now.
+        logger.debug("Screenshot OCR disabled, skipping OCR strategy for '%s'", description)
         return None

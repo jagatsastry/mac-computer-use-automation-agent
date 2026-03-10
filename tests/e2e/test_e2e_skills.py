@@ -13,10 +13,10 @@ class TestSkillsE2E:
         for sr in result.steps:
             assert sr.evidence
 
-    def test_skill_matching_offline(self):
-        """Verify skill matching works without API (offline test)."""
+    @pytest.mark.asyncio
+    async def test_skill_matching_offline(self):
+        """Offline keyword fallback should refuse unsafe parameterized matches."""
         from automation_agent.skills import SkillRegistryImpl
         registry = SkillRegistryImpl()
-        match = registry.match("return my blue headphones on Amazon")
-        assert match is not None
-        assert match["skill_name"] == "return-amazon-order"
+        match = await registry.match("return my blue headphones on Amazon")
+        assert match is None

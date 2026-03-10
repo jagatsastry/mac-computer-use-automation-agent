@@ -282,10 +282,10 @@ class TestCoordinateNormalizationRoundTrip:
     """Test that coordinate normalization is consistent for all model types."""
 
     def test_molmo_round_trip(self, bg):
-        """molmo: (0.5, 0.5) -> normalize -> (0.5, 0.5)."""
+        """molmo uses a 0-100 normalized space, matching coordinator.py."""
         x, y = bg.normalize_prediction(0.5, 0.5, "molmo", 960, 540)
-        assert x == pytest.approx(0.5)
-        assert y == pytest.approx(0.5)
+        assert x == pytest.approx(0.005)
+        assert y == pytest.approx(0.005)
 
     def test_qwen_round_trip(self, bg):
         """qwen2.5-vl: (500, 500) -> normalize -> (0.5, 0.5)."""

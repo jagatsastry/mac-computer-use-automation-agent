@@ -82,6 +82,13 @@ class TestParseArgs:
         assert args.log_level == "DEBUG"
         print("✓ Log level parsing works")
 
+    def test_parse_with_status_ui(self):
+        """Test parsing with --status-ui."""
+        args = parse_args(["--status-ui", "overlay", "Test"])
+
+        assert args.status_ui == "overlay"
+        print("✓ Status UI parsing works")
+
     def test_parse_with_config_file(self):
         """Test parsing with --config."""
         args = parse_args(["--config", "config.json", "Test"])

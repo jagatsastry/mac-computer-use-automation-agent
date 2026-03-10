@@ -121,6 +121,18 @@ class SkillRegistryImpl:
         if result is None:
             return None
         skill, params = result
+        missing_required = [
+            name
+            for name, spec in skill.parameters.items()
+            if spec.required and name not in params
+        ]
+        if missing_required:
+            logger.info(
+                "🤔 Keyword fallback skipped skill with missing params",
+                skill_name=skill.name,
+                missing=missing_required,
+            )
+            return None
         # Fallback returns empty params — skip expand to avoid missing-param errors
         try:
             expanded = self.expand(skill.name, params)
