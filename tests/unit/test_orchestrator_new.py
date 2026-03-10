@@ -13,7 +13,13 @@ from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
 from automation_agent.orchestrator.agent import AutomationAgent
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, StepResult
+from automation_agent.shared_models import (
+    ActionPlan,
+    ActionStep,
+    ExecutionResult,
+    FindElementResult,
+    StepResult,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1010,3 +1016,454 @@ class TestBugFixes:
 
         assert result.success is False
         assert "validation failed" in result.message.lower() or "verify" in result.message.lower()
+
+
+# ---------------------------------------------------------------------------
+# New tests: features from parallel agent work
+# ---------------------------------------------------------------------------
+
+
+class TestCoerceKeySequence:
+    """Tests for _coerce_key_sequence() edge cases."""
+
+    def test_dict_with_keys_list(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Dict with 'keys' list should be unwrapped."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        result = agent._coerce_key_sequence({"keys": ["cmd", "a"]})
+        assert result == ["cmd", "a"]
+
+    def test_dict_with_key_string(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Dict with 'key' string (legacy) should be parsed."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        result = agent._coerce_key_sequence({"key": "Return"})
+        assert result == ["return"]
+
+    def test_tuple_input(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Tuple input should be converted to list and processed."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        result = agent._coerce_key_sequence(("cmd+c",))
+        assert result == ["cmd", "c"]
+
+    def test_none_input(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """None input should return empty list."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        result = agent._coerce_key_sequence(None)
+        assert result == []
+
+    def test_string_combo(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """String combo like 'cmd+shift+s' should be split."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        result = agent._coerce_key_sequence("cmd+shift+s")
+        assert result == ["cmd", "shift", "s"]
+
+
+class TestExtractWaitCondition:
+    """Tests for _extract_wait_condition() parsing."""
+
+    def test_if_login_page_appears(self):
+        """'If login page appears, wait for user' -> 'login page is visible'."""
+        result = AutomationAgent._extract_wait_condition(
+            "If login page appears, wait for user to sign in"
+        )
+        assert result == "login page is visible"
+
+    def test_if_captcha_shown(self):
+        """Condition with 'shown' keyword should not append redundant 'is visible'."""
+        result = AutomationAgent._extract_wait_condition(
+            "If captcha is shown, wait for user"
+        )
+        assert "visible" in result or "shown" in result
+
+    def test_non_conditional_text_returns_empty(self):
+        """Non-matching text should return empty string."""
+        result = AutomationAgent._extract_wait_condition("Click the submit button")
+        assert result == ""
+
+    def test_case_insensitive(self):
+        """Should work case-insensitively."""
+        result = AutomationAgent._extract_wait_condition(
+            "IF 2FA prompt appears, WAIT FOR USER"
+        )
+        assert "2fa prompt" in result.lower()
+        assert "visible" in result.lower()
+
+
+class TestConditionsOverlap:
+    """Tests for _conditions_overlap() fuzzy matching."""
+
+    def test_exact_match(self):
+        """Identical conditions should overlap."""
+        assert AutomationAgent._conditions_overlap(
+            "Amazon login page is visible",
+            "Amazon login page is visible",
+        )
+
+    def test_synonym_match_sign_in_login(self):
+        """'sign in' and 'login' should be treated as equivalent."""
+        assert AutomationAgent._conditions_overlap(
+            "Amazon sign-in page is visible",
+            "Amazon login page is visible",
+        )
+
+    def test_substring_match(self):
+        """One condition contained in the other should overlap."""
+        assert AutomationAgent._conditions_overlap(
+            "login page visible",
+            "Amazon login page visible with search bar",
+        )
+
+    def test_no_overlap(self):
+        """Completely different conditions should not overlap."""
+        assert not AutomationAgent._conditions_overlap(
+            "Calculator is frontmost",
+            "Safari search bar is focused",
+        )
+
+    def test_empty_string(self):
+        """Empty strings should never overlap."""
+        assert not AutomationAgent._conditions_overlap("", "login page")
+        assert not AutomationAgent._conditions_overlap("login page", "")
+
+
+class TestNormalizeConditionText:
+    """Tests for _normalize_condition_text() stop word removal and aliasing."""
+
+    def test_stop_words_removed(self):
+        """Stop words (the, a, an, is, are, to, be) should be removed."""
+        result = AutomationAgent._normalize_condition_text(
+            "The login page is visible"
+        )
+        assert "the" not in result.split()
+        assert "is" not in result.split()
+        assert "login" in result
+        assert "page" in result
+        assert "visible" in result
+
+    def test_sign_in_aliased_to_login(self):
+        """'sign in' and 'sign-in' should be normalized to 'login'."""
+        result = AutomationAgent._normalize_condition_text("Sign in page visible")
+        assert "login" in result
+        assert "sign" not in result
+
+    def test_log_in_aliased_to_login(self):
+        """'log in' should also be normalized to 'login'."""
+        result = AutomationAgent._normalize_condition_text("Log in required")
+        assert "login" in result
+
+
+class TestPreKeysExecution:
+    """Tests for _pre_keys param being executed before the main action."""
+
+    async def test_pre_keys_executed_before_click(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """_pre_keys should fire press_key before the click action."""
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={
+                        "element": "search field",
+                        "_pre_keys": ["cmd", "up"],
+                    },
+                    verify="Search field focused",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        await agent.execute("Click search field")
+
+        # pre_keys should have called press_key with ["cmd", "up"]
+        calls = mock_actuator.press_key.call_args_list
+        assert len(calls) >= 1
+        assert calls[0].args[0] == ["cmd", "up"]
+
+    async def test_pre_keys_failure_aborts_action(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """If _pre_keys fails, the main action should not execute."""
+        mock_actuator.press_key = MagicMock(return_value={"success": False, "error": "key fail"})
+        mock_coordinator.verify_condition = AsyncMock(return_value=False)
+
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="type_text",
+                    params={
+                        "text": "hello",
+                        "_pre_keys": ["cmd", "a"],
+                    },
+                    verify="Text typed",
+                    on_fail="abort",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        result = await agent.execute("Type hello")
+
+        # type_text should NOT have been called since pre_keys failed
+        mock_actuator.type_text.assert_not_called()
+
+
+class TestScreenToImageCoords:
+    """Tests for screen-space ↔ image-space coordinate mapping."""
+
+    def test_screen_to_image_identity_when_same_resolution(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Same screen and image resolution -> identity mapping."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        # Patch logical screen size to match image size
+        with patch.object(agent, "_get_logical_screen_size", return_value=(1024, 768)):
+            ix, iy = agent._screen_to_image_coords(500, 400, 1024, 768)
+        assert ix == 500
+        assert iy == 400
+
+    def test_screen_to_image_retina_scaling(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Retina: logical 1440x900 screen -> 2880x1800 image should double."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        with patch.object(agent, "_get_logical_screen_size", return_value=(1440, 900)):
+            ix, iy = agent._screen_to_image_coords(720, 450, 2880, 1800)
+        assert ix == 1440
+        assert iy == 900
+
+    def test_screen_to_image_clamped_at_boundaries(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Coordinates should be clamped to [0, image_dim - 1]."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        with patch.object(agent, "_get_logical_screen_size", return_value=(1440, 900)):
+            ix, iy = agent._screen_to_image_coords(2000, 1200, 1024, 768)
+        assert ix <= 1023
+        assert iy <= 767
+
+
+class TestClearFirstAndSlowType:
+    """Tests for _clear_first and _slow_type params on type_text."""
+
+    async def test_clear_first_sends_cmd_a(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """_clear_first=True should send cmd+a before typing."""
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="type_text",
+                    params={"text": "new text", "_clear_first": True},
+                    verify="Text field updated",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        await agent.execute("Replace text")
+
+        # press_key should have been called with cmd+a
+        press_calls = mock_actuator.press_key.call_args_list
+        assert any(c.args[0] == ["cmd", "a"] for c in press_calls)
+        mock_actuator.type_text.assert_called_once_with("new text")
+
+
+class TestQuitFirstAndSpotlight:
+    """Tests for _quit_first and _spotlight params on activate_app."""
+
+    async def test_quit_first_sends_quit_before_activate(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """_quit_first=True should send quit_app before activate_app."""
+        mock_actuator.get_state.return_value = {
+            "app_name": "Safari",
+            "app_bundle": "com.apple.Safari",
+            "window_title": "Google",
+        }
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="activate_app",
+                    params={"app_name": "Safari", "_quit_first": True},
+                    verify="Safari is frontmost",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        await agent.execute("Restart Safari")
+
+        mock_actuator.quit_app.assert_called_once_with("Safari")
+        mock_actuator.activate_app.assert_called_once_with("Safari")
+
+
+class TestClickDispatchScreenCoords:
+    """Tests for screen_x/screen_y propagation in click dispatch."""
+
+    async def test_click_with_element_uses_screen_coords(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Click with element should pass screen_x/screen_y to actuator.click()."""
+        mock_coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(
+                x=200, y=150, confidence=0.95, source="vision",
+            )
+        )
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"element": "the OK button"},
+                    verify="Dialog dismissed",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        # Patch _normalize_find_result to inject known screen coords
+        original_normalize = agent._normalize_find_result
+
+        def patched_normalize(result, image_size):
+            normalized = original_normalize(result, image_size)
+            return FindElementResult(
+                x=normalized.x,
+                y=normalized.y,
+                confidence=normalized.confidence,
+                source=normalized.source,
+                screen_x=400,
+                screen_y=300,
+            )
+
+        with patch.object(agent, "_normalize_find_result", side_effect=patched_normalize):
+            await agent.execute("Click OK")
+
+        # actuator.click should receive screen coords (400, 300), not image coords (200, 150)
+        mock_actuator.click.assert_called_once_with(400, 300)
+
+    async def test_click_with_element_falls_back_to_image_coords(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """When screen_x/screen_y are None, should fall back to image x/y."""
+        mock_coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(
+                x=200, y=150, confidence=0.95, source="vision",
+                screen_x=None, screen_y=None,
+            )
+        )
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="click",
+                    params={"element": "the OK button"},
+                    verify="Dialog dismissed",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        await agent.execute("Click OK")
+
+        # Falls back to image coords
+        mock_actuator.click.assert_called_once_with(200, 150)
+
+
+class TestAddressBarFallback:
+    """Tests for _address_bar_fallback param on open_url."""
+
+    async def test_address_bar_fallback_calls_spotlight_method(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """_address_bar_fallback=True should call _open_url_via_address_bar."""
+        mock_planner.plan = AsyncMock(
+            return_value=_make_plan([
+                ActionStep(
+                    action="open_url",
+                    params={
+                        "url": "https://example.com",
+                        "_address_bar_fallback": True,
+                    },
+                    verify="Page loaded",
+                ),
+                ActionStep(action="done", params={}, verify=""),
+            ])
+        )
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        with patch.object(
+            agent, "_open_url_via_address_bar",
+            new_callable=AsyncMock,
+            return_value={"success": True},
+        ) as mock_addr_bar:
+            await agent.execute("Open example.com via address bar")
+
+            mock_addr_bar.assert_awaited_once_with("https://example.com")
+            # Standard open_url should NOT have been called
+            mock_actuator.open_url.assert_not_called()
