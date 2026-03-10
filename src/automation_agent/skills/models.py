@@ -1,6 +1,7 @@
 """Data models for the skill registry."""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List
 
 
@@ -46,3 +47,16 @@ class ExpandedSkill:
     skill: Skill
     expanded_text: str  # Steps with params substituted
     params: Dict[str, str]  # Actual parameter values used
+
+
+@dataclass
+class SkillObservation:
+    """A generalized observation learned from a previous run."""
+
+    category: str
+    condition: str
+    recommendation: str
+    rationale: str = ""
+    confidence: float = 0.0
+    run_id: str = ""
+    created_at: datetime = field(default_factory=datetime.utcnow)

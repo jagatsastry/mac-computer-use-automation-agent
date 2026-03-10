@@ -2,12 +2,10 @@
 
 import asyncio
 import sys
-from pathlib import Path
 
 from .cli import parse_args, validate_args
 from .config import AgentConfig, LogLevel, ModelProvider, load_config
 from .logging import configure_logging, get_logger
-from .workflows import run_restaurant_workflow
 from .orchestrator import AutomationAgent
 from .actuator import create_actuator
 from .planner import ActionPlannerImpl
@@ -57,30 +55,10 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.model_provider = ModelProvider.LOCAL
         config.vision_model = "molmo"
 
-
-
-def _is_restaurant_prompt(prompt: str) -> bool:
-    """Best-effort intent check for restaurant reservation workflows."""
-    lowered = prompt.lower()
-    keywords = [
-        "restaurant",
-        "reservation",
-        "reserve",
-        "book a table",
-        "opentable",
-        "yelp",
-        "dinner",
-        "lunch",
-        "cuisine",
-    ]
-    return any(token in lowered for token in keywords)
-
-
 async def run_agent(
     prompt: str,
     config: AgentConfig,
     dry_run: bool = False,
-    restaurant_only: bool = False,
 ) -> int:
     """
     Run the automation agent with the given prompt.
@@ -121,6 +99,7 @@ async def run_agent(
         grounding_router = GroundingRouter(
             accessibility=coordinator.accessibility,
             vision_coordinator=coordinator,
+            config=config,
         )
         logger.info(
             "grounding_router_enabled",
@@ -164,29 +143,6 @@ async def run_agent(
             logger.error("planning_failed", error=str(e))
             print(f"\n[ERROR] Failed to plan: {e}")
             return 1
-
-    if restaurant_only or _is_restaurant_prompt(prompt):
-        logger.info("restaurant_workflow_enabled")
-        print("\n[INFO] Running restaurant-focused workflow")
-        try:
-            result = await run_restaurant_workflow(
-                prompt=prompt,
-                agent=agent,
-                repo_root=Path.cwd(),
-            )
-        except Exception as e:
-            logger.exception("restaurant_workflow_failed", error=str(e))
-            print(f"\n[ERROR] Restaurant workflow failed: {e}")
-            return 1
-
-        if result.success:
-            print(f"\n[SUCCESS] {result.message}")
-            return 0
-
-        print(f"\n[FAILED] {result.message}")
-        if result.error:
-            print(f"Error: {result.error}")
-        return 1
 
     # Execute the command
     logger.info("executing_prompt", prompt=prompt)
@@ -262,7 +218,6 @@ def main() -> None:
                 args.prompt,
                 config,
                 args.dry_run,
-                getattr(args, "restaurant_only", False),
             )
         )
         logger.info("automation_agent_completed", success=(exit_code == 0))

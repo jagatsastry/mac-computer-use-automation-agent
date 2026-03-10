@@ -1,286 +1,157 @@
 # macOS Desktop Automation Agent
 
-A vision-based desktop automation agent for macOS. Describe tasks in natural language and the agent plans, executes, and verifies each step using screen understanding.
+Vision-guided desktop automation for macOS. Give the agent a natural-language goal, it can match an optional skill, plan steps, execute them on the desktop, and verify progress after each action.
 
-## How It Works
+## Current Reality
 
+- The runtime is now generic. There is no bespoke restaurant workflow path.
+- Planning still uses Anthropic Claude today. The project is not fully local yet.
+- The only active actuator backend is `AppleScriptActuator`. There is no live Hammerspoon backend in the current code.
+- Validated on March 10, 2026: `pytest -q -m 'not e2e'` -> `1198 passed, 3 skipped, 5 deselected`.
+
+## Architecture
+
+```text
+user prompt
+  -> optional skill match
+  -> screen description
+  -> plan generation
+  -> execute step
+  -> verify step
+  -> replan on failure
 ```
-User prompt -> Skill matching -> Screen description -> Plan generation
-  -> For each step: Execute -> Verify (3-tier) -> Replan on failure
-```
 
-The agent uses a 5-component architecture:
+Core components:
 
 | Component | Role |
 |-----------|------|
-| **Planner** | Generates action plans from natural language via LLM |
-| **Vision Coordinator** | Screenshots, screen descriptions, element grounding |
-| **Actuator** | Executes desktop actions (click, type, press_key, open_url, etc.) |
-| **Skills** | Reusable `.md` automation templates with parameter substitution |
-| **Orchestrator** | Coordinates all components; runs the execute-verify loop |
+| Planner | Generates structured action plans from the prompt |
+| Vision coordinator | Screenshots, descriptions, grounding, and vision verification |
+| Actuator | Executes app activation, typing, keypresses, URL opens, clicks, and state queries |
+| Skills | Optional markdown priors under `src/automation_agent/skills/library/` |
+| Orchestrator | Runs the execute / verify / replan loop |
 
 ## Requirements
 
 - macOS 11.0 or later
 - Python 3.9+
-- A vision backend (see [Vision Backends](#vision-backends))
+- Accessibility permission for the terminal or IDE running the agent
+- Screen Recording permission for screenshot-based perception
+- `ANTHROPIC_API_KEY` or `AGENT_ANTHROPIC_API_KEY`
+- Optional: an OpenAI-compatible local vision server if you want local vision instead of Anthropic vision
 
 ## Quick Start
 
-```bash
-# Install
-pip install -e ".[dev]"
+Install the repo and the Anthropic extra:
 
-# Copy environment template
+```bash
+pip install -e ".[dev,anthropic]"
 cp .env.example .env
-
-# Run
-automation-agent "Open Calculator"
 ```
 
-## Vision Backends
+Grant macOS permissions to the terminal app you are using:
 
-The agent supports multiple vision backends for screen understanding and element grounding. Configure via `AGENT_VISION_SERVER_URL` and `AGENT_VISION_MODEL` in `.env`.
+- Privacy & Security -> Accessibility
+- Privacy & Security -> Screen Recording
 
-| Backend | Accuracy | Latency | Cost | Setup |
-|---------|----------|---------|------|-------|
-| **molmo-mlx** (default) | 75% | 10s | Free | `.venv/bin/python scripts/mlx_vlm_server.py --model mlx-community/Molmo-7B-D-0924-3bit --port 8091` |
-| qwen3-vl (Ollama) | 70% | 45s | Free | `ollama pull qwen3-vl` |
-| molmo2-mlx (5-bit) | 45% | 6s | Free | `.venv-molmo2/bin/python scripts/mlx_vlm_server.py --model mlx-community/Molmo2-8B-5bit --port 8092` |
-| claude-sonnet-4 (API) | 25% | 3s | ~$0.005/call | Set `ANTHROPIC_API_KEY` in `.env` |
-
-> Accuracy measured on 20 ScreenSpot samples. Run `python scripts/benchmark_grounding.py --n 20` to reproduce.
-
-**Important:** Run only one MLX model server at a time (memory constraint on Apple Silicon).
-
-### Starting a Local Vision Server
+Set the Anthropic key:
 
 ```bash
-# Molmo v1 (recommended — best accuracy)
-.venv/bin/python scripts/mlx_vlm_server.py --model mlx-community/Molmo-7B-D-0924-3bit --port 8091
-
-# Molmo2 (faster, less accurate)
-.venv-molmo2/bin/python scripts/mlx_vlm_server.py --model mlx-community/Molmo2-8B-5bit --port 8092
-
-# Qwen3-VL via Ollama
-ollama serve  # then: ollama pull qwen3-vl
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-## Usage
+Fastest working path: use Claude for both planning and vision.
 
 ```bash
-# Basic usage
-automation-agent "Open Calculator"
+automation-agent --provider anthropic "Open Safari and go to news.ycombinator.com"
+```
 
-# Dry run (plan without executing)
+If you already have a local OpenAI-compatible vision server, point the agent at it. Planning still uses Anthropic in this mode.
+
+```bash
+AGENT_MODEL_PROVIDER=local \
+AGENT_VISION_SERVER_URL=http://localhost:8091 \
+AGENT_VISION_MODEL=mlx-community/Molmo-7B-D-0924-4bit \
+automation-agent "Open Safari and search for weather in San Francisco"
+```
+
+Dry run:
+
+```bash
 automation-agent --dry-run "Return my Amazon order"
-
-# Use Molmo vision backend
-automation-agent --molmo "Book a table for 2 tonight"
-
-# Use Hammerspoon actuator (more reliable clicks)
-automation-agent --hammerspoon "Open Safari"
-
-# Verbose logging
-automation-agent --verbose "Complex task"
 ```
+
+## Runtime Notes
+
+- `AppleScriptActuator` is the current action backend.
+- App activation, URL opening, keypresses, typing, and window state queries go through `osascript`.
+- Coordinate clicks go through `pyautogui` inside the actuator.
+- If `AGENT_USE_ACCESSIBILITY=true`, the agent can use the macOS Accessibility API for faster structured grounding and verification.
+- `AGENT_MODEL_PROVIDER` currently changes the vision backend in practice. The planner still calls Anthropic directly.
 
 ## Skills
 
-Skills are reusable automation templates in `src/automation_agent/skills/library/`. The agent automatically matches user prompts to skills via LLM routing, extracts parameters, and uses the skill's steps to guide planning.
+The skill system remains, but only as optional priors. The agent can plan without any skill match.
 
-| Skill | File | Description |
-|-------|------|-------------|
-| Amazon Return | `return_amazon_order.md` | Return/replace items from Amazon order history |
-| Amazon Search | `amazon_search.md` | Search for products on Amazon |
-| Google Search | `google_search.md` | Search Google and interact with results |
-| Open App | `open_app_and_navigate.md` | Launch apps and navigate to specific views |
-| Send iMessage | `send_imessage.md` | Send messages via iMessage |
-| Restaurant (OpenTable) | `restaurant_opentable.md` | Book restaurant reservations via OpenTable |
-| Restaurant (Yelp) | `restaurant_yelp.md` | Find and reserve restaurants via Yelp |
-| Restaurant (Google) | `restaurant_google.md` | Find restaurants and reserve via Google Maps |
+Current bundled skill templates:
 
-### wait_for_user
+- `amazon_search.md`
+- `google_search.md`
+- `open_app_and_navigate.md`
+- `return_amazon_order.md`
+- `send_imessage.md`
+- `restaurant_google.md`
+- `restaurant_opentable.md`
+- `restaurant_yelp.md`
 
-When a step requires user interaction (e.g., signing in), the agent emits a `wait_for_user` step. The agent:
+The restaurant templates are still available as skill hints, but they are not backed by special-case runtime code anymore.
 
-1. Captures a baseline screenshot
-2. Prints the message to the terminal (e.g., `[WAITING] Please sign in to Amazon`)
-3. Polls the screen every 5 seconds using pixel-diff comparison
-4. Auto-resumes when >2% of pixels change (e.g., after login completes)
-5. Times out after 120 seconds and proceeds anyway
+## Verification
 
-No vision model calls are made during the wait — only fast pixel comparison.
+Verification is layered and depends on what backends are enabled:
 
-## Debugging
+1. Accessibility state checks when the Accessibility bridge is available
+2. Actuator state checks via `get_state()`
+3. Vision verification using the current vision backend
 
-### Debug Coordinate Overlay
+Every non-terminal action step is expected to carry a postcondition.
 
-Every `find_element` call saves a debug screenshot with a red crosshair at the predicted click point. This lets you verify whether the vision model is grounding to the correct UI element.
+## Logs and Debugging
 
-**Location:** `logs/runs/<run_id>/debug/find_<timestamp>.jpg`
+Each run writes structured artifacts under `logs/runs/<run_id>/`:
 
-Each image shows:
-- Red crosshair + circle at the (x, y) pixel coordinate
-- Label with coordinates and element description (e.g., `(440,246) search or filter orders field`)
-
-To find debug images for your most recent run:
-
-```bash
-# List most recent debug images
-ls -lt logs/runs/*/debug/find_*.jpg | head -5
-
-# Open the latest one
-open $(ls -t logs/runs/*/debug/find_*.jpg | head -1)
-```
-
-### Run Logs
-
-Each execution creates a structured JSONL log directory:
-
-```
+```text
 logs/runs/<run_id>/
-  events.jsonl      # All structured events (plan, steps, verification, errors)
+  events.jsonl
+  trace.md
+  screenshots/
   debug/
-    find_<ts>.jpg   # Debug overlay images for each find_element call
 ```
 
-Set `AGENT_LOG_DIR` in `.env` to change the log directory (default: `logs/`).
+- `events.jsonl` is the machine-readable event stream
+- `trace.md` is the readable execution trace
+- `screenshots/` stores saved run screenshots
+- `debug/find_*.jpg` stores click-target overlays for grounding debug
 
-### Verification
+The rolling process log lives at `logs/automation_agent.log`.
 
-The agent uses 3-tier verification after each step:
-
-1. **Tier 1 — Accessibility** (~50ms): Hammerspoon/AppleScript state query
-2. **Tier 2 — Vision** (2-5s): Screenshot + LLM verification of the postcondition
-3. Falls through tiers; returns first successful verification
-
-Every `ActionStep` must have a non-empty `verify` field — plans without postconditions are rejected.
-
-## Configuration
-
-Settings are loaded from environment variables prefixed with `AGENT_` (see `.env.example`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENT_VISION_SERVER_URL` | `http://localhost:8080` | Vision server endpoint (any OpenAI-compatible server) |
-| `AGENT_VISION_MODEL` | `qwen2-vl` | Vision model name |
-| `AGENT_TEXT_MODEL` | `gemma2:9b` | Text model for planning |
-| `AGENT_MODEL_PROVIDER` | `local` | `local` or `anthropic` |
-| `AGENT_LOG_DIR` | `logs/` | Structured event log directory |
-| `ANTHROPIC_API_KEY` | — | Required for Claude-based planning/vision |
-
-## Benchmarks
-
-### Grounding Benchmark
-
-Measures vision element-finding accuracy using the ScreenSpot dataset:
+## Useful Commands
 
 ```bash
-# Quick test (5 samples, all available backends)
-python scripts/benchmark_grounding.py --n 5
+# Run the non-E2E suite
+pytest -q -m "not e2e"
 
-# Specific backend
-python scripts/benchmark_grounding.py --backends molmo-mlx --n 20
+# Check the actuator directly
+python -m automation_agent.actuator status
+python -m automation_agent.actuator state
 
-# All options
-python scripts/benchmark_grounding.py --help
+# Show the live overlay during a run
+automation-agent --status-ui overlay "Open Safari"
 ```
 
-Results are saved to `logs/benchmark_grounding_<timestamp>.json`.
+## More Docs
 
-### Other Benchmarks
-
-```bash
-# Vision description benchmark
-python scripts/benchmark_vision.py
-
-# Skill router accuracy benchmark
-python scripts/benchmark_skill_router.py
-```
-
-## Coordinate Spaces
-
-Each vision model returns coordinates in a different format. The coordinator normalizes all of them:
-
-| Model | Raw Format | Normalization |
-|-------|-----------|---------------|
-| molmo | 0-100 | divide by 100 |
-| molmo2, qwen2.5-vl, qwen3-vl | 0-1000 | divide by 1000 |
-| claude-sonnet-* | pixels | divide by image dimensions |
-
-Unknown models raise `ValueError` — no guessing.
-
-## Development
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run all unit tests (522 tests)
-pytest tests/unit/
-
-# Run specific test file
-pytest tests/unit/test_orchestrator_new.py -v
-
-# Run by marker
-pytest -m unit            # Unit tests only
-pytest -m "not e2e"       # Skip e2e (requires live desktop)
-
-# Format & lint
-black src/ tests/
-ruff check src/ tests/
-mypy src/
-```
-
-### Test Markers
-
-Defined in `pyproject.toml`: `unit`, `integration`, `e2e`, `manual`, `legacy`.
-
-### Project Structure
-
-```
-src/automation_agent/
-  orchestrator/       # Agent loop, step execution, verification
-    agent.py          # Main AutomationAgent class
-    verifier.py       # 3-tier step verification
-  planner/            # LLM-based action plan generation
-  vision/             # Screen understanding and element grounding
-    coordinator.py    # Screenshot, describe, find_element, verify
-  actuator/           # Desktop action execution
-    applescript_actuator.py   # AppleScript/JXA backend
-    hammerspoon_actuator.py   # Hammerspoon backend
-  skills/             # Skill matching and template system
-    library/          # .md skill templates
-    registry.py       # Skill registry and matching
-    router.py         # LLM-based skill routing
-  llm/                # LLM client adapters
-  config.py           # Pydantic Settings configuration
-  protocols.py        # Protocol classes (duck typing interfaces)
-  shared_models.py    # ActionStep, StepResult, ExecutionResult dataclasses
-scripts/
-  benchmark_grounding.py    # ScreenSpot grounding accuracy benchmark
-  benchmark_vision.py       # Vision description benchmark
-  benchmark_skill_router.py # Skill router accuracy benchmark
-  mlx_vlm_server.py         # MLX vision model server wrapper
-tests/
-  unit/               # 522 unit tests (all mocked, fast)
-  e2e/                # End-to-end tests (requires live macOS desktop)
-  integration/        # Integration tests (requires running backends)
-```
-
-## macOS Permissions
-
-The agent requires:
-- **Accessibility**: For mouse/keyboard control
-- **Screen Recording**: For taking screenshots
-
-Grant these in: System Settings > Privacy & Security
-
-## Author
-
-Jagat Pudipeddi
-
-## License
-
-MIT
+- Current setup: `docs/automation.md`
+- Current runbook: `docs/QUICKSTART.md`
+- Current repo status: `IMPLEMENTATION_STATUS.md`
+- Deep architecture walkthrough with stale sections clearly labeled: `docs/LIFE_OF_A_PROMPT.md`

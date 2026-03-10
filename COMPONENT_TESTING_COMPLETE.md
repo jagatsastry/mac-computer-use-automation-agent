@@ -1,3 +1,6 @@
+> Historical component-test snapshot from the early Ollama / PyAutoGUI phase.
+> It does not describe the current runtime or current automated baseline.
+
 # Component Testing Implementation - Complete
 
 **Date:** 2026-02-02

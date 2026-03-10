@@ -380,6 +380,16 @@ class StepVerifier:
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2
         return None
 
+    @staticmethod
+    def _tier2_conditions(step: ActionStep) -> list[str]:
+        """Return unique tier-2 conditions in preferred order."""
+        ordered = []
+        for condition in (step.expected_observation, step.verify):
+            normalized = condition.strip()
+            if normalized and normalized not in ordered:
+                ordered.append(normalized)
+        return ordered
+
     async def _verify_tier2(
         self, step: ActionStep, coordinator, actuator_result: Dict[str, Any]
     ) -> Tuple[Tuple[bool, str], Optional[str]]:
@@ -400,12 +410,13 @@ class StepVerifier:
                 actuator_result.get("image_y"),
             )
             if region_b64 is not None:
-                result = await coordinator.verify_condition(step.verify, screenshot_b64=region_b64)
+                local_condition = step.expected_observation.strip() or step.verify
+                result = await coordinator.verify_condition(local_condition, screenshot_b64=region_b64)
                 if result:
                     return (
                         (
                             True,
-                            f"Vision confirms the clicked region satisfies: {step.verify}",
+                            f"Vision confirms the clicked region satisfies: {local_condition}",
                         ),
                         screenshot_b64,
                     )
@@ -442,16 +453,21 @@ class StepVerifier:
                             screenshot_b64,
                         )
 
-            result = await coordinator.verify_condition(
-                step.verify,
-                screenshot_b64=screenshot_b64,
-            )
+            for condition in self._tier2_conditions(step):
+                result = await coordinator.verify_condition(
+                    condition,
+                    screenshot_b64=screenshot_b64,
+                )
+                if result:
+                    return ((True, f"Vision confirms: {condition}"), screenshot_b64)
         else:
-            result = await coordinator.verify_condition(step.verify)
+            for condition in self._tier2_conditions(step):
+                result = await coordinator.verify_condition(condition)
+                if result:
+                    return ((True, f"Vision confirms: {condition}"), screenshot_b64)
 
-        if result:
-            return ((True, f"Vision confirms: {step.verify}"), screenshot_b64)
-        return ((False, f"Vision denies: {step.verify}"), screenshot_b64)
+        denied_condition = step.expected_observation.strip() or step.verify
+        return ((False, f"Vision denies: {denied_condition}"), screenshot_b64)
 
     def _crop_click_region(
         self,

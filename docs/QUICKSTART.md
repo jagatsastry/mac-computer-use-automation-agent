@@ -1,172 +1,117 @@
 # Quick Start
 
+This is the shortest path to a working current setup.
+
+## 1. Install
+
 ```bash
 cd /Users/jagatp/workspace/macos-automation-agent
+pip install -e ".[dev,anthropic]"
+cp .env.example .env
 ```
 
-## Prerequisites
+## 2. Grant macOS Permissions
 
-1. **Python 3.9+** with the project installed:
-   ```bash
-   pip install -e ".[dev]"
-   ```
+The terminal or IDE that runs the agent needs:
 
-2. **Hammerspoon** running with the bridge HTTP server on `localhost:27741`
+- Accessibility
+- Screen Recording
 
-3. **Anthropic API key** in your environment:
-   ```bash
-   export ANTHROPIC_API_KEY=sk-ant-...
-   ```
+Without Accessibility, keypresses and clicks may fail.
 
-4. **llama.cpp** (for local vision):
-   ```bash
-   brew install llama.cpp
-   ```
+Without Screen Recording, screenshot-based perception will fail.
 
-5. **Vision model** (Qwen2.5-VL 7B, ~4.8GB download):
-   ```bash
-   python3 -c "
-   from huggingface_hub import hf_hub_download
-   hf_hub_download('Mungert/Qwen2.5-VL-7B-Instruct-GGUF', 'Qwen2.5-VL-7B-Instruct-q4_k_m.gguf', local_dir='$HOME/models/qwen2.5-vl-7b')
-   hf_hub_download('Mungert/Qwen2.5-VL-7B-Instruct-GGUF', 'Qwen2.5-VL-7B-Instruct-mmproj-f16.gguf', local_dir='$HOME/models/qwen2.5-vl-7b')
-   "
-   ```
+## 3. Set the Anthropic Key
 
-## Start the Vision Server
+Planning still depends on Anthropic today, even if you use local vision.
 
 ```bash
-llama-server \
-  -m ~/models/qwen2.5-vl-7b/Qwen2.5-VL-7B-Instruct-q4_k_m.gguf \
-  --mmproj ~/models/qwen2.5-vl-7b/Qwen2.5-VL-7B-Instruct-mmproj-f16.gguf \
-  --port 8090 -ngl 99
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Verify it's running:
+## 4. Run the Simplest Supported Path
+
+Use Anthropic for both planning and vision:
+
 ```bash
-curl -s http://localhost:8090/v1/models
+automation-agent --provider anthropic "Open Safari and go to news.ycombinator.com"
 ```
 
-## Run the Agent
-
-### With llama.cpp vision (local, recommended)
+Dry run:
 
 ```bash
-AGENT_VISION_SERVER_URL=http://localhost:8090 \
-AGENT_VISION_MODEL=Qwen2.5-VL-7B-Instruct-q4_k_m.gguf \
+automation-agent --dry-run "Open Safari and search Google for weather"
+```
+
+## 5. Optional: Use Local Vision
+
+If you already have a local OpenAI-compatible vision server, point the agent at it:
+
+```bash
 AGENT_MODEL_PROVIDER=local \
-.venv/bin/python -m automation_agent "Show me the cheapest shirts for men on Amazon"
+AGENT_VISION_SERVER_URL=http://localhost:8091 \
+AGENT_VISION_MODEL=mlx-community/Molmo-7B-D-0924-4bit \
+automation-agent "Open Safari and search for coffee near me"
 ```
 
-### With Claude API vision
+`AGENT_MODEL_PROVIDER=local` changes the vision backend. It does not make planning local.
+
+Example local server from this repo:
 
 ```bash
-AGENT_MODEL_PROVIDER=anthropic \
-.venv/bin/python -m automation_agent "Open Calculator and compute 7 * 8"
+python scripts/mlx_vlm_server.py \
+  --model mlx-community/Molmo-7B-D-0924-4bit \
+  --port 8091
 ```
 
-### Dry run (plan only, no execution)
+## 6. Optional: Enable Accessibility-First Grounding
 
 ```bash
-.venv/bin/python -m automation_agent --dry-run "Open Safari and search Google for weather"
+export AGENT_USE_ACCESSIBILITY=true
 ```
 
-### With debug logging
+This can improve text-heavy grounding and verification when macOS Accessibility access is available.
+
+## 7. Useful Run Modes
 
 ```bash
-AGENT_LOG_LEVEL=DEBUG \
-AGENT_VISION_SERVER_URL=http://localhost:8090 \
-AGENT_VISION_MODEL=Qwen2.5-VL-7B-Instruct-q4_k_m.gguf \
-AGENT_MODEL_PROVIDER=local \
-.venv/bin/python -m automation_agent "Your prompt here"
+# Verbose logs
+automation-agent --verbose "Open Safari"
+
+# Live overlay
+automation-agent --status-ui overlay "Open Safari"
+
+# Direct actuator smoke tests
+python -m automation_agent.actuator status
+python -m automation_agent.actuator state
 ```
 
 ## Logs
 
-After each run, detailed logs are written to:
-
-```
-/Users/jagatp/workspace/macos-automation-agent/logs/
-├── automation_agent.log                    # Rolling log file (all runs)
-└── runs/
-    └── {run_id}/
-        ├── trace.md                        # Human-readable step-by-step trace
-        ├── events.jsonl                    # Machine-readable structured events
-        └── screenshots/                    # Screenshots captured at each step
+```text
+logs/
+  automation_agent.log
+  runs/<run_id>/
+    events.jsonl
+    trace.md
+    screenshots/
+    debug/
 ```
 
-**View the latest run's trace:**
-```bash
-# Find the most recent run
-ls -t logs/runs/ | head -1
+The most useful files after a run are:
 
-# Read the trace (replace {run_id} with actual ID)
-cat logs/runs/{run_id}/trace.md
-```
-
-**One-liner to view the latest trace:**
-```bash
-cat logs/runs/$(ls -t logs/runs/ | head -1)/trace.md
-```
-
-**Tail the live log:**
-```bash
-tail -f /Users/jagatp/workspace/macos-automation-agent/logs/automation_agent.log
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENT_MODEL_PROVIDER` | `local` | `local` (llama.cpp/Ollama) or `anthropic` (Claude API) |
-| `AGENT_VISION_SERVER_URL` | `http://localhost:8080` | Vision server endpoint (OpenAI-compatible) |
-| `AGENT_VISION_MODEL` | `qwen3-vl` | Vision model name or GGUF filename |
-| `ANTHROPIC_API_KEY` | — | Required for planning (always uses Claude API) |
-| `AGENT_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `AGENT_LOG_DIR` | `logs/` | Directory for log files |
-| `AGENT_EVENT_LOG_DIR` | `logs/runs/` | Directory for per-run event logs |
-
-## Example Prompts
-
-```bash
-# Calculator
-.venv/bin/python -m automation_agent "Open Calculator and compute 3 * 18"
-
-# Amazon shopping (uses amazon-search skill)
-.venv/bin/python -m automation_agent "Show me the cheapest shirts for men on Amazon"
-.venv/bin/python -m automation_agent "Find the cheapest wireless mouse on Amazon"
-.venv/bin/python -m automation_agent "Search Amazon for USB-C cables sorted by price"
-
-# Safari navigation
-.venv/bin/python -m automation_agent "Open Safari and go to news.ycombinator.com"
-.venv/bin/python -m automation_agent "Open https://weather.com in Safari"
-
-# App management
-.venv/bin/python -m automation_agent "Open Notes and create a new note"
-.venv/bin/python -m automation_agent "Quit Safari"
-.venv/bin/python -m automation_agent "Open Finder and go to Downloads"
-
-# Multi-step
-.venv/bin/python -m automation_agent "Open Calculator, type 42 * 17, and press equals"
-.venv/bin/python -m automation_agent "Open Safari, go to Google, and search for best coffee shops nearby"
-
-# Dry run (see the plan without executing)
-.venv/bin/python -m automation_agent --dry-run "Order a pizza on DoorDash"
-```
-
-## Benchmark Vision Backends
-
-Compare llama.cpp vs Ollama speed:
-
-```bash
-# Ensure both servers are running, then:
-.venv/bin/python scripts/benchmark_vision.py
-```
+- `logs/runs/<run_id>/trace.md`
+- `logs/runs/<run_id>/events.jsonl`
+- `logs/runs/<run_id>/debug/find_*.jpg`
 
 ## Tests
 
 ```bash
-pytest                          # All tests
-pytest tests/unit/              # Unit tests only (fast, all mocked)
-pytest -m "not e2e"             # Skip e2e tests
-pytest -k "test_plan_basic"     # Single test by name
+pytest -q -m "not e2e"
+```
+
+Validated on March 10, 2026:
+
+```text
+1198 passed, 3 skipped, 5 deselected
 ```

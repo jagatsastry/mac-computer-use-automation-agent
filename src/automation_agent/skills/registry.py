@@ -9,9 +9,12 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.shared_models import StepResult
+from automation_agent.skills.distiller import SkillDistiller
+from automation_agent.skills.experience import SkillExperienceStore
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
 from automation_agent.skills.matcher import match_skill
-from automation_agent.skills.models import Skill
+from automation_agent.skills.models import Skill, SkillObservation
 from automation_agent.skills.router import SkillRouter
 
 std_logger = logging.getLogger(__name__)
@@ -34,6 +37,11 @@ class SkillRegistryImpl:
         self._skills: Dict[str, Skill] = {}
         self._skill_dir = skill_dir or Path(__file__).parent / "library"
         self._config = config
+        self._experience_store: Optional[SkillExperienceStore] = None
+        self._distiller: Optional[SkillDistiller] = None
+        if self._config is not None and self._config.skill_learning_enabled:
+            self._experience_store = SkillExperienceStore(self._config.skill_learning_dir)
+            self._distiller = SkillDistiller(self._config)
         if self._skill_dir.is_dir():
             self.load_from_directory(self._skill_dir)
         # Router created lazily after skills are loaded
@@ -113,6 +121,7 @@ class SkillRegistryImpl:
                 return {
                     "skill_name": skill_name,
                     "expanded_steps": expanded or skill.steps_text,
+                    "skill_context": self.build_runtime_context(skill_name, params),
                     "params": params,
                 }
 
@@ -146,6 +155,7 @@ class SkillRegistryImpl:
         return {
             "skill_name": skill.name,
             "expanded_steps": expanded or skill.steps_text,
+            "skill_context": self.build_runtime_context(skill.name, params),
             "params": params,
         }
 
@@ -225,6 +235,91 @@ class SkillRegistryImpl:
     def get_skill(self, skill_name: str) -> Optional[Skill]:
         """Get a skill by name."""
         return self._skills.get(skill_name)
+
+    def build_runtime_context(
+        self, skill_name: str, params: Optional[Dict[str, str]] = None
+    ) -> Optional[str]:
+        """Build rich skill context for planning and replanning."""
+        skill = self._skills.get(skill_name)
+        if skill is None:
+            return None
+        params = params or {}
+        expanded_steps = self.expand(skill_name, params) or skill.steps_text
+        sections = [
+            f"Skill: {skill.name}",
+            f"Description: {skill.description}",
+        ]
+        if skill.success_condition:
+            sections.append(f"Success condition: {skill.success_condition}")
+        sections.extend(["", "## Steps", expanded_steps or "No steps available"])
+        if skill.error_recovery_text:
+            sections.extend(["", "## Recovery Heuristics", skill.error_recovery_text])
+        if skill.notes_text:
+            sections.extend(["", "## Notes", skill.notes_text])
+        observations = self._load_observations_for_context(skill_name)
+        if observations:
+            sections.extend(["", "## Observed Variants"])
+            for observation in observations:
+                sections.append(
+                    "- "
+                    f"[{observation.category}] When {observation.condition}, "
+                    f"{observation.recommendation}"
+                )
+        return "\n".join(sections).strip()
+
+    async def learn_from_run(
+        self,
+        skill_name: str,
+        goal: str,
+        trace: List[StepResult],
+        *,
+        skill_context: str = "",
+        run_id: str = "",
+        had_replan: bool = False,
+    ) -> List[SkillObservation]:
+        """Distill generalized observations from a run and persist them."""
+        if not self._distiller or not self._experience_store or not trace:
+            return []
+        if not had_replan and not self._trace_deserves_learning(trace):
+            return []
+        skill = self._skills.get(skill_name)
+        if skill is None:
+            return []
+        runtime_context = skill_context or self.build_runtime_context(skill_name) or skill.steps_text
+        observations = await self._distiller.distill(
+            skill=skill,
+            goal=goal,
+            skill_context=runtime_context,
+            trace=trace,
+            run_id=run_id,
+        )
+        if run_id:
+            for observation in observations:
+                if not observation.run_id:
+                    observation.run_id = run_id
+        self._experience_store.append(skill_name, observations)
+        return observations
+
+    def _load_observations_for_context(self, skill_name: str) -> List[SkillObservation]:
+        if not self._experience_store or not self._config:
+            return []
+        return self._experience_store.top_for_context(
+            skill_name,
+            limit=self._config.skill_learning_max_observations,
+        )
+
+    @staticmethod
+    def _trace_deserves_learning(trace: List[StepResult]) -> bool:
+        for result in trace:
+            if result.retry_strategies_used:
+                return True
+            if result.suggested_element:
+                return True
+            if result.reflection_hint or result.reflection_observed:
+                return True
+            if result.step.action == "wait_for_user":
+                return True
+        return False
 
 
 def validate_skill_file(path: Path) -> List[str]:

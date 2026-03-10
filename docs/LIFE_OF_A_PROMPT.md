@@ -1,3 +1,6 @@
+> Historical deep-dive with some stale implementation details.
+> In the current code, `create_actuator()` returns `AppleScriptActuator`, there is no `--restaurant-only` path, and restaurant skills are optional priors rather than bespoke runtime flows. Read this file as an architecture narrative, not exact runtime truth.
+
 # Life of a Prompt
 
 **Tracing "Return the blue headphones I bought on Amazon" through every component**
@@ -111,7 +114,7 @@ configure_logging(config)
 **Step 0.3 — Async dispatch** (`line 254`)
 ```python
 exit_code = asyncio.run(
-    run_agent(args.prompt, config, args.dry_run, getattr(args, "restaurant_only", False))
+    run_agent(args.prompt, config, args.dry_run)
 )
 ```
 

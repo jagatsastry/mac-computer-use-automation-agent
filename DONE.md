@@ -1,3 +1,6 @@
+> Historical snapshot from the initial 2026-02-02 bootstrap phase.
+> It does not describe the current runtime. Use `README.md`, `docs/QUICKSTART.md`, and `IMPLEMENTATION_STATUS.md` for the current state.
+
 # ✅ macOS Desktop Automation Agent - Implementation Complete!
 
 **Date:** 2026-02-02

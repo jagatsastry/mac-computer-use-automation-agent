@@ -40,6 +40,7 @@ class ActionPlanner(Protocol):
         history: List[StepResult],
         retry_strategies_used: List[str],
         desktop_context: str = "",
+        skill_context: Optional[str] = None,
     ) -> ActionPlan:
         """Generate a new plan given execution history and failures.
 
@@ -51,6 +52,7 @@ class ActionPlanner(Protocol):
             history: Results of previously executed steps.
             retry_strategies_used: Strategies already attempted.
             desktop_context: Structured desktop state from ContextMonitor.
+            skill_context: Optional expanded skill template and learned observations.
 
         Returns:
             ActionPlan with a different approach.

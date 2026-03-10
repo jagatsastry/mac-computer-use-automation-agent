@@ -92,11 +92,6 @@ Examples:
         "--dry-run", action="store_true", help="Analyze and plan without executing"
     )
     parser.add_argument(
-        "--restaurant-only",
-        action="store_true",
-        help="Run interactive restaurant reservation workflow (OpenTable/Yelp/Google)",
-    )
-    parser.add_argument(
         "--molmo",
         action="store_true",
         help="Use Molmo for vision-based coordinate identification",

@@ -5,6 +5,7 @@ The EventLogger is real (writes to tmp_log_dir).
 """
 
 import base64
+import io
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -372,6 +373,14 @@ class TestFailureHandling:
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
     ):
         """9. Verify fail + on_fail=replan triggers replanning."""
+        mock_skill_registry.match.return_value = {
+            "skill_name": "return-amazon-order",
+            "params": {"item": "Tylenol"},
+            "skill_context": (
+                "## Recovery Heuristics\n"
+                "- If Return is absent, use View item on the same order card first"
+            ),
+        }
         mock_coordinator.verify_condition = AsyncMock(return_value=False)
 
         mock_planner.plan = AsyncMock(
@@ -400,6 +409,8 @@ class TestFailureHandling:
         result = await agent.execute("Click button")
 
         mock_planner.replan.assert_awaited_once()
+        replan_kwargs = mock_planner.replan.call_args.kwargs
+        assert "View item on the same order card first" in replan_kwargs["skill_context"]
         event_types = [e.event_type for e in logger.events]
         assert EventType.STEP_REPLAN in event_types
 
@@ -834,6 +845,70 @@ class TestBugFixes:
         assert retry_step.action == "press_key"
         assert retry_step.params == {"keys": ["return"]}
 
+    async def test_missing_target_retry_uses_suggested_visible_affordance(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """A missing target should retry with the suggested visible control before keyboard fallback."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Return or Replace Items button"},
+            verify="Return options page is visible",
+            on_fail="retry_different",
+            max_retries=3,
+        )
+        prev = StepResult(
+            step=step,
+            success=False,
+            evidence="Action failed: Element not found: Return or Replace Items button. Suggested visible alternative: View item",
+            error="Element not found: Return or Replace Items button",
+            suggested_element="View item",
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "visible_alternative_affordance"
+        assert retry_step.action == "click"
+        assert retry_step.params["element"] == "View item"
+
+    async def test_execute_step_missing_target_captures_visible_alternative(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Missing click targets should attach a suggested visible alternative when available."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        mock_coordinator.capture_screenshot = AsyncMock(return_value="c2NyZWVuc2hvdA==")
+        mock_coordinator.suggest_alternative_affordance = AsyncMock(
+            return_value={
+                "affordance": "View item",
+                "reason": "The same order card shows View item instead of Return or Replace Items.",
+                "safe_to_try": "yes",
+            }
+        )
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Return or Replace Items button"},
+            verify="Return options page is visible",
+            expected_observation="Return options page is visible",
+        )
+        mock_coordinator.find_element = AsyncMock(return_value=None)
+        plan = _make_plan([step], goal="Return the most recent Tylenol order on Amazon")
+
+        result = await agent._execute_step(0, step, [], plan.goal, plan)
+
+        assert result.success is False
+        assert result.error == "Element not found: Return or Replace Items button"
+        assert result.suggested_element == "View item"
+        assert "suggested visible alternative" in result.evidence.lower()
+        mock_coordinator.suggest_alternative_affordance.assert_awaited_once()
+
     async def test_search_click_retry_scrolls_to_top_before_retrying(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
     ):
@@ -878,6 +953,85 @@ class TestBugFixes:
         assert result["success"] is True
         mock_actuator.press_key.assert_called_once_with(["return"])
 
+    async def test_validate_candidate_uses_multiscale_verification(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Pre-click validation should send both detail and context crops."""
+        from PIL import Image
+
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        img = Image.new("RGB", (800, 600), color=(240, 240, 240))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        screenshot_b64 = base64.b64encode(buf.getvalue()).decode()
+        mock_coordinator.verify_multiscale_target = AsyncMock(return_value=True)
+
+        result = await agent._validate_candidate(200, 120, "search box", screenshot_b64=screenshot_b64)
+
+        assert result is True
+        mock_coordinator.verify_multiscale_target.assert_awaited_once()
+        args = mock_coordinator.verify_multiscale_target.await_args.args
+        assert args[0] == "search box"
+        assert args[1] != args[2]
+
+    async def test_execute_step_reflects_on_failed_verification_with_visible_effect(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """When the screen changed but verify failed, reflection metadata is attached."""
+        logger = EventLogger(tmp_log_dir)
+        screenshot_diff = MagicMock()
+        screenshot_diff.capture_before = MagicMock()
+        screenshot_diff.region_changed = MagicMock(return_value=False)
+        screenshot_diff.screen_changed = MagicMock(return_value=True)
+        agent = _make_agent(
+            mock_planner,
+            mock_skill_registry,
+            mock_coordinator,
+            mock_actuator,
+            logger,
+        )
+        agent.screenshot_diff = screenshot_diff
+        agent.verifier.verify = AsyncMock(
+            return_value=StepResult(
+                step=ActionStep(
+                    action="click",
+                    params={"x": 100, "y": 200},
+                    verify="Search box is focused",
+                    expected_observation="The search box is focused and cursor is visible",
+                ),
+                success=False,
+                verification_method="vision",
+                evidence="Vision denies: Search box is focused",
+            )
+        )
+        mock_coordinator.reflect_action_outcome = AsyncMock(
+            return_value={
+                "worked": "no",
+                "observed": "The page is scrolled to the footer.",
+                "hint": "scroll_to_top",
+            }
+        )
+        mock_coordinator.capture_screenshot = AsyncMock(
+            return_value=base64.b64encode(b"fake_screenshot_png_data").decode()
+        )
+
+        step = ActionStep(
+            action="click",
+            params={"x": 100, "y": 200},
+            verify="Search box is focused",
+            expected_observation="The search box is focused and cursor is visible",
+        )
+        plan = _make_plan([step])
+
+        result = await agent._execute_step(0, step, [], "Focus the search box", plan)
+
+        assert result.success is False
+        assert result.reflection_hint == "scroll_to_top"
+        assert "footer" in result.evidence.lower()
+
     def test_compile_conditional_wait_extracts_visibility_condition(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
     ):
@@ -915,6 +1069,7 @@ class TestBugFixes:
         assert len(steps) == 1
         assert steps[0].action == "open_url"
         assert steps[0].params == {"url": "https://www.amazon.com/gp/your-account/order-history"}
+        assert steps[0].expected_observation != ""
 
     async def test_verify_start_and_action_start_events_logged(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir

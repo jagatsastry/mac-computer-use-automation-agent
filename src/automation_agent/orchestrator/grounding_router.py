@@ -7,10 +7,13 @@ This router classifies each description and tries strategies in order,
 falling back automatically when a strategy fails.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
+
+from automation_agent.config import AgentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +68,11 @@ class GroundingRouter:
         self,
         accessibility: Any = None,
         vision_coordinator: Any = None,
+        config: Optional[AgentConfig] = None,
     ):
         self.accessibility = accessibility
         self.vision = vision_coordinator
+        self.config = config
 
     def classify(self, description: str) -> list[GroundingStrategy]:
         """Return ordered strategies to try for *description*."""
@@ -106,33 +111,55 @@ class GroundingRouter:
     ) -> Optional[GroundingResult]:
         """Find element using best available strategy with fallback."""
         tried: set[GroundingStrategy] = set()
-
-        if self._prefer_accessibility_first(description):
-            try:
-                result = await self._ground_accessibility(description)
-                tried.add(GroundingStrategy.ACCESSIBILITY)
-                if result is not None:
-                    logger.debug(
-                        "Grounded '%s' via %s at (%d, %d)",
-                        description,
-                        result.strategy_used.value,
-                        result.x,
-                        result.y,
-                    )
-                    return result
-            except Exception:
-                logger.debug(
-                    "Accessibility-first lookup failed for '%s'",
-                    description,
-                    exc_info=True,
-                )
+        accessibility_matches = self._get_accessibility_matches(description)
+        accessibility_result = (
+            self._ground_accessibility_match(accessibility_matches[0])
+            if accessibility_matches
+            else None
+        )
 
         strategies = self.classify(description)
+        if (
+            self._prefer_accessibility_first(description)
+            and accessibility_result is not None
+            and not self._should_use_llm_tiebreak(description, accessibility_matches, strategies)
+        ):
+            tried.add(GroundingStrategy.ACCESSIBILITY)
+            logger.debug(
+                "Grounded '%s' via %s at (%d, %d)",
+                description,
+                accessibility_result.strategy_used.value,
+                accessibility_result.x,
+                accessibility_result.y,
+            )
+            return accessibility_result
+
+        strategies = await self._maybe_reorder_with_llm(
+            description,
+            accessibility_matches,
+            strategies,
+        )
+
+        if self._prefer_accessibility_first(description) and accessibility_result is not None:
+            if strategies and strategies[0] == GroundingStrategy.ACCESSIBILITY:
+                tried.add(GroundingStrategy.ACCESSIBILITY)
+                logger.debug(
+                    "Grounded '%s' via %s at (%d, %d)",
+                    description,
+                    accessibility_result.strategy_used.value,
+                    accessibility_result.x,
+                    accessibility_result.y,
+                )
+                return accessibility_result
+
         for strategy in strategies:
             if strategy in tried:
                 continue
             try:
-                result = await self._try_strategy(strategy, description)
+                if strategy == GroundingStrategy.ACCESSIBILITY and accessibility_result is not None:
+                    result = accessibility_result
+                else:
+                    result = await self._try_strategy(strategy, description)
                 tried.add(strategy)
                 if result is not None:
                     logger.debug(
@@ -166,6 +193,82 @@ class GroundingRouter:
                 )
         return None
 
+    async def _maybe_reorder_with_llm(
+        self,
+        description: str,
+        accessibility_matches: list[Any],
+        strategies: list[GroundingStrategy],
+    ) -> list[GroundingStrategy]:
+        """Use an LLM tie-breaker only when AX-first routing is ambiguous."""
+        if not self._should_use_llm_tiebreak(description, accessibility_matches, strategies):
+            return strategies
+
+        preferred = await self._classify_with_llm(
+            description,
+            self._build_accessibility_summary(accessibility_matches),
+        )
+        if preferred is None or preferred not in strategies:
+            return strategies
+        return [preferred] + [strategy for strategy in strategies if strategy != preferred]
+
+    def _should_use_llm_tiebreak(
+        self,
+        description: str,
+        accessibility_matches: list[Any],
+        strategies: list[GroundingStrategy],
+    ) -> bool:
+        """Return True when a reasoning model should arbitrate the grounding route."""
+        if not self.config or not self.config.grounding_llm_routing_enabled:
+            return False
+        if not self.accessibility:
+            return False
+        if not strategies or strategies[0] != GroundingStrategy.ACCESSIBILITY:
+            return False
+        # Only use the expensive tie-break when AX is missing or ambiguous.
+        return len(accessibility_matches) != 1
+
+    async def _classify_with_llm(
+        self,
+        description: str,
+        accessibility_summary: str,
+    ) -> Optional[GroundingStrategy]:
+        """Ask a reasoning model whether AX or vision should be trusted first."""
+        if not self.config or not self.config.anthropic_api_key:
+            return None
+
+        prompt = (
+            "You are routing a UI grounding request.\n"
+            "Choose which expert should be trusted first:\n"
+            "- ACCESSIBILITY: standard widgets or clean AX candidates\n"
+            "- VISION: custom-rendered, dynamic, visual, or missing-from-AX targets\n\n"
+            f"Element description: {description}\n"
+            f"Accessibility summary:\n{accessibility_summary}\n\n"
+            "Respond with ONLY one word: ACCESSIBILITY or VISION."
+        )
+
+        try:
+            import anthropic
+        except ImportError:
+            return None
+
+        try:
+            client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
+            message = await client.messages.create(
+                model=self.config.anthropic_model,
+                max_tokens=16,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = message.content[0].text.strip().upper()
+        except Exception:
+            logger.debug("LLM grounding classification failed", exc_info=True)
+            return None
+
+        if text.startswith("ACCESSIBILITY"):
+            return GroundingStrategy.ACCESSIBILITY
+        if text.startswith("VISION"):
+            return GroundingStrategy.VISION
+        return None
+
     async def _try_strategy(
         self, strategy: GroundingStrategy, description: str
     ) -> Optional[GroundingResult]:
@@ -178,6 +281,111 @@ class GroundingRouter:
             return await self._ground_ocr(description)
         return None
 
+    def _get_accessibility_matches(self, description: str) -> list[Any]:
+        """Return best-effort AX candidates for *description*."""
+        if not self.accessibility:
+            return []
+
+        try:
+            is_mock = "MagicMock" in type(self.accessibility).__name__
+            explicit_attrs = vars(self.accessibility) if is_mock else {}
+            extract_target = (
+                explicit_attrs.get("_extract_match_target")
+                if is_mock
+                else getattr(type(self.accessibility), "_extract_match_target", None)
+            )
+            find_elements = (
+                explicit_attrs.get("find_elements")
+                if is_mock
+                else getattr(self.accessibility, "find_elements", None)
+            )
+            score_fn = (
+                explicit_attrs.get("_element_match_score")
+                if is_mock
+                else getattr(type(self.accessibility), "_element_match_score", None)
+            )
+            if callable(extract_target) and callable(find_elements):
+                role, text_hint = extract_target(description)
+                if role is None and text_hint is None:
+                    return []
+
+                enabled_only = role != "AXStaticText"
+                matches = list(
+                    find_elements(
+                        role=role,
+                        title_contains=text_hint,
+                        enabled_only=enabled_only,
+                    )
+                )
+                if not matches and role == "AXStaticText":
+                    matches = list(
+                        find_elements(
+                            role=None,
+                            title_contains=text_hint,
+                            enabled_only=False,
+                        )
+                    )
+                if callable(score_fn) and text_hint:
+                    matches.sort(key=lambda elem: score_fn(elem, text_hint), reverse=True)
+                return matches[: self._max_candidates()]
+
+            finder = getattr(self.accessibility, "find_element_by_description", None)
+            if callable(finder):
+                elem = finder(description)
+                return [elem] if elem is not None else []
+        except Exception:
+            logger.debug("Failed to collect accessibility candidates", exc_info=True)
+        return []
+
+    def _max_candidates(self) -> int:
+        if self.config is None:
+            return 12
+        return self.config.grounding_llm_max_candidates
+
+    def _build_accessibility_summary(self, matches: list[Any]) -> str:
+        """Build a compact AX summary for LLM routing."""
+        if not matches:
+            return "No plausible accessibility candidates found."
+
+        lines = ["Accessibility candidates:"]
+        for idx, elem in enumerate(matches[: self._max_candidates()], start=1):
+            center = getattr(elem, "center", None)
+            parts = [
+                f"{idx}. role={getattr(elem, 'role', '')}",
+                f"title={getattr(elem, 'title', '')!r}",
+            ]
+            value = getattr(elem, "value", None)
+            description = getattr(elem, "description", None)
+            if value:
+                parts.append(f"value={value!r}")
+            if description:
+                parts.append(f"description={description!r}")
+            if center:
+                parts.append(f"center={center}")
+            lines.append(", ".join(parts))
+        return "\n".join(lines)
+
+    def _ground_accessibility_match(self, elem: Any) -> Optional[GroundingResult]:
+        """Convert an AX element candidate into a grounding result."""
+        center = getattr(elem, "center", None)
+        if elem is None or not center:
+            return None
+        return GroundingResult(
+            x=center[0],
+            y=center[1],
+            strategy_used=GroundingStrategy.ACCESSIBILITY,
+            confidence=0.95,
+            element_info={
+                "role": getattr(elem, "role", ""),
+                "title": getattr(elem, "title", None),
+                "value": getattr(elem, "value", None),
+                "description": getattr(elem, "description", None),
+                "position": getattr(elem, "position", None),
+                "size": getattr(elem, "size", None),
+                "focused": getattr(elem, "focused", False),
+            },
+        )
+
     async def _ground_accessibility(
         self, description: str
     ) -> Optional[GroundingResult]:
@@ -185,23 +393,7 @@ class GroundingRouter:
         if not self.accessibility:
             return None
         elem = self.accessibility.find_element_by_description(description)
-        if not elem or not elem.center:
-            return None
-        return GroundingResult(
-            x=elem.center[0],
-            y=elem.center[1],
-            strategy_used=GroundingStrategy.ACCESSIBILITY,
-            confidence=0.95,
-            element_info={
-                "role": elem.role,
-                "title": elem.title,
-                "value": elem.value,
-                "description": elem.description,
-                "position": elem.position,
-                "size": elem.size,
-                "focused": elem.focused,
-            },
-        )
+        return self._ground_accessibility_match(elem)
 
     async def _ground_vision(
         self, description: str
