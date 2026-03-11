@@ -1,9 +1,10 @@
 """Screen coordinator implementation using vision models for element finding and verification."""
 
+import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import structlog
 
@@ -202,17 +203,25 @@ class ScreenCoordinatorImpl:
         Returns:
             The model's text response.
         """
-        if self.config.model_provider.value == "anthropic":
-            return await self._call_anthropic_vision(prompt, screenshot_b64)
-        else:
-            return await self._call_local_vision(prompt, screenshot_b64)
+        return await self._call_vision_model_with_images(prompt, [screenshot_b64])
 
-    async def _call_local_vision(self, prompt: str, screenshot_b64: str) -> str:
+    async def _call_vision_model_with_images(
+        self,
+        prompt: str,
+        screenshots_b64: Sequence[str],
+    ) -> str:
+        """Call the configured vision model with one or more screenshots."""
+        if self.config.model_provider.value == "anthropic":
+            return await self._call_anthropic_vision(prompt, screenshots_b64)
+        else:
+            return await self._call_local_vision(prompt, screenshots_b64)
+
+    async def _call_local_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
         """Call local vision model via OpenAI-compatible API (e.g. llama.cpp server).
 
         Args:
             prompt: The text prompt.
-            screenshot_b64: Base64-encoded screenshot.
+            screenshots_b64: Base64-encoded screenshots.
 
         Returns:
             The model's text response.
@@ -220,23 +229,27 @@ class ScreenCoordinatorImpl:
         import httpx
 
         url = f"{self.config.vision_server_url}/v1/chat/completions"
+        content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{screenshot_b64}",
+                },
+            }
+            for screenshot_b64 in screenshots_b64
+        ]
+        content.append(
+            {
+                "type": "text",
+                "text": prompt,
+            }
+        )
         payload = {
             "model": self.config.vision_model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{screenshot_b64}",
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                    ],
+                    "content": content,
                 }
             ],
             "max_tokens": 1024,
@@ -248,14 +261,14 @@ class ScreenCoordinatorImpl:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
-    async def _call_anthropic_vision(self, prompt: str, screenshot_b64: str) -> str:
+    async def _call_anthropic_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
         """Call Anthropic vision model with retry on overloaded/rate-limit errors.
 
         Retries on 429/529 errors up to 4 times with exponential backoff.
 
         Args:
             prompt: The text prompt.
-            screenshot_b64: Base64-encoded screenshot.
+            screenshots_b64: Base64-encoded screenshots.
 
         Returns:
             The model's text response.
@@ -269,6 +282,23 @@ class ScreenCoordinatorImpl:
         max_retries = 4
         base_delay = 1.0
 
+        content = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": screenshot_b64,
+                },
+            }
+            for screenshot_b64 in screenshots_b64
+        ]
+        content.append(
+            {
+                "type": "text",
+                "text": prompt,
+            }
+        )
         for attempt in range(max_retries + 1):
             try:
                 message = await client.messages.create(
@@ -277,20 +307,7 @@ class ScreenCoordinatorImpl:
                     messages=[
                         {
                             "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "image/jpeg",
-                                        "data": screenshot_b64,
-                                    },
-                                },
-                                {
-                                    "type": "text",
-                                    "text": prompt,
-                                },
-                            ],
+                            "content": content,
                         }
                     ],
                 )
@@ -378,17 +395,55 @@ class ScreenCoordinatorImpl:
             return None
 
         # Match "FOUND: x=<number>, y=<number>" with optional confidence
-        match = re.search(
-            r"FOUND:\s*x\s*=\s*([0-9]*\.?[0-9]+)\s*,\s*y\s*=\s*([0-9]*\.?[0-9]+)"
-            r"(?:\s*,?\s*confidence\s*=\s*([0-9]*\.?[0-9]+))?",
+        patterns = [
+            r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s*,\s*y\s*=\s*"?([0-9]*\.?[0-9]+)"?'
+            r'(?:\s*,?\s*confidence\s*=\s*"?([0-9]*\.?[0-9]+)"?)?',
+            r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s+"?([0-9]*\.?[0-9]+)"?'
+            r'(?:\s*,?\s*confidence\s*=\s*"?([0-9]*\.?[0-9]+)"?)?',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                x = float(match.group(1))
+                y = float(match.group(2))
+                conf = float(match.group(3)) if match.lastindex and match.group(3) else 0.0
+                return x, y, conf
+
+        point_match = re.search(
+            r'<point\b[^>]*\bx="([0-9]*\.?[0-9]+)"[^>]*\by="([0-9]*\.?[0-9]+)"[^>]*'
+            r'(?:\bconfidence="([0-9]*\.?[0-9]+)")?[^>]*/?>',
             response,
             re.IGNORECASE,
         )
-        if match:
-            x = float(match.group(1))
-            y = float(match.group(2))
-            conf = float(match.group(3)) if match.group(3) else 0.0
-            return x, y, conf
+        if point_match:
+            conf = float(point_match.group(3)) if point_match.group(3) else 0.0
+            return float(point_match.group(1)), float(point_match.group(2)), conf
+
+        points_match = re.search(
+            r'<points\b[^>]*\bcoords="([^"]+)"[^>]*/?>',
+            response,
+            re.IGNORECASE,
+        )
+        if points_match:
+            coords_str = points_match.group(1)
+            triplet = re.search(r'([0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)', coords_str)
+            if triplet:
+                return float(triplet.group(2)), float(triplet.group(3)), 0.0
+
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            try:
+                payload = json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict):
+                point = payload.get("point") or payload.get("target") or payload
+                if isinstance(point, dict) and "x" in point and "y" in point:
+                    return (
+                        float(point["x"]),
+                        float(point["y"]),
+                        float(point.get("confidence", 0.0) or 0.0),
+                    )
 
         return None
 
@@ -579,6 +634,111 @@ class ScreenCoordinatorImpl:
         emoji = "✅" if result else "❌"
         logger.info(f"{emoji} Vision verify", condition=condition, result=result)
         return result
+
+    async def verify_multiscale_target(
+        self,
+        target_description: str,
+        detail_b64: str,
+        context_b64: str,
+    ) -> bool:
+        """Verify a target using both a tight crop and a wider context crop."""
+        prompt = (
+            "You are validating a UI grounding target using two images of the same point.\n"
+            "Image 1 is a tight detail crop centered on the proposed target.\n"
+            "Image 2 is a wider context crop centered on the same point.\n\n"
+            f"Target description: {target_description}\n\n"
+            "Respond with ONLY YES if both images support that the centered target matches.\n"
+            "Respond with ONLY NO otherwise."
+        )
+        response = await self._call_vision_model_with_images(prompt, [detail_b64, context_b64])
+        return response.strip().lower().startswith("yes")
+
+    async def reflect_action_outcome(
+        self,
+        action: str,
+        params: Dict[str, Any],
+        expected_observation: str,
+        screenshot_b64: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Ask the vision model what actually happened after a failed action."""
+        if screenshot_b64 is None:
+            screenshot_b64 = self.capture.capture_b64()
+
+        prompt = (
+            "A desktop automation agent attempted an action and the explicit verification failed.\n"
+            f"Action: {action}\n"
+            f"Params: {params}\n"
+            f"Expected observation: {expected_observation}\n\n"
+            "Look at the screenshot and respond with STRICT JSON in this schema:\n"
+            '{"worked":"yes|no","observed":"short summary","hint":"none|scroll_to_top|refine_target|dismiss_modal|refocus_text_field|keyboard_submit"}'
+        )
+        response = await self._call_vision_model(prompt, screenshot_b64)
+        try:
+            payload = json.loads(response.strip())
+        except json.JSONDecodeError:
+            payload = {}
+
+        worked = str(payload.get("worked", "no")).strip().lower()
+        hint = str(payload.get("hint", "none")).strip().lower()
+        observed = str(payload.get("observed", response.strip())).strip()
+        if hint not in {
+            "none",
+            "scroll_to_top",
+            "refine_target",
+            "dismiss_modal",
+            "refocus_text_field",
+            "keyboard_submit",
+        }:
+            hint = "none"
+        return {
+            "worked": "yes" if worked.startswith("y") else "no",
+            "observed": observed,
+            "hint": hint,
+            "raw_response": response.strip(),
+        }
+
+    async def suggest_alternative_affordance(
+        self,
+        missing_target: str,
+        task_goal: str,
+        expected_observation: str,
+        screenshot_b64: Optional[str] = None,
+    ) -> Optional[Dict[str, str]]:
+        """Suggest a visible fallback control when the requested target is absent."""
+        if screenshot_b64 is None:
+            screenshot_b64 = self.capture.capture_b64()
+
+        prompt = (
+            "A desktop automation agent could not find the requested UI control.\n"
+            f"Missing target: {missing_target}\n"
+            f"Task goal: {task_goal}\n"
+            f"Expected observation after the intended action: {expected_observation}\n\n"
+            "Inspect the screenshot and decide whether there is a DIFFERENT, clearly visible control "
+            "on the same relevant card/section that best advances toward the same goal.\n"
+            "Examples: View item, Order details, See return options.\n"
+            "Do NOT suggest a control unless it is visibly present.\n"
+            "Do NOT suggest generic keyboard actions.\n"
+            "If no good visible control exists, say so.\n\n"
+            "Respond with STRICT JSON in this schema:\n"
+            '{"affordance":"visible label or empty","reason":"short summary","safe_to_try":"yes|no"}'
+        )
+        response = await self._call_vision_model(prompt, screenshot_b64)
+        try:
+            payload = json.loads(response.strip())
+        except json.JSONDecodeError:
+            return None
+
+        affordance = str(payload.get("affordance", "")).strip()
+        reason = str(payload.get("reason", "")).strip()
+        safe_to_try = str(payload.get("safe_to_try", "no")).strip().lower()
+        if not affordance or safe_to_try not in {"yes", "y", "true"}:
+            return None
+        return {
+            "affordance": affordance,
+            "reason": reason,
+            "safe_to_try": "yes",
+            "raw_response": response.strip(),
+        }
 
     async def capture_screenshot(self) -> str:
         """Capture and return base64 screenshot.

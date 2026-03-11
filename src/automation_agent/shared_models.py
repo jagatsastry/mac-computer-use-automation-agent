@@ -65,6 +65,7 @@ class ActionStep:
     action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "observe", "wait_for_user", "done"
     params: Dict[str, Any] = field(default_factory=dict)
     verify: str = ""  # MANDATORY — what must be true after this step
+    expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
     on_fail: str = "retry_different"  # "retry_different" | "replan" | "abort" | "wait_for_user"
     max_retries: int = 3
 
@@ -103,6 +104,7 @@ class ActionStep:
             action=action,
             params=data.get("params", {}),
             verify=data.get("verify", ""),
+            expected_observation=data.get("expected_observation", ""),
             on_fail=data.get("on_fail", "retry_different"),
             max_retries=data.get("max_retries", 3),
         )
@@ -146,6 +148,9 @@ class StepResult:
     screenshot_path: Optional[str] = None
     retry_count: int = 0
     retry_strategies_used: List[str] = field(default_factory=list)
+    reflection_hint: str = ""
+    reflection_observed: str = ""
+    suggested_element: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:

@@ -172,6 +172,7 @@ class TestTier2Verification:
             action="click",
             params={"x": 100, "y": 200},
             verify="Submit button visible",
+            expected_observation="The submit button appears pressed",
         )
         # No actuator -- goes straight to tier 2
         verifier = StepVerifier(coordinator=mock_coord, logger=logger)
@@ -182,9 +183,28 @@ class TestTier2Verification:
         assert result.verification_method == "vision"
         assert "Vision confirms" in result.evidence
         mock_coord.verify_condition.assert_awaited_once_with(
-            "Submit button visible",
+            "The submit button appears pressed",
             screenshot_b64=ANY,
         )
+
+    async def test_tier2_falls_back_from_expected_observation_to_verify(self, mock_coord, logger):
+        """Tier 2 should try expected_observation before the generic verify text."""
+        mock_coord.verify_condition = AsyncMock(side_effect=[False, True])
+        mock_coord.capture_screenshot = AsyncMock(return_value=_make_jpeg_b64())
+
+        step = ActionStep(
+            action="click",
+            params={"x": 100, "y": 200},
+            verify="Submit button visible",
+            expected_observation="The submit button appears pressed",
+        )
+        verifier = StepVerifier(coordinator=mock_coord, logger=logger)
+
+        result = await verifier.verify(step, {"success": True, "output": ""})
+
+        assert result.success is True
+        assert mock_coord.verify_condition.call_args_list[0].args[0] == "The submit button appears pressed"
+        assert mock_coord.verify_condition.call_args_list[1].args[0] == "Submit button visible"
 
     async def test_tier2_denies(self, mock_coord, logger):
         """5. Tier 2 denies condition with evidence."""

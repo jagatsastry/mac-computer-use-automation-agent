@@ -7,6 +7,7 @@ prompts to skills by keyword, and expands templates with parameters.
 from automation_agent.skills.models import (
     ExpandedSkill,
     Skill,
+    SkillObservation,
     SkillParam,
     SkillRequirements,
 )
@@ -15,6 +16,7 @@ from automation_agent.skills.registry import SkillRegistryImpl
 __all__ = [
     "ExpandedSkill",
     "Skill",
+    "SkillObservation",
     "SkillParam",
     "SkillRegistryImpl",
     "SkillRequirements",

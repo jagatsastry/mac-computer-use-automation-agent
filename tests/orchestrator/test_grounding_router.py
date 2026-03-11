@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from automation_agent.config import AgentConfig
 from automation_agent.orchestrator.grounding_router import (
     GroundingResult,
     GroundingRouter,
@@ -266,6 +267,58 @@ class TestFindElement:
         assert result is not None
         assert result.strategy_used == GroundingStrategy.ACCESSIBILITY
         mock_vision.find_element.assert_not_called()
+
+    @pytest.mark.unit
+    async def test_llm_tiebreak_prefers_vision_when_ax_is_ambiguous(self):
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key",
+            grounding_llm_routing_enabled=True,
+        )
+        ax = MagicMock()
+        ax._extract_match_target = MagicMock(return_value=("AXButton", "submit"))
+        ax.find_elements = MagicMock(
+            side_effect=[
+                [
+                    AXElement(role="AXButton", title="Submit", position=(10, 10), size=(20, 20)),
+                    AXElement(role="AXButton", title="Submit now", position=(40, 40), size=(20, 20)),
+                ]
+            ]
+        )
+        vis = AsyncMock()
+        vis.find_element = AsyncMock(return_value={"x": 500, "y": 400, "confidence": 0.9})
+        router = GroundingRouter(accessibility=ax, vision_coordinator=vis, config=config)
+        router._classify_with_llm = AsyncMock(return_value=GroundingStrategy.VISION)
+
+        result = await router.find_element("Submit button")
+
+        assert result is not None
+        assert result.strategy_used == GroundingStrategy.VISION
+        router._classify_with_llm.assert_awaited_once()
+
+    @pytest.mark.unit
+    async def test_llm_tiebreak_is_skipped_for_clean_single_ax_match(self):
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key",
+            grounding_llm_routing_enabled=True,
+        )
+        ax = MagicMock()
+        ax._extract_match_target = MagicMock(return_value=("AXButton", "submit"))
+        ax.find_elements = MagicMock(
+            return_value=[
+                AXElement(role="AXButton", title="Submit", position=(10, 10), size=(20, 20))
+            ]
+        )
+        vis = AsyncMock()
+        router = GroundingRouter(accessibility=ax, vision_coordinator=vis, config=config)
+        router._classify_with_llm = AsyncMock(return_value=GroundingStrategy.VISION)
+
+        result = await router.find_element("Submit button")
+
+        assert result is not None
+        assert result.strategy_used == GroundingStrategy.ACCESSIBILITY
+        router._classify_with_llm.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -75,6 +75,7 @@ class ActionPlannerImpl:
         history: List[StepResult],
         retry_strategies_used: List[str],
         desktop_context: str = "",
+        skill_context: Optional[str] = None,
     ) -> ActionPlan:
         """Replan with history. Must produce DIFFERENT approach than what was tried.
 
@@ -84,6 +85,7 @@ class ActionPlannerImpl:
             history: Results of previously executed steps.
             retry_strategies_used: Strategies already attempted.
             desktop_context: Structured desktop state from ContextMonitor.
+            skill_context: Optional expanded skill template for context.
 
         Returns:
             ActionPlan with a different approach.
@@ -93,7 +95,7 @@ class ActionPlannerImpl:
         """
         prompt = self._build_replan_prompt(
             goal, screen_description, history, retry_strategies_used,
-            desktop_context,
+            desktop_context, skill_context,
         )
         logger.info("🔄 Replanning started", goal=goal)
         start = time.monotonic()
@@ -194,6 +196,7 @@ class ActionPlannerImpl:
         history: List[StepResult],
         retry_strategies: List[str],
         desktop_context: str = "",
+        skill_context: Optional[str] = None,
     ) -> str:
         """Build the replanning prompt from the template.
 
@@ -203,6 +206,7 @@ class ActionPlannerImpl:
             history: Execution history of previous steps.
             retry_strategies: List of strategies already tried.
             desktop_context: Structured desktop state from ContextMonitor.
+            skill_context: Optional expanded skill template for context.
 
         Returns:
             Formatted prompt string.
@@ -221,6 +225,9 @@ class ActionPlannerImpl:
 
         prompt = template.replace("{{goal}}", goal)
         prompt = prompt.replace("{{desktop_context}}", desktop_context or "")
+        prompt = prompt.replace(
+            "{{skill_context}}", skill_context or "No skill context available"
+        )
         prompt = prompt.replace("{{screen_description}}", screen_description)
         prompt = prompt.replace("{{history}}", history_text)
         prompt = prompt.replace("{{retry_strategies}}", strategies_text)

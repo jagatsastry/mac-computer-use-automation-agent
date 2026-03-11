@@ -1,3 +1,6 @@
+> Historical running notes file.
+> It contains useful context, but it is not the current source of truth for runtime behavior. Use `README.md`, `docs/QUICKSTART.md`, and `IMPLEMENTATION_STATUS.md` for that.
+
 # macOS Automation Agent - Session Summary
 
 **Date:** 2026-02-02
@@ -305,3 +308,50 @@ When resuming:
 **Author:** Jagat Pudipeddi
 **Built with:** Claude Code (Sonnet 4.5)
 **Last Updated:** 2026-02-02
+
+---
+
+## Session Update - 2026-03-10
+
+### Summary
+- Added [CHANGELOG.md](CHANGELOG.md) as the running history for recent work.
+- Improved agent accuracy in the orchestrator, grounding, verification, and coordinate mapping paths.
+- Added a persistent macOS status overlay and menu bar item so the agent remains observable during live browser flows.
+- Expanded automated coverage and restored full suite stability.
+
+### Changes Made
+- Fixed screenshot-space to screen-space coordinate mapping so clicks land correctly on scaled macOS displays.
+- Reworked retry handling so failed steps execute genuinely different strategies instead of replaying ineffective metadata.
+- Strengthened accessibility-first grounding while keeping screenshot OCR disabled.
+- Improved verification with accessibility checks, browser URL/title checks, and local click-region verification.
+- Preserved grounding confidence and desktop context through router and replan paths.
+- Updated the Amazon return skill to:
+  - use browser-agnostic `open_url`
+  - wait for login only when login is actually visible
+  - recover to the top of the orders page before searching
+  - target the orders search field more explicitly
+- Added `press_key` compatibility for both `keys=[...]` and legacy `key="..."` planner output.
+- Added persistent floating status UI support in `status.py` and `status_overlay.py`.
+- Extended overlay linger so the last visible state remains on screen after the agent exits.
+- Fixed accessibility test bootstrap assumptions so the full suite passes regardless of `AppKit` import order.
+
+### Validation
+- `pytest -q tests/unit/test_orchestrator_new.py tests/integration/test_status_and_skill_fallback_integration.py tests/test_status_overlay.py`
+  - `37 passed`
+- `pytest -q -m 'not e2e'`
+  - `1152 passed, 4 skipped, 5 deselected`
+- `pytest -q -m e2e`
+  - `5 passed, 3 skipped, 1153 deselected`
+- Manual live validation covered screenshot+model smoke tests, orchestrator smoke tests, overlay persistence, and Amazon order-search behavior.
+
+### Primary Files Touched
+- `src/automation_agent/orchestrator/agent.py`
+- `src/automation_agent/orchestrator/grounding_router.py`
+- `src/automation_agent/orchestrator/verifier.py`
+- `src/automation_agent/perception/accessibility.py`
+- `src/automation_agent/vision/capture.py`
+- `src/automation_agent/skills/library/return_amazon_order.md`
+- `src/automation_agent/status.py`
+- `src/automation_agent/status_overlay.py`
+- `src/automation_agent/config.py`
+- `CHANGELOG.md`

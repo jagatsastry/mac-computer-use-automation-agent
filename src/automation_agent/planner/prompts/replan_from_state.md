@@ -5,6 +5,9 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 
 {{desktop_context}}
 
+## Skill Context (if available)
+{{skill_context}}
+
 ## Current Screen State
 {{screen_description}}
 
@@ -26,6 +29,7 @@ Do NOT repeat the same actions that failed. Consider:
 
 ## Response Format
 Same JSON format as before. Every step MUST have a non-empty "verify" field.
+For visual or UI-changing actions, include `expected_observation` with the expected immediate visible result.
 Respond with ONLY valid JSON (no markdown, no explanation):
 ```json
 {
@@ -34,6 +38,7 @@ Respond with ONLY valid JSON (no markdown, no explanation):
       "action": "...",
       "params": {},
       "verify": "expected state after this step",
+      "expected_observation": "expected immediate visible result",
       "on_fail": "retry_different",
       "max_retries": 3
     }

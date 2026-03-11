@@ -81,6 +81,15 @@ class AgentConfig(BaseSettings):
         default="",
         description="Server URL for grounding model (if different from vision server)",
     )
+    grounding_llm_routing_enabled: bool = Field(
+        default=True,
+        description="Use an LLM tie-breaker for ambiguous grounding decisions",
+    )
+    grounding_llm_max_candidates: int = Field(
+        default=12,
+        description="Maximum number of accessibility candidates included in LLM routing context",
+        gt=0,
+    )
 
     # Anthropic (Claude) Configuration
     anthropic_api_key: Optional[str] = Field(
@@ -137,6 +146,19 @@ class AgentConfig(BaseSettings):
     skill_library_path: Optional[Path] = Field(
         default=None,
         description="Path to skill library directory. Defaults to bundled skills.",
+    )
+    skill_learning_enabled: bool = Field(
+        default=True,
+        description="Learn generalized skill observations from prior runs",
+    )
+    skill_learning_dir: Path = Field(
+        default=Path("logs/skill_learning"),
+        description="Directory for generalized skill observations learned from prior runs",
+    )
+    skill_learning_max_observations: int = Field(
+        default=5,
+        description="Maximum learned observations injected into skill context",
+        gt=0,
     )
 
     # Event Logger Configuration

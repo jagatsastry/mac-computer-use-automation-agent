@@ -1,3 +1,7 @@
+> Historical test-suite snapshot from the initial 2026-02-02 phase.
+> Current validated baseline on March 10, 2026: `pytest -q -m 'not e2e'` -> `1198 passed, 3 skipped, 5 deselected`.
+> Use `IMPLEMENTATION_STATUS.md` for the current state.
+
 # Automated Test Suite
 
 **Status:** ✅ 54/54 tests passing (100%)

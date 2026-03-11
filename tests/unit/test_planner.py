@@ -51,6 +51,7 @@ VALID_STEPS = [
         "action": "activate_app",
         "params": {"app_name": "Calculator"},
         "verify": "Calculator is the frontmost application",
+        "expected_observation": "Calculator becomes the frontmost window",
         "on_fail": "retry_different",
         "max_retries": 3,
     },
@@ -80,6 +81,7 @@ class TestPlanBasic:
         assert isinstance(plan, ActionPlan)
         assert len(plan.steps) == 2
         assert plan.steps[0].verify == "Calculator is the frontmost application"
+        assert plan.steps[0].expected_observation == "Calculator becomes the frontmost window"
         assert plan.goal == "Open Calculator"
         # done step is allowed to have empty verify
         assert plan.steps[1].action == "done"
@@ -152,6 +154,15 @@ class TestPlanBasic:
         # Ensure the default fallback is NOT present
         assert "Not available" not in prompt
 
+    async def test_plan_prompt_mentions_expected_observation(self, planner):
+        """Planner prompt should instruct the model to emit expected_observation."""
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(VALID_STEPS))
+
+        await planner.plan("Open Calculator")
+
+        prompt = planner._call_llm.call_args[0][0]
+        assert "expected_observation" in prompt
+
 
 class TestReplan:
     """Tests for the replan() method."""
@@ -215,6 +226,37 @@ class TestReplan:
         prompt = call_args[0][0]
         assert "click_center" in prompt
         assert "keyboard_shortcut" in prompt
+
+    async def test_replan_with_skill_context(self, planner):
+        """replan() keeps skill context in the prompt instead of dropping it."""
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(VALID_STEPS))
+
+        history = [
+            StepResult(
+                step=ActionStep(
+                    action="click",
+                    params={"element": "Return or Replace Items"},
+                    verify="Return flow is visible",
+                ),
+                success=False,
+                evidence="Return control not found on the order card",
+                verification_method="vision",
+            ),
+        ]
+
+        await planner.replan(
+            "Return the most recent Tylenol order on Amazon",
+            "Amazon order history page with a View item button",
+            history,
+            ["replan_missing_target"],
+            skill_context=(
+                "## Recovery Heuristics\n"
+                "- If Return is absent, look for View item or Order details on the same card"
+            ),
+        )
+
+        prompt = planner._call_llm.call_args[0][0]
+        assert "If Return is absent" in prompt
 
     async def test_replan_measures_planning_duration(self, planner):
         """replan() sets planning_duration_ms on the returned plan."""

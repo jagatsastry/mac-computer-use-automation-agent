@@ -94,6 +94,34 @@ async def test_find_element_qwen_normalized(mock_capture):
     assert result.y == 192
 
 
+@pytest.mark.asyncio
+async def test_find_element_parses_native_point_tag(mock_capture):
+    """Native <point> output is accepted in production parsing."""
+    config = _make_config(vision_model="qwen3-vl")
+    coord = _make_coordinator(config, mock_capture)
+    coord._call_vision_model.return_value = '<point x="500" y="250" />'
+
+    result = await coord.find_element("the search bar", screenshot_b64="fakedata")
+
+    assert result is not None
+    assert result.x == 512
+    assert result.y == 192
+
+
+@pytest.mark.asyncio
+async def test_find_element_parses_native_points_coords(mock_capture):
+    """Native <points coords=\"ID X Y\"> output is accepted in production parsing."""
+    config = _make_config(vision_model="molmo2")
+    coord = _make_coordinator(config, mock_capture)
+    coord._call_vision_model.return_value = '<points coords="0 500 250" />'
+
+    result = await coord.find_element("the search bar", screenshot_b64="fakedata")
+
+    assert result is not None
+    assert result.x == 512
+    assert result.y == 192
+
+
 # ---------------------------------------------------------------------------
 # Test 3: find_element NOT_FOUND response -> returns None
 # ---------------------------------------------------------------------------
@@ -175,6 +203,81 @@ async def test_verify_condition_no(mock_capture):
     result = await coord.verify_condition("Safari is open", screenshot_b64="fakedata")
 
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_multiscale_target_uses_two_images(mock_capture):
+    """Multi-scale verification submits both detail and context crops."""
+    config = _make_config(vision_model="qwen3-vl")
+    coord = ScreenCoordinatorImpl(config, capture=mock_capture)
+    coord._call_vision_model_with_images = AsyncMock(return_value="YES")
+
+    result = await coord.verify_multiscale_target("Search field", "detail", "context")
+
+    assert result is True
+    call = coord._call_vision_model_with_images.call_args
+    assert call.args[1] == ["detail", "context"]
+
+
+@pytest.mark.asyncio
+async def test_reflect_action_outcome_parses_structured_json(mock_capture):
+    """Reflection responses are parsed into a stable dict."""
+    config = _make_config(vision_model="qwen3-vl")
+    coord = ScreenCoordinatorImpl(config, capture=mock_capture)
+    coord._call_vision_model = AsyncMock(
+        return_value='{"worked":"no","observed":"The page is scrolled to the footer","hint":"scroll_to_top"}'
+    )
+
+    result = await coord.reflect_action_outcome(
+        action="click",
+        params={"element": "search orders text field"},
+        expected_observation="The search field is focused",
+        screenshot_b64="fakedata",
+    )
+
+    assert result["worked"] == "no"
+    assert result["hint"] == "scroll_to_top"
+    assert "footer" in result["observed"].lower()
+
+
+@pytest.mark.asyncio
+async def test_suggest_alternative_affordance_returns_visible_control(mock_capture):
+    """Missing-target recovery should return a visible fallback control when safe."""
+    config = _make_config(vision_model="qwen3-vl")
+    coord = ScreenCoordinatorImpl(config, capture=mock_capture)
+    coord._call_vision_model = AsyncMock(
+        return_value='{"affordance":"View item","reason":"The order card shows View item but not Return or Replace Items","safe_to_try":"yes"}'
+    )
+
+    result = await coord.suggest_alternative_affordance(
+        missing_target="Return or Replace Items",
+        task_goal="Return the most recent Tylenol order on Amazon",
+        expected_observation="Return options page is visible",
+        screenshot_b64="fakedata",
+    )
+
+    assert result is not None
+    assert result["affordance"] == "View item"
+    assert "order card" in result["reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_suggest_alternative_affordance_rejects_unsafe_response(mock_capture):
+    """Unsafe or empty suggestions should be ignored."""
+    config = _make_config(vision_model="qwen3-vl")
+    coord = ScreenCoordinatorImpl(config, capture=mock_capture)
+    coord._call_vision_model = AsyncMock(
+        return_value='{"affordance":"","reason":"No relevant visible control","safe_to_try":"no"}'
+    )
+
+    result = await coord.suggest_alternative_affordance(
+        missing_target="Return or Replace Items",
+        task_goal="Return the most recent Tylenol order on Amazon",
+        expected_observation="Return options page is visible",
+        screenshot_b64="fakedata",
+    )
+
+    assert result is None
 
 
 # ---------------------------------------------------------------------------

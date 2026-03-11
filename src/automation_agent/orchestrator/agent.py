@@ -77,15 +77,16 @@ class AutomationAgent:
 
         step_results: list[StepResult] = []
         iterations = 0
+        skill_name: Optional[str] = None
+        skill_context: Optional[str] = None
 
         try:
             # 1. Check for matching skill
-            skill_context = None
             skill_match = await self.skill_registry.match(goal)
             if skill_match:
                 skill_name = skill_match["skill_name"]
                 params = skill_match.get("params", {})
-                skill_context = skill_match.get("expanded_steps")
+                skill_context = skill_match.get("skill_context") or skill_match.get("expanded_steps")
                 if skill_context is None:
                     skill_context = self.skill_registry.expand(skill_name, params)
                 slog.info("🤔 Skill matched", skill_name=skill_name, params=params)
@@ -208,7 +209,12 @@ class AutomationAgent:
                     if recovery_result is None:
                         # None means replan was requested
                         replan_result = await self._replan_and_continue(
-                            goal, step_results, iterations, start
+                            goal,
+                            step_results,
+                            iterations,
+                            start,
+                            skill_name=skill_name,
+                            skill_context=skill_context,
                         )
                         return replan_result
                     else:
@@ -237,6 +243,13 @@ class AutomationAgent:
                 "🏁 Task completed",
                 duration_s=round(duration / 1000, 1),
                 iterations=iterations,
+            )
+            await self._maybe_learn_skill_run(
+                goal=goal,
+                skill_name=skill_name,
+                skill_context=skill_context or "",
+                step_results=step_results,
+                had_replan=False,
             )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
@@ -302,44 +315,67 @@ class AutomationAgent:
                 evidence=f"Screen: {desc}",
             )
 
-        # Capture screenshot before click actions for fast diff-based verification
-        if self.screenshot_diff and step.action == "click":
+        # Capture screenshot before visually meaningful actions for diff-based verification.
+        if self.screenshot_diff and step.action in ("click", "open_url"):
             self.screenshot_diff.capture_before()
 
         # For element-based actions (click with element description), find the element first
         actuator_result = await self._dispatch_action(step)
+        visible_effect = None
 
         # After click, quick diff check: if no visible effect, mark as failed for retry
         if (
             self.screenshot_diff
-            and step.action == "click"
+            and step.action in ("click", "open_url")
             and actuator_result.get("success", False)
         ):
             await asyncio.sleep(0.3)  # Brief wait for UI update
-            click_x = actuator_result.get("image_x", actuator_result.get("x", step.params.get("x", 0)))
-            click_y = actuator_result.get("image_y", actuator_result.get("y", step.params.get("y", 0)))
-            if not self.screenshot_diff.region_changed(click_x, click_y):
+            if step.action == "click":
+                click_x = actuator_result.get("image_x", actuator_result.get("x", step.params.get("x", 0)))
+                click_y = actuator_result.get("image_y", actuator_result.get("y", step.params.get("y", 0)))
+                visible_effect = (
+                    self.screenshot_diff.region_changed(click_x, click_y)
+                    or self.screenshot_diff.screen_changed()
+                )
+            else:
+                visible_effect = self.screenshot_diff.screen_changed()
+
+            if not visible_effect:
                 actuator_result["success"] = False
                 actuator_result["error"] = (
-                    "Click had no visible effect (screenshot unchanged)"
+                    f"{step.action} had no visible effect (screenshot unchanged)"
                 )
 
         # BUG 1 FIX: If the actuator action failed (e.g. element not found), skip
         # verification and return failure immediately. Vision verification must not
         # override a real action failure.
         if not actuator_result.get("success", False):
-            self.logger.log_event(
-                EventType.STEP_COMPLETE,
-                f"Step {index}: FAIL -- actuator failed: {actuator_result.get('error', 'unknown')}",
-                step_index=index,
-                data={"success": False, "method": "actuator"},
-            )
-            return StepResult(
+            error_text = actuator_result.get("error", "unknown error")
+            result = StepResult(
                 step=step,
                 success=False,
                 verification_method="",
-                evidence=f"Action failed: {actuator_result.get('error', 'unknown error')}",
+                evidence=f"Action failed: {error_text}",
+                error=error_text,
             )
+            if (
+                step.action == "click"
+                and "element" in step.params
+                and isinstance(error_text, str)
+                and error_text.startswith("Element not found:")
+            ):
+                result = await self._suggest_alternative_for_missing_target(
+                    step,
+                    goal,
+                    result,
+                )
+            self.logger.log_event(
+                EventType.STEP_COMPLETE,
+                f"Step {index}: FAIL -- actuator failed: {error_text}",
+                step_index=index,
+                data={"success": False, "method": "actuator"},
+            )
+            return result
 
         # Brief delay after actions that need time to take effect (app launch, URL open)
         if step.action in ("activate_app", "open_url", "quit_app"):
@@ -350,6 +386,12 @@ class AutomationAgent:
             EventType.VERIFY_START, f"Verifying: {step.verify}", step_index=index
         )
         verification = await self.verifier.verify(step, actuator_result)
+        if (
+            not verification.success
+            and visible_effect
+            and self._has_explicit_method(self.coordinator, "reflect_action_outcome")
+        ):
+            verification = await self._reflect_failed_action(step, actuator_result, verification)
 
         self.logger.log_event(
             EventType.STEP_COMPLETE,
@@ -486,6 +528,7 @@ class AutomationAgent:
                         action="open_url",
                         params={"url": destination},
                         verify=verify or f"The browser shows {destination}",
+                        expected_observation=verify or f"The destination page for {destination} becomes visible",
                         on_fail="retry_different",
                         max_retries=self.config.max_retries,
                     )
@@ -501,6 +544,7 @@ class AutomationAgent:
                     action="wait_for_user",
                     params=wait_params,
                     verify="",
+                    expected_observation="",
                     on_fail="abort",
                 )
             ]
@@ -514,6 +558,7 @@ class AutomationAgent:
                     action="wait_for_user",
                     params=wait_params,
                     verify="",
+                    expected_observation="",
                     on_fail="abort",
                 )
             ]
@@ -531,6 +576,7 @@ class AutomationAgent:
                     action="activate_app",
                     params={"app_name": app_name},
                     verify=f"{app_name} is the frontmost application",
+                    expected_observation=f"{app_name} becomes the frontmost application",
                     on_fail="retry_different",
                     max_retries=self.config.max_retries,
                 )
@@ -541,12 +587,14 @@ class AutomationAgent:
                         action="open_url",
                         params={"url": url},
                         verify=verify or f"The browser shows {url}",
+                        expected_observation=verify or f"The destination page for {url} becomes visible",
                         on_fail="retry_different",
                         max_retries=self.config.max_retries,
                     )
                 )
             elif verify:
                 steps[0].verify = verify
+                steps[0].expected_observation = verify
             return steps
 
         url_match = re.match(
@@ -560,6 +608,7 @@ class AutomationAgent:
                     action="open_url",
                     params={"url": url_match.group(1)},
                     verify=verify or f"The browser shows {url_match.group(1)}",
+                    expected_observation=verify or f"The destination page for {url_match.group(1)} becomes visible",
                     on_fail="retry_different",
                     max_retries=self.config.max_retries,
                 )
@@ -602,6 +651,7 @@ class AutomationAgent:
                     action="type_text",
                     params={"text": typed_text},
                     verify=f'The focused text field contains "{typed_text}"',
+                    expected_observation=f'The focused text field contains "{typed_text}"',
                     on_fail="retry_different",
                     max_retries=self.config.max_retries,
                 ),
@@ -609,6 +659,7 @@ class AutomationAgent:
                     action="press_key",
                     params={"keys": ["return"]},
                     verify=verify,
+                    expected_observation=verify,
                     on_fail="retry_different",
                     max_retries=self.config.max_retries,
                 ),
@@ -623,6 +674,7 @@ class AutomationAgent:
                         action="press_key",
                         params={"keys": keys},
                         verify=verify,
+                        expected_observation=verify,
                         on_fail="retry_different",
                         max_retries=self.config.max_retries,
                     )
@@ -636,6 +688,7 @@ class AutomationAgent:
             action="click",
             params={"element": element.strip()},
             verify=verify,
+            expected_observation=verify,
             on_fail="retry_different",
             max_retries=self.config.max_retries,
         )
@@ -682,6 +735,17 @@ class AutomationAgent:
                 if isinstance(entry, str):
                     keys.extend(cls._parse_key_combo(entry))
         return keys
+
+    @staticmethod
+    def _has_explicit_method(target: object, method_name: str) -> bool:
+        """Return True only when a method is implemented or explicitly mocked."""
+        if target is None:
+            return False
+        try:
+            attr = inspect.getattr_static(target, method_name)
+        except AttributeError:
+            return False
+        return callable(attr)
 
     @staticmethod
     def _extract_wait_condition(text: str) -> str:
@@ -1341,11 +1405,11 @@ class AutomationAgent:
         target_description: str,
         screenshot_b64: Optional[str] = None,
     ) -> bool:
-        """Pre-click validation: crop region around candidate and ask vision model (Rec 3).
+        """Pre-click validation with detail and context crops around a candidate.
 
-        Crops a 200x200 pixel region centered on (candidate_x, candidate_y) from a
-        screenshot, then asks the coordinator's verify_condition() with:
-            "The element at the center of this image is: {target_description}"
+        If the coordinator explicitly supports multiscale validation, use a tight
+        detail crop plus a wider context crop. Otherwise, fall back to the legacy
+        single-crop verify_condition() path.
 
         Args:
             candidate_x: Pixel x of the candidate element center.
@@ -1370,22 +1434,111 @@ class AutomationAgent:
 
         img_bytes = base64.b64decode(screenshot_b64)
         img = Image.open(io.BytesIO(img_bytes))
-        w, h = img.size
 
-        crop_size = 200
-        half = crop_size // 2
-        left = max(0, candidate_x - half)
-        top = max(0, candidate_y - half)
-        right = min(w, candidate_x + half)
-        bottom = min(h, candidate_y + half)
+        detail_b64 = self._crop_square_b64(img, candidate_x, candidate_y, size=128)
+        context_b64 = self._crop_square_b64(img, candidate_x, candidate_y, size=512)
 
+        if detail_b64 is None or context_b64 is None:
+            return True
+
+        if self._has_explicit_method(self.coordinator, "verify_multiscale_target"):
+            return await self.coordinator.verify_multiscale_target(
+                target_description,
+                detail_b64,
+                context_b64,
+            )
+
+        condition = f"The element at the center of this image is: {target_description}"
+        return await self.coordinator.verify_condition(condition, screenshot_b64=detail_b64)
+
+    @staticmethod
+    def _crop_square_b64(img, center_x: int, center_y: int, size: int) -> Optional[str]:
+        """Crop a square image around a point and return it as base64 JPEG."""
+        half = size // 2
+        left = max(0, center_x - half)
+        top = max(0, center_y - half)
+        right = min(img.size[0], center_x + half)
+        bottom = min(img.size[1], center_y + half)
+        if left >= right or top >= bottom:
+            return None
         cropped = img.crop((left, top, right, bottom))
         buf = io.BytesIO()
         cropped.save(buf, format="JPEG", quality=85)
-        cropped_b64 = base64.b64encode(buf.getvalue()).decode()
+        return base64.b64encode(buf.getvalue()).decode()
 
-        condition = f"The element at the center of this image is: {target_description}"
-        return await self.coordinator.verify_condition(condition, screenshot_b64=cropped_b64)
+    async def _reflect_failed_action(
+        self,
+        step: ActionStep,
+        actuator_result: dict,
+        verification: StepResult,
+    ) -> StepResult:
+        """Use semantic reflection when the screen changed but verification failed."""
+        try:
+            screenshot_b64 = await self._capture_screenshot()
+            reflection = await self.coordinator.reflect_action_outcome(
+                action=step.action,
+                params=step.params,
+                expected_observation=step.expected_observation or step.verify,
+                screenshot_b64=screenshot_b64,
+            )
+        except Exception:
+            slog.debug("Reflection step failed", exc_info=True)
+            return verification
+
+        verification.reflection_hint = reflection.get("hint", "")
+        verification.reflection_observed = reflection.get("observed", "")
+        if verification.reflection_observed:
+            verification.evidence = (
+                f"{verification.evidence}. Reflection observed: {verification.reflection_observed}"
+            )
+
+        if reflection.get("worked") == "yes":
+            verification.success = True
+            verification.verification_method = verification.verification_method or "vision"
+        return verification
+
+    async def _suggest_alternative_for_missing_target(
+        self,
+        step: ActionStep,
+        goal: str,
+        result: StepResult,
+    ) -> StepResult:
+        """Suggest a visible alternative control when a click target is absent."""
+        if not self._has_explicit_method(self.coordinator, "suggest_alternative_affordance"):
+            return result
+
+        try:
+            screenshot_b64 = await self._capture_screenshot()
+            suggestion = await self.coordinator.suggest_alternative_affordance(
+                missing_target=str(step.params.get("element", "")),
+                task_goal=goal,
+                expected_observation=step.expected_observation or step.verify,
+                screenshot_b64=screenshot_b64,
+            )
+        except Exception:
+            slog.debug("Alternative affordance suggestion failed", exc_info=True)
+            return result
+
+        if not suggestion:
+            return result
+
+        affordance = str(suggestion.get("affordance", "")).strip()
+        if not affordance:
+            return result
+        if affordance.lower() == str(step.params.get("element", "")).strip().lower():
+            return result
+
+        result.reflection_hint = "use_alternative_affordance"
+        result.suggested_element = affordance
+        result.reflection_observed = str(suggestion.get("reason", "")).strip()
+        result.evidence = (
+            f"{result.evidence}. Suggested visible alternative: {affordance}"
+        )
+        if result.reflection_observed:
+            result.evidence = (
+                f"{result.evidence}. Suggestion reason: {result.reflection_observed}"
+            )
+        return result
 
     def _maybe_crop_screenshot(
         self, screenshot_b64: str
@@ -1462,6 +1615,14 @@ class AutomationAgent:
             current_result = result
             while current_result.retry_count < step.max_retries:
                 strategy, retry_step = self._vary_strategy(step, current_result)
+                if retry_step is None:
+                    self.logger.log_event(
+                        EventType.STEP_REPLAN,
+                        f"Retry strategy {strategy} escalated to replan for step {index}",
+                        step_index=index,
+                        data={"strategy": strategy, "attempt": current_result.retry_count + 1},
+                    )
+                    return None
                 slog.info(
                     "🔄 Retrying step",
                     step_index=index,
@@ -1524,15 +1685,45 @@ class AutomationAgent:
                 action=action,
                 params=new_params,
                 verify=step.verify,
+                expected_observation=step.expected_observation,
                 on_fail=step.on_fail,
                 max_retries=step.max_retries,
             )
+
+        reflection_hint = (prev_result.reflection_hint or "").strip().lower()
+        missing_target = (prev_result.error or "").startswith("Element not found:")
+        suggested_element = (prev_result.suggested_element or "").strip()
 
         if step.action == "click" and "element" in params:
             search_click = any(
                 token in str(params.get("element", "")).lower()
                 for token in ("search", "filter")
             )
+            if missing_target and suggested_element:
+                params["element"] = suggested_element
+                if attempt == 1:
+                    return ("visible_alternative_affordance", _retry_step("click", params))
+                if attempt == 2:
+                    params["element"] = (
+                        f"{suggested_element} (exact visible control on the same relevant card/section)"
+                    )
+                    return ("refine_visible_alternative_affordance", _retry_step("click", params))
+                return ("replan_after_alternative_affordance", None)
+            if missing_target and not suggested_element:
+                if attempt == 1:
+                    params["element"] = (
+                        f"{params['element']} (visible on the same relevant card/section only)"
+                    )
+                    return ("refine_missing_target_query", _retry_step("click", params))
+                return ("replan_missing_target", None)
+            if reflection_hint == "dismiss_modal":
+                return ("dismiss_modal_then_retry", _retry_step("press_key", {"keys": ["escape"]}))
+            if reflection_hint == "scroll_to_top":
+                params["_pre_keys"] = ["cmd", "up"]
+                return ("reflection_scroll_to_top", _retry_step("click", params))
+            if reflection_hint == "refine_target":
+                params["element"] = f"{params['element']} (look carefully for the exact matching target)"
+                return ("reflection_refine_target", _retry_step("click", params))
             if attempt == 1:
                 # Strategy: re-query vision with more context
                 params["element"] = f"{params['element']} (look carefully, may be partially hidden)"
@@ -1547,6 +1738,9 @@ class AutomationAgent:
                 return ("keyboard_fallback_space", _retry_step("press_key", {"keys": ["space"]}))
 
         elif step.action == "type_text":
+            if reflection_hint == "refocus_text_field":
+                params["_clear_first"] = True
+                return ("reflection_refocus_then_type", _retry_step("type_text", params))
             if attempt == 1:
                 # Strategy: select existing text first, then type again
                 params["_clear_first"] = True
@@ -1557,6 +1751,8 @@ class AutomationAgent:
                 return ("slow_type_retry", _retry_step("type_text", params))
 
         elif step.action == "press_key":
+            if reflection_hint == "keyboard_submit":
+                return ("reflection_keyboard_submit", _retry_step("press_key", {"keys": ["return"]}))
             if attempt == 1:
                 params["_pre_delay"] = 0.5
                 return ("delayed_key_press", _retry_step("press_key", params))
@@ -1595,7 +1791,16 @@ class AutomationAgent:
             params["_pre_delay"] = 0.5 * attempt
             return (f"generic_retry_with_delay_{attempt}", _retry_step(step.action, params))
 
-    async def _replan_and_continue(self, goal, step_results, iterations, start_time):
+    async def _replan_and_continue(
+        self,
+        goal,
+        step_results,
+        iterations,
+        start_time,
+        *,
+        skill_name: Optional[str] = None,
+        skill_context: Optional[str] = None,
+    ):
         """Replan and attempt execution with new plan."""
         screen_desc = await self.coordinator.describe_screen()
         retry_strategies = []
@@ -1614,6 +1819,7 @@ class AutomationAgent:
             step_results,
             retry_strategies,
             desktop_context=desktop_context,
+            skill_context=skill_context,
         )
         self.logger.log_event(
             EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
@@ -1649,6 +1855,13 @@ class AutomationAgent:
         # Check final state: success only if last step passed or was 'done'
         last_result = step_results[-1] if step_results else None
         success = last_result.success if last_result else False
+        await self._maybe_learn_skill_run(
+            goal=goal,
+            skill_name=skill_name,
+            skill_context=skill_context or "",
+            step_results=step_results,
+            had_replan=True,
+        )
         self.logger.finalize(success, f"Replanned: {goal}")
         return ExecutionResult(
             success=success,
@@ -1659,3 +1872,37 @@ class AutomationAgent:
             goal=goal,
             run_id=self.logger.run_id,
         )
+
+    async def _maybe_learn_skill_run(
+        self,
+        *,
+        goal: str,
+        skill_name: Optional[str],
+        skill_context: str,
+        step_results: list[StepResult],
+        had_replan: bool,
+    ) -> None:
+        """Best-effort skill learning from execution traces."""
+        if not skill_name or not step_results:
+            return
+        learn = getattr(self.skill_registry, "learn_from_run", None)
+        if learn is None:
+            return
+        try:
+            observations = await learn(
+                skill_name,
+                goal,
+                step_results,
+                skill_context=skill_context,
+                run_id=self.logger.run_id,
+                had_replan=had_replan,
+            )
+        except Exception:
+            slog.warning("skill_learning_failed", skill_name=skill_name, exc_info=True)
+            return
+        if observations:
+            self.logger.log_event(
+                EventType.SKILL_EXPAND,
+                f"Learned {len(observations)} generalized skill observation(s)",
+                data={"skill_name": skill_name, "count": len(observations)},
+            )
