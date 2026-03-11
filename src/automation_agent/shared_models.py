@@ -2,6 +2,14 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
+try:
+    from enum import StrEnum
+except ImportError:  # Python < 3.11
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        def __str__(self) -> str:
+            return self.value
 from typing import Any, Dict, List, Optional
 
 # Common LLM misspellings → correct action name.
@@ -111,6 +119,56 @@ class ActionStep:
 
 
 @dataclass
+class ReplanPatch:
+    """Patch to apply to a DerivedSkillSession after replanning.
+
+    Parsed from the LLM replan response. All fields are optional because
+    the LLM may not comply with the full schema.
+    """
+
+    replace_labels: List[Dict[str, str]] = field(default_factory=list)
+    add_landmarks: List[str] = field(default_factory=list)
+    verify_improvements: List[str] = field(default_factory=list)
+    failed_assumptions: List[str] = field(default_factory=list)
+    successful_adaptations: List[str] = field(default_factory=list)
+    revised_steps: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ReplanPatch":
+        """Parse a patch from LLM response dict. Tolerant of missing/malformed fields."""
+        if not isinstance(data, dict):
+            return cls()
+
+        def _safe_list(key: str) -> list:
+            val = data.get(key, [])
+            return val if isinstance(val, list) else []
+
+        return cls(
+            replace_labels=[
+                r for r in _safe_list("replace_labels")
+                if isinstance(r, dict) and "old" in r and "new" in r
+            ],
+            add_landmarks=[
+                str(lm) for lm in _safe_list("add_landmarks")
+                if isinstance(lm, str)
+            ],
+            verify_improvements=[
+                str(v) for v in _safe_list("verify_improvements")
+                if isinstance(v, str)
+            ],
+            failed_assumptions=[
+                str(f) for f in _safe_list("failed_assumptions")
+                if isinstance(f, str)
+            ],
+            successful_adaptations=[
+                str(s) for s in _safe_list("successful_adaptations")
+                if isinstance(s, str)
+            ],
+            revised_steps=str(data.get("revised_steps", "")),
+        )
+
+
+@dataclass
 class ActionPlan:
     """A plan consisting of ordered action steps."""
 
@@ -120,6 +178,7 @@ class ActionPlan:
     raw_llm_response: Optional[str] = None
     planning_duration_ms: int = 0
     token_usage: Optional[Dict[str, int]] = None
+    replan_patch: Optional["ReplanPatch"] = None
 
     def validate(self) -> List[str]:
         """Validate the plan. Returns list of error messages (empty if valid)."""
@@ -174,3 +233,70 @@ class ExecutionResult:
     iterations: int = 0
     goal: str = ""
     run_id: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Adaptive Skill System types (top-k routing)
+# ---------------------------------------------------------------------------
+
+
+class MatchType(StrEnum):
+    """How a skill relates to the user prompt."""
+
+    DIRECT = "direct"
+    ANALOGICAL = "analogical"
+    GENERIC = "generic"
+
+
+@dataclass
+class SkillRouteCandidate:
+    """A single candidate skill from the router."""
+
+    skill_id: str
+    match_type: MatchType
+    confidence: float
+    reason: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.match_type, str):
+            self.match_type = MatchType(self.match_type)
+        self.confidence = max(0.0, min(1.0, self.confidence))
+
+
+@dataclass
+class SkillRouteResult:
+    """Result of top-k skill routing."""
+
+    candidates: list[SkillRouteCandidate]
+    params: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def primary(self) -> Optional[SkillRouteCandidate]:
+        """Highest-confidence candidate, or None if empty."""
+        return self.candidates[0] if self.candidates else None
+
+    @property
+    def has_direct_match(self) -> bool:
+        return any(c.match_type == MatchType.DIRECT for c in self.candidates)
+
+
+@dataclass
+class SkillMatchResult:
+    """Result of skill matching. Replaces the untyped Dict return."""
+
+    skill_name: str
+    expanded_steps: str
+    skill_context: str
+    params: Dict[str, str]
+    candidates: list[SkillRouteCandidate]
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-like access for backward compatibility during migration."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-like .get() for backward compatibility during migration."""
+        return getattr(self, key, default)

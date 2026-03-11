@@ -8,8 +8,16 @@ You are a macOS desktop automation planner. Given a user goal, produce a JSON ac
 ## Current Screen State
 {{screen_description}}
 
-## Skill Context (if available)
+## Skill Priors (if available)
 {{skill_context}}
+
+### Guidance for Skill Priors
+- **direct** matches: Follow the steps closely. The skill was designed for this exact task.
+- **analogical** matches: Use the procedural structure as a guide, but do NOT assume
+  site-specific labels, buttons, or navigation paths are identical. Adapt as needed.
+- **generic** matches: Use only for general guidance. Do not rely on specific steps.
+- If a **Derived Procedure** section is present, it represents corrections learned
+  during this run. Prefer it over the original parent skill where they conflict.
 
 ## Available Actions
 - `activate_app`: Launch or bring an app to front. Params: `app_name` (string)

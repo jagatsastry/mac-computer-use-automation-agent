@@ -1,6 +1,9 @@
 ---
 name: restaurant-opentable
+skill-id: restaurant-opentable
 description: Make a restaurant reservation on OpenTable by navigating the OpenTable website, selecting party size, date, time, and completing the reservation form.
+summary: Navigate a restaurant reservation platform, select party size, date, and time, then complete the booking flow; currently specialized for OpenTable.
+tags: [restaurant, reservation, booking, opentable, dining]
 trigger-keywords:
   - book opentable
   - reserve opentable

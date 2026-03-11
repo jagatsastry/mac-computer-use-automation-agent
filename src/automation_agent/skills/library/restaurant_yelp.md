@@ -1,6 +1,9 @@
 ---
 name: restaurant-yelp
+skill-id: restaurant-yelp
 description: Make a restaurant reservation on Yelp by finding the restaurant page, clicking "Make a Reservation", selecting party size, date, time, and completing the booking flow.
+summary: Navigate a restaurant reservation platform, search for a restaurant, select party size, date, and time, then complete the booking flow; currently specialized for Yelp.
+tags: [restaurant, reservation, booking, yelp, dining]
 trigger-keywords:
   - book yelp restaurant
   - reserve yelp

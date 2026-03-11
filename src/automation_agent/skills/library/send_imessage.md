@@ -1,6 +1,9 @@
 ---
 name: send-imessage
+skill-id: send-imessage
 description: Send an iMessage to a contact
+summary: Open the Messages app, compose a new message to a recipient, and send text content via iMessage.
+tags: [messaging, imessage, communication, messages]
 trigger-keywords: [imessage, text, message, send message]
 parameters:
   recipient:

@@ -9,16 +9,50 @@ from typing import Any, Dict, List, Optional
 import structlog
 
 from automation_agent.config import AgentConfig
-from automation_agent.shared_models import StepResult
+from automation_agent.shared_models import (
+    MatchType,
+    SkillMatchResult,
+    SkillRouteCandidate,
+    StepResult,
+)
 from automation_agent.skills.distiller import SkillDistiller
 from automation_agent.skills.experience import SkillExperienceStore
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
 from automation_agent.skills.matcher import match_skill
-from automation_agent.skills.models import Skill, SkillObservation
-from automation_agent.skills.router import SkillRouter
+from automation_agent.skills.models import Skill, SkillCard, SkillObservation
+from automation_agent.skills.router import MIN_USEFUL_CONFIDENCE, SkillRouter
 
 std_logger = logging.getLogger(__name__)
 logger = structlog.get_logger(__name__)
+
+
+def _build_card(skill: Skill) -> SkillCard:
+    """Build a SkillCard from a Skill object."""
+    skill_id = skill.skill_id or skill.name
+    title = skill_id.replace("-", " ").replace("_", " ").title()
+    summary = skill.summary or skill.description
+    tags = list(skill.tags) if skill.tags else list(skill.trigger_keywords)
+    param_names = list(skill.parameters.keys()) if skill.parameters else []
+    return SkillCard(
+        skill_id=skill_id,
+        title=title,
+        summary=summary,
+        tags=tags,
+        required_apps=list(skill.requires.apps),
+        required_os=skill.requires.os,
+        param_names=param_names,
+    )
+
+
+def _build_all_cards(skills: Dict[str, Skill]) -> list[SkillCard]:
+    """Build cards for all skills. Filters out skills that fail card building."""
+    cards = []
+    for skill in skills.values():
+        try:
+            cards.append(_build_card(skill))
+        except Exception:
+            continue
+    return cards
 
 
 class SkillRegistryImpl:
@@ -35,6 +69,7 @@ class SkillRegistryImpl:
         config: Optional[AgentConfig] = None,
     ) -> None:
         self._skills: Dict[str, Skill] = {}
+        self._cards: list[SkillCard] = []
         self._skill_dir = skill_dir or Path(__file__).parent / "library"
         self._config = config
         self._experience_store: Optional[SkillExperienceStore] = None
@@ -47,7 +82,18 @@ class SkillRegistryImpl:
         # Router created lazily after skills are loaded
         self._router: Optional[SkillRouter] = None
         if self._config is not None:
-            self._router = SkillRouter(self._config, self._skills)
+            self._rebuild_router()
+
+    def _rebuild_router(self) -> None:
+        """Rebuild the router and cached cards from current skills."""
+        self._cards = _build_all_cards(self._skills)
+        if len(self._cards) >= 25:
+            logger.warning(
+                "Skill count approaching router prompt budget",
+                skill_count=len(self._cards),
+            )
+        if self._config is not None:
+            self._router = SkillRouter(self._config, self._skills, self._cards)
 
     def load_from_directory(self, path: Path) -> None:
         """Load all .md skill files from a directory.
@@ -77,8 +123,7 @@ class SkillRegistryImpl:
                 # Skip malformed files during loading; validate_all catches them
                 continue
         # Rebuild router when skills change
-        if self._config is not None:
-            self._router = SkillRouter(self._config, self._skills)
+        self._rebuild_router()
 
     def load_from_string(self, content: str) -> Skill:
         """Load a single skill from raw file content.
@@ -92,72 +137,149 @@ class SkillRegistryImpl:
         skill = parse_skill_file(content)
         self._skills[skill.name] = skill
         # Rebuild router when skills change
-        if self._config is not None:
-            self._router = SkillRouter(self._config, self._skills)
+        self._rebuild_router()
         return skill
 
-    async def match(self, prompt: str) -> Optional[Dict[str, Any]]:
+    async def match(self, prompt: str) -> Optional[SkillMatchResult]:
         """Find a matching skill for the given prompt.
 
         Uses the LLM-driven SkillRouter when available, falling back to
         keyword matching if the router is not configured or the LLM call fails.
 
         Returns:
-            Dict with 'skill_name', 'expanded_steps', 'params', or None.
+            SkillMatchResult with skill_name, expanded_steps, skill_context,
+            params, and candidates, or None if no match.
         """
         # Primary path: LLM router
         if self._router is not None:
             router_result = await self._router.route(prompt)
             if router_result is not None:
-                skill_name = router_result["skill_name"]
-                params = router_result.get("params", {})
-                expanded = self.expand(skill_name, params)
+                # Filter out candidates below MIN_USEFUL_CONFIDENCE
+                valid = [
+                    c for c in router_result.candidates
+                    if c.confidence >= MIN_USEFUL_CONFIDENCE
+                ]
+                if not valid:
+                    logger.info(
+                        "All router candidates below confidence threshold",
+                        threshold=MIN_USEFUL_CONFIDENCE,
+                    )
+                    return None
+
+                primary = valid[0]
+                skill_name = primary.skill_id
+                # Get params from router result
+                params = router_result.params or {}
+                try:
+                    expanded = self.expand(skill_name, params)
+                except (ValueError, KeyError):
+                    expanded = None
                 skill = self._skills[skill_name]
+                skill_context = self._build_multi_skill_context(valid, params)
+
                 logger.info(
-                    "🤔 Skill matched via LLM router",
+                    "Skill matched via LLM router",
                     skill_name=skill_name,
                     params=params,
+                    candidates=len(valid),
                 )
-                return {
-                    "skill_name": skill_name,
-                    "expanded_steps": expanded or skill.steps_text,
-                    "skill_context": self.build_runtime_context(skill_name, params),
-                    "params": params,
-                }
+                return SkillMatchResult(
+                    skill_name=skill_name,
+                    expanded_steps=expanded or skill.steps_text,
+                    skill_context=skill_context,
+                    params=params,
+                    candidates=valid,
+                )
 
         # Fallback: keyword matching (no param extraction)
         result = match_skill(prompt, list(self._skills.values()))
         if result is None:
             return None
-        skill, params = result
-        missing_required = [
-            name
-            for name, spec in skill.parameters.items()
-            if spec.required and name not in params
-        ]
-        if missing_required:
+        skill, params, hit_count = result
+
+        # Compute proportional confidence from keyword hits
+        total_keywords = len(skill.trigger_keywords)
+        confidence = hit_count / total_keywords if total_keywords > 0 else 0.0
+
+        if confidence < MIN_USEFUL_CONFIDENCE:
             logger.info(
-                "🤔 Keyword fallback skipped skill with missing params",
+                "Keyword fallback confidence below threshold",
                 skill_name=skill.name,
-                missing=missing_required,
+                confidence=confidence,
+                threshold=MIN_USEFUL_CONFIDENCE,
             )
             return None
-        # Fallback returns empty params — skip expand to avoid missing-param errors
+
+        # Keyword fallback doesn't extract params, so skip required-param
+        # check — the orchestrator will handle missing params at execution time.
         try:
             expanded = self.expand(skill.name, params)
         except ValueError:
             expanded = None
+
+        candidate = SkillRouteCandidate(
+            skill_id=skill.name,
+            match_type=MatchType.DIRECT,
+            confidence=confidence,
+            reason=f"Keyword fallback: {hit_count}/{total_keywords} keywords matched",
+        )
+        skill_context = self._build_multi_skill_context([candidate])
+
         logger.info(
-            "🤔 Skill matched via keyword fallback",
+            "Skill matched via keyword fallback",
             skill_name=skill.name,
             params=params,
+            confidence=confidence,
         )
-        return {
-            "skill_name": skill.name,
-            "expanded_steps": expanded or skill.steps_text,
-            "skill_context": self.build_runtime_context(skill.name, params),
-            "params": params,
-        }
+        return SkillMatchResult(
+            skill_name=skill.name,
+            expanded_steps=expanded or skill.steps_text,
+            skill_context=skill_context,
+            params=params,
+            candidates=[candidate],
+        )
+
+    def _build_multi_skill_context(
+        self,
+        candidates: list[SkillRouteCandidate],
+        primary_params: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Build multi-skill context string from routing candidates."""
+        sections = [
+            "## Skill Priors",
+            "",
+            "The following skills were selected as procedural priors for this task.",
+            "- **direct** matches may be followed closely.",
+            "- **analogical** matches are structural priors only -- do NOT assume "
+            "site-specific",
+            "  labels, buttons, or navigation are identical.",
+            "- **generic** matches are general-purpose priors -- use only if more "
+            "specific guidance is absent.",
+        ]
+
+        for i, candidate in enumerate(candidates):
+            skill = self._skills.get(candidate.skill_id)
+            if skill is None:
+                continue
+
+            sections.append("")
+            sections.append(
+                f"### [{candidate.match_type.value}] {candidate.skill_id} "
+                f"(confidence: {candidate.confidence:.2f})"
+            )
+            sections.append(f"Reason: {candidate.reason}")
+            sections.append("")
+
+            # Build per-skill context (pass params only for primary candidate)
+            params = primary_params if i == 0 else None
+            runtime_ctx = self.build_runtime_context(candidate.skill_id, params)
+            if runtime_ctx:
+                sections.append(runtime_ctx)
+
+            sections.append("")
+            sections.append("---")
+
+        return "\n".join(sections).strip()
 
     def list_skills(self) -> List[Dict[str, str]]:
         """List all available skills with name and description."""
@@ -205,7 +327,7 @@ class SkillRegistryImpl:
             pname = m.group(1)
             if pname in params:
                 return params[pname]
-            # Optional param not provided — log warning and strip
+            # Optional param not provided -- log warning and strip
             std_logger.warning(
                 "Unexpanded placeholder '{{%s}}' in skill '%s' (stripped)",
                 pname,
@@ -244,7 +366,10 @@ class SkillRegistryImpl:
         if skill is None:
             return None
         params = params or {}
-        expanded_steps = self.expand(skill_name, params) or skill.steps_text
+        try:
+            expanded_steps = self.expand(skill_name, params) or skill.steps_text
+        except ValueError:
+            expanded_steps = skill.steps_text
         sections = [
             f"Skill: {skill.name}",
             f"Description: {skill.description}",
@@ -285,7 +410,9 @@ class SkillRegistryImpl:
         skill = self._skills.get(skill_name)
         if skill is None:
             return []
-        runtime_context = skill_context or self.build_runtime_context(skill_name) or skill.steps_text
+        runtime_context = (
+            skill_context or self.build_runtime_context(skill_name) or skill.steps_text
+        )
         observations = await self._distiller.distill(
             skill=skill,
             goal=goal,

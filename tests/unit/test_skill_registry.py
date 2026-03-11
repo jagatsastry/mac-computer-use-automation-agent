@@ -8,6 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from automation_agent.shared_models import (
+    MatchType,
+    SkillRouteCandidate,
+    SkillRouteResult,
+)
 from automation_agent.skills.loader import parse_skill_file
 from automation_agent.skills.matcher import match_skill
 from automation_agent.skills.models import Skill, SkillParam, SkillRequirements
@@ -236,11 +241,17 @@ class TestMatchWithRouter:
 
         # Create registry without config (no router) then patch
         registry = SkillRegistryImpl(skill_dir=skill_dir)
+        route_result = SkillRouteResult(candidates=[
+            SkillRouteCandidate(
+                skill_id="test-skill",
+                match_type=MatchType.DIRECT,
+                confidence=0.95,
+                reason="Exact match",
+            ),
+        ])
+        route_result.params = {"query": "pandas tutorial"}
         mock_router = AsyncMock()
-        mock_router.route.return_value = {
-            "skill_name": "test-skill",
-            "params": {"query": "pandas tutorial"},
-        }
+        mock_router.route.return_value = route_result
         registry._router = mock_router
 
         result = await registry.match("I want to test pandas tutorial")
@@ -279,8 +290,15 @@ class TestMatchWithRouter:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_keyword_fallback_skips_skills_missing_required_params(self, tmp_path):
-        """Fallback should not return a skill it cannot safely expand."""
+    async def test_keyword_fallback_returns_skill_even_with_missing_params(
+        self, tmp_path
+    ):
+        """Keyword fallback returns a match even when params can't be extracted.
+
+        The orchestrator handles missing params at execution time — the
+        registry should not reject a keyword match just because the keyword
+        matcher doesn't extract parameters.
+        """
         skill_dir = tmp_path / "skills"
         skill_dir.mkdir()
         content = textwrap.dedent("""\
@@ -307,7 +325,8 @@ class TestMatchWithRouter:
 
         result = await registry.match("Open Calculator")
 
-        assert result is None
+        assert result is not None
+        assert result.skill_name == "open-app-and-navigate"
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +365,10 @@ class TestKeywordFallbackMatch:
         )
         result = match_skill("I want to test something", [skill])
         assert result is not None
-        matched_skill, params = result
+        matched_skill, params, hit_count = result
         assert matched_skill.name == "test-skill"
         assert params == {}  # No param extraction in fallback
+        assert hit_count == 1
 
     def test_keyword_match_case_insensitive(self):
         skill = Skill(
@@ -700,9 +720,10 @@ class TestKeywordFallbackPreservesCase:
         )
         result = match_skill("send email to John Smith", [skill])
         assert result is not None
-        matched_skill, params = result
+        matched_skill, params, hit_count = result
         assert matched_skill.name == "send-email"
         assert params == {}  # No param extraction in fallback
+        assert hit_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -897,17 +918,25 @@ class TestSkillRouterParseResponse:
         config = MagicMock()
         router = SkillRouter(config, skills)
 
-        result = router._parse_response('{"skill_name": "test-skill", "params": {"q": "hello"}}')
+        result = router._parse_response(json.dumps({
+            "matches": [{
+                "skill_id": "test-skill",
+                "match_type": "direct",
+                "confidence": 0.95,
+                "reason": "Exact match",
+                "params": {"q": "hello"},
+            }]
+        }))
         assert result is not None
-        assert result["skill_name"] == "test-skill"
-        assert result["params"]["q"] == "hello"
+        assert result.candidates[0].skill_id == "test-skill"
+        assert result.params["q"] == "hello"
 
-    def test_parse_null_skill(self):
+    def test_parse_empty_matches(self):
         skills = {}
         config = MagicMock()
         router = SkillRouter(config, skills)
 
-        result = router._parse_response('{"skill_name": null, "params": {}}')
+        result = router._parse_response('{"matches": []}')
         assert result is None
 
     def test_parse_markdown_wrapped_json(self):
@@ -926,10 +955,11 @@ class TestSkillRouterParseResponse:
         router = SkillRouter(config, skills)
 
         result = router._parse_response(
-            '```json\n{"skill_name": "test-skill", "params": {}}\n```'
+            '```json\n{"matches": [{"skill_id": "test-skill", '
+            '"match_type": "direct", "confidence": 0.9, "reason": "test"}]}\n```'
         )
         assert result is not None
-        assert result["skill_name"] == "test-skill"
+        assert result.candidates[0].skill_id == "test-skill"
 
     def test_parse_invalid_json(self):
         skills = {}
@@ -954,8 +984,37 @@ class TestSkillRouterParseResponse:
         config = MagicMock()
         router = SkillRouter(config, skills)
 
-        result = router._parse_response('{"skill_name": "fake-skill", "params": {}}')
+        result = router._parse_response(json.dumps({
+            "matches": [{
+                "skill_id": "fake-skill",
+                "match_type": "direct",
+                "confidence": 0.9,
+                "reason": "test",
+            }]
+        }))
         assert result is None
+
+    def test_parse_legacy_format(self):
+        """Legacy single-match format still works via backward compat."""
+        skills = {
+            "test-skill": Skill(
+                name="test-skill",
+                description="A test skill",
+                trigger_keywords=["test"],
+                parameters={},
+                requires=SkillRequirements(),
+                success_condition="Done",
+                steps_text="1. Test",
+            ),
+        }
+        config = MagicMock()
+        router = SkillRouter(config, skills)
+
+        result = router._parse_response(
+            '{"skill_name": "test-skill", "params": {"q": "hello"}}'
+        )
+        assert result is not None
+        assert result.candidates[0].skill_id == "test-skill"
 
 
 # ---------------------------------------------------------------------------
@@ -984,14 +1043,19 @@ class TestSkillRouterRoute:
 
         with patch.object(router, "_call_local", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = json.dumps({
-                "skill_name": "amazon-search",
-                "params": {"product": "wireless mouse"},
+                "matches": [{
+                    "skill_id": "amazon-search",
+                    "match_type": "direct",
+                    "confidence": 0.95,
+                    "reason": "Exact Amazon search match",
+                    "params": {"product": "wireless mouse"},
+                }]
             })
             result = await router.route("Search for the cheapest wireless mouse on Amazon")
 
         assert result is not None
-        assert result["skill_name"] == "amazon-search"
-        assert result["params"]["product"] == "wireless mouse"
+        assert result.candidates[0].skill_id == "amazon-search"
+        assert result.params["product"] == "wireless mouse"
 
     @pytest.mark.asyncio
     async def test_route_no_match(self):
@@ -1011,7 +1075,7 @@ class TestSkillRouterRoute:
         router = SkillRouter(config, skills)
 
         with patch.object(router, "_call_local", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = '{"skill_name": null, "params": {}}'
+            mock_llm.return_value = '{"matches": []}'
             result = await router.route("What's the weather today?")
 
         assert result is None

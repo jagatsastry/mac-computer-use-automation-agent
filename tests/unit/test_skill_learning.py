@@ -6,7 +6,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from automation_agent.config import AgentConfig
-from automation_agent.shared_models import ActionStep, StepResult
+from automation_agent.shared_models import (
+    ActionStep,
+    MatchType,
+    SkillRouteCandidate,
+    SkillRouteResult,
+    StepResult,
+)
 from automation_agent.skills.distiller import SkillDistiller
 from automation_agent.skills.models import SkillObservation
 from automation_agent.skills.registry import SkillRegistryImpl
@@ -63,11 +69,17 @@ def registry(tmp_path, config):
 class TestRuntimeContext:
     @pytest.mark.asyncio
     async def test_match_returns_rich_skill_context(self, registry):
+        route_result = SkillRouteResult(candidates=[
+            SkillRouteCandidate(
+                skill_id="return-amazon-order",
+                match_type=MatchType.DIRECT,
+                confidence=0.95,
+                reason="Exact match",
+            ),
+        ])
+        route_result.params = {"item": "Tylenol"}
         registry._router = AsyncMock()
-        registry._router.route.return_value = {
-            "skill_name": "return-amazon-order",
-            "params": {"item": "Tylenol"},
-        }
+        registry._router.route.return_value = route_result
 
         result = await registry.match("Return the most recent Tylenol order on Amazon")
 

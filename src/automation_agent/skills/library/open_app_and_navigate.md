@@ -1,6 +1,9 @@
 ---
 name: open-app-and-navigate
+skill-id: open-app-and-navigate
 description: Open an application and navigate to a specific section
+summary: Launch a macOS application and navigate to a requested view or section within it.
+tags: [app, launch, navigate, general]
 trigger-keywords: [open, launch, go to, navigate]
 parameters:
   app_name:

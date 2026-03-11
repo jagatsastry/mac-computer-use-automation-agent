@@ -10,7 +10,14 @@ from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.orchestrator.agent import AutomationAgent
 from automation_agent.planner.planner import ActionPlannerImpl
-from automation_agent.shared_models import ActionPlan, ActionStep, StepResult
+from automation_agent.shared_models import (
+    ActionPlan,
+    ActionStep,
+    MatchType,
+    SkillRouteCandidate,
+    SkillRouteResult,
+    StepResult,
+)
 from automation_agent.skills.models import SkillObservation
 from automation_agent.skills.registry import SkillRegistryImpl
 
@@ -69,11 +76,17 @@ def registry(tmp_path, config):
 
 @pytest.mark.asyncio
 async def test_learned_skill_observations_flow_into_replan_prompt(registry, config):
+    _route_result = SkillRouteResult(candidates=[
+        SkillRouteCandidate(
+            skill_id="return-amazon-order",
+            match_type=MatchType.DIRECT,
+            confidence=0.95,
+            reason="Exact match",
+        ),
+    ])
+    _route_result.params = {"item": "Tylenol"}
     registry._router = AsyncMock()
-    registry._router.route.return_value = {
-        "skill_name": "return-amazon-order",
-        "params": {"item": "Tylenol"},
-    }
+    registry._router.route.return_value = _route_result
     registry._experience_store.append(
         "return-amazon-order",
         [
@@ -130,11 +143,17 @@ async def test_learned_skill_observations_flow_into_replan_prompt(registry, conf
 async def test_replanned_run_persists_generalized_skill_observation(
     registry, config, tmp_path
 ):
+    _route_result = SkillRouteResult(candidates=[
+        SkillRouteCandidate(
+            skill_id="return-amazon-order",
+            match_type=MatchType.DIRECT,
+            confidence=0.95,
+            reason="Exact match",
+        ),
+    ])
+    _route_result.params = {"item": "Tylenol"}
     registry._router = AsyncMock()
-    registry._router.route.return_value = {
-        "skill_name": "return-amazon-order",
-        "params": {"item": "Tylenol"},
-    }
+    registry._router.route.return_value = _route_result
     registry._distiller = AsyncMock()
     registry._distiller.distill.return_value = [
         SkillObservation(

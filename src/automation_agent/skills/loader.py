@@ -86,6 +86,13 @@ def parse_skill_file(content: str) -> Skill:
     error_recovery_text = _extract_section(body, "Error Recovery")
     notes_text = _extract_section(body, "Notes")
 
+    # Optional adaptive-skill fields
+    skill_id = meta.get("skill-id", "")
+    tags = meta.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    summary = meta.get("summary", "")
+
     return Skill(
         name=name,
         description=description,
@@ -98,6 +105,9 @@ def parse_skill_file(content: str) -> Skill:
         error_recovery_text=error_recovery_text,
         notes_text=notes_text,
         raw_content=content,
+        skill_id=skill_id,
+        tags=tags,
+        summary=summary,
     )
 
 
