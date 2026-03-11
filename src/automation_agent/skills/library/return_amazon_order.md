@@ -1,6 +1,9 @@
 ---
 name: return-amazon-order
+skill-id: return-amazon-order
 description: Return an item or package on Amazon
+summary: Navigate a retailer's order history, locate a purchased item, and complete a return or refund flow; currently specialized for Amazon.
+tags: [ecommerce, return, refund, amazon]
 trigger-keywords: [return, send back, refund, amazon]
 parameters:
   item:

@@ -38,6 +38,30 @@ class Skill:
     error_recovery_text: str = ""  # Markdown body: Error Recovery section
     notes_text: str = ""  # Markdown body: Notes section
     raw_content: str = ""  # Full original file content
+    skill_id: str = ""  # Optional: from frontmatter `skill-id`
+    tags: List[str] = field(default_factory=list)  # Optional: from frontmatter `tags`
+    summary: str = ""  # Optional: from frontmatter `summary`
+
+
+@dataclass
+class SkillCard:
+    """Compact routing card for LLM-based skill selection."""
+
+    skill_id: str
+    title: str
+    summary: str
+    tags: list[str]
+    required_apps: list[str]
+    required_os: str
+    param_names: list[str] = field(default_factory=list)  # Parameter names for routing
+
+    def __post_init__(self) -> None:
+        if not self.skill_id or not self.skill_id.strip():
+            raise ValueError("SkillCard requires non-empty skill_id")
+        if not self.summary or not self.summary.strip():
+            raise ValueError(
+                f"SkillCard '{self.skill_id}' requires non-empty summary"
+            )
 
 
 @dataclass

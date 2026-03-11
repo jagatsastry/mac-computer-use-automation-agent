@@ -1,6 +1,9 @@
 ---
 name: restaurant-google
+skill-id: restaurant-google
 description: Make a restaurant reservation via Google Maps by finding the restaurant business page, clicking "Reserve a table", and completing the embedded reservation widget (Resy, OpenTable, or Tock).
+summary: Navigate Google Maps, find a restaurant, and complete a reservation through the embedded booking widget (Resy, OpenTable, or Tock).
+tags: [restaurant, reservation, booking, google-maps, dining]
 trigger-keywords:
   - reserve google maps
   - google restaurant reservation

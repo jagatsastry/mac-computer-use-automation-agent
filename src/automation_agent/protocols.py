@@ -6,7 +6,14 @@ Components depend on protocols, not concrete implementations.
 
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, FindElementResult, StepResult
+from automation_agent.shared_models import (
+    ActionPlan,
+    ActionStep,
+    ExecutionResult,
+    FindElementResult,
+    SkillMatchResult,
+    StepResult,
+)
 
 
 @runtime_checkable
@@ -145,10 +152,11 @@ class Actuator(Protocol):
 class SkillRegistry(Protocol):
     """Manages skill templates for common automation tasks."""
 
-    async def match(self, prompt: str) -> Optional[Dict[str, Any]]:
+    async def match(self, prompt: str) -> Optional["SkillMatchResult"]:
         """Find a matching skill for the given prompt.
 
-        Returns dict with 'skill_name', 'expanded_steps', 'params', or None.
+        Returns SkillMatchResult with skill_name, expanded_steps, params,
+        candidates, and skill_context, or None if no match.
         """
         ...
 

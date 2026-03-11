@@ -5,7 +5,7 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 
 {{desktop_context}}
 
-## Skill Context (if available)
+## Skill Priors and Derived Procedure (if available)
 {{skill_context}}
 
 ## Current Screen State
@@ -28,9 +28,11 @@ Do NOT repeat the same actions that failed. Consider:
 - Check form progress to avoid re-filling already completed fields
 
 ## Response Format
-Same JSON format as before. Every step MUST have a non-empty "verify" field.
+Respond with ONLY valid JSON (no markdown, no explanation).
+The "steps" key is REQUIRED. Every step MUST have a non-empty "verify" field.
 For visual or UI-changing actions, include `expected_observation` with the expected immediate visible result.
-Respond with ONLY valid JSON (no markdown, no explanation):
+Optionally include a "derived_skill_patch" if you discovered corrections
+that should be remembered for the rest of this run:
 ```json
 {
   "steps": [
@@ -42,6 +44,14 @@ Respond with ONLY valid JSON (no markdown, no explanation):
       "on_fail": "retry_different",
       "max_retries": 3
     }
-  ]
+  ],
+  "derived_skill_patch": {
+    "replace_labels": [{"old": "X", "new": "Y", "reason": "..."}],
+    "add_landmarks": ["landmark text"],
+    "verify_improvements": ["better verify condition"],
+    "failed_assumptions": ["what did not work"],
+    "successful_adaptations": ["what worked instead"]
+  }
 }
 ```
+The "derived_skill_patch" field is optional. If you have no corrections, omit it.

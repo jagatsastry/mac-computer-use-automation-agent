@@ -10,11 +10,19 @@ from typing import Callable, Optional, Tuple
 
 import structlog
 
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult, FindElementResult, StepResult
 from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
 from automation_agent.orchestrator.verifier import StepVerifier
+from automation_agent.shared_models import (
+    ActionPlan,
+    ActionStep,
+    ExecutionResult,
+    FindElementResult,
+    SkillMatchResult,
+    StepResult,
+)
+from automation_agent.skills.derived_skill import DerivedSkillSession
 
 slog = structlog.get_logger(__name__)
 
@@ -80,6 +88,9 @@ class AutomationAgent:
         skill_name: Optional[str] = None
         skill_context: Optional[str] = None
 
+        derived_session: Optional[DerivedSkillSession] = None
+        expanded_steps_for_distiller: Optional[str] = None
+
         try:
             # 1. Check for matching skill
             skill_match = await self.skill_registry.match(goal)
@@ -89,6 +100,30 @@ class AutomationAgent:
                 skill_context = skill_match.get("skill_context") or skill_match.get("expanded_steps")
                 if skill_context is None:
                     skill_context = self.skill_registry.expand(skill_name, params)
+
+                # Adaptive skill system: create DerivedSkillSession
+                if isinstance(skill_match, SkillMatchResult) and skill_match.candidates:
+                    candidates = skill_match.candidates
+                    parent_ids = [c.skill_id for c in candidates]
+                    match_types = [str(c.match_type.value) for c in candidates]
+                    steps_text = skill_match.expanded_steps or ""
+                    expanded_steps_for_distiller = steps_text
+                    derived_session = DerivedSkillSession.seed(
+                        parent_ids, match_types, steps_text
+                    )
+                    slog.info(
+                        "Created DerivedSkillSession from"
+                        f" {len(candidates)} parent skill(s)"
+                    )
+                    # Append derived procedure to skill_context
+                    if skill_context and derived_session:
+                        skill_context = (
+                            skill_context + "\n\n---\n\n"
+                            + derived_session.serialize_for_context()
+                        )
+                elif not isinstance(skill_match, SkillMatchResult):
+                    expanded_steps_for_distiller = skill_context
+
                 slog.info("🤔 Skill matched", skill_name=skill_name, params=params)
                 self.logger.log_event(
                     EventType.SKILL_MATCH,
@@ -215,6 +250,8 @@ class AutomationAgent:
                             start,
                             skill_name=skill_name,
                             skill_context=skill_context,
+                            derived_session=derived_session,
+                            expanded_steps_for_distiller=expanded_steps_for_distiller,
                         )
                         return replan_result
                     else:
@@ -250,6 +287,8 @@ class AutomationAgent:
                 skill_context=skill_context or "",
                 step_results=step_results,
                 had_replan=False,
+                derived_session=derived_session,
+                expanded_steps_for_distiller=expanded_steps_for_distiller,
             )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
@@ -441,15 +480,24 @@ class AutomationAgent:
         goal: str,
         skill_context: Optional[str],
     ) -> Optional[ActionPlan]:
-        """Compile a deterministic fallback plan from expanded skill steps when possible."""
+        """Compile a deterministic fallback plan from expanded skill steps when possible.
+
+        With multi-skill context, extracts steps only from the primary (first)
+        skill section before the first ``---`` separator. This prevents
+        cross-contamination from analogical/generic candidates or derived
+        procedure sections.
+        """
         if not skill_context:
             return None
+
+        # Extract primary skill section (before first --- separator)
+        primary_section = self._extract_primary_skill_section(skill_context)
 
         stop_condition = self._extract_stop_condition(goal)
         compiled_steps: list[ActionStep] = []
         stop_matched = False
 
-        for instruction, verify in self._parse_skill_steps(skill_context):
+        for instruction, verify in self._parse_skill_steps(primary_section):
             action_steps = self._compile_skill_instruction(instruction, verify)
             if action_steps is None:
                 return None
@@ -466,6 +514,26 @@ class AutomationAgent:
         if compiled_steps[-1].action != "done":
             compiled_steps.append(ActionStep(action="done", params={}, verify="", on_fail="abort"))
         return ActionPlan(steps=compiled_steps, goal=goal)
+
+    @staticmethod
+    def _extract_primary_skill_section(skill_context: str) -> str:
+        """Extract the primary (first) skill section from multi-skill context.
+
+        Splits on ``---`` separators and returns the first section. Also
+        strips out any ``## Derived Procedure`` block that may appear
+        within the primary section.
+        """
+        # Split on --- (horizontal rule separator between skill sections)
+        # Use \n+ to handle both single and double newline separators
+        sections = re.split(r"\n+---\n+", skill_context)
+        primary = sections[0] if sections else skill_context
+
+        # Remove any Derived Procedure block from the primary section
+        primary = re.split(
+            r"^## Derived Procedure\b", primary, flags=re.MULTILINE
+        )[0]
+
+        return primary
 
     @staticmethod
     def _extract_stop_condition(goal: str) -> Optional[str]:
@@ -1800,6 +1868,8 @@ class AutomationAgent:
         *,
         skill_name: Optional[str] = None,
         skill_context: Optional[str] = None,
+        derived_session: Optional[DerivedSkillSession] = None,
+        expanded_steps_for_distiller: Optional[str] = None,
     ):
         """Replan and attempt execution with new plan."""
         screen_desc = await self.coordinator.describe_screen()
@@ -1812,6 +1882,18 @@ class AutomationAgent:
             self.context_monitor.update_cheap()
             desktop_context = self.context_monitor.format_for_planner()
 
+        # Re-assemble skill_context with updated derived procedure
+        replan_ctx = skill_context
+        if derived_session and replan_ctx:
+            # Strip old derived procedure and append fresh one
+            replan_ctx = re.split(
+                r"\n+---\n+## Derived Procedure\b", replan_ctx
+            )[0]
+            replan_ctx = (
+                replan_ctx + "\n\n---\n\n"
+                + derived_session.serialize_for_context()
+            )
+
         self.logger.log_event(EventType.REPLAN_START, "Replanning...")
         new_plan = await self.planner.replan(
             goal,
@@ -1819,11 +1901,25 @@ class AutomationAgent:
             step_results,
             retry_strategies,
             desktop_context=desktop_context,
-            skill_context=skill_context,
+            skill_context=replan_ctx,
         )
         self.logger.log_event(
             EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
         )
+
+        # Apply replan patch to derived session if present
+        if derived_session and new_plan.replan_patch:
+            derived_session.apply_patch(new_plan.replan_patch)
+            n_labels = len(new_plan.replan_patch.replace_labels)
+            n_landmarks = len(new_plan.replan_patch.add_landmarks)
+            slog.info(
+                f"Applied ReplanPatch: {n_labels} label replacements,"
+                f" {n_landmarks} landmarks"
+            )
+        elif derived_session:
+            slog.info(
+                "No replan patch in LLM response, derived procedure unchanged"
+            )
 
         # Execute new plan with proper failure handling
         for i, step in enumerate(new_plan.steps):
@@ -1855,12 +1951,17 @@ class AutomationAgent:
         # Check final state: success only if last step passed or was 'done'
         last_result = step_results[-1] if step_results else None
         success = last_result.success if last_result else False
+        # skill_context arg is ignored when derived_session is set;
+        # _maybe_learn_skill_run rebuilds distiller context from
+        # expanded_steps_for_distiller + derived_session.
         await self._maybe_learn_skill_run(
             goal=goal,
             skill_name=skill_name,
             skill_context=skill_context or "",
             step_results=step_results,
             had_replan=True,
+            derived_session=derived_session,
+            expanded_steps_for_distiller=expanded_steps_for_distiller,
         )
         self.logger.finalize(success, f"Replanned: {goal}")
         return ExecutionResult(
@@ -1881,19 +1982,35 @@ class AutomationAgent:
         skill_context: str,
         step_results: list[StepResult],
         had_replan: bool,
+        derived_session: Optional[DerivedSkillSession] = None,
+        expanded_steps_for_distiller: Optional[str] = None,
     ) -> None:
-        """Best-effort skill learning from execution traces."""
+        """Best-effort skill learning from execution traces.
+
+        Builds a distiller-specific context containing only the primary
+        skill's original steps plus the derived procedure. Does NOT pass
+        the full multi-skill context to the distiller.
+        """
         if not skill_name or not step_results:
             return
         learn = getattr(self.skill_registry, "learn_from_run", None)
         if learn is None:
             return
+
+        # Build distiller-specific context: primary skill + derived procedure
+        distiller_ctx = skill_context
+        if derived_session and expanded_steps_for_distiller is not None:
+            distiller_ctx = expanded_steps_for_distiller
+            derived_text = derived_session.serialize_for_context()
+            if derived_text:
+                distiller_ctx = distiller_ctx + "\n\n---\n\n" + derived_text
+
         try:
             observations = await learn(
                 skill_name,
                 goal,
                 step_results,
-                skill_context=skill_context,
+                skill_context=distiller_ctx,
                 run_id=self.logger.run_id,
                 had_replan=had_replan,
             )

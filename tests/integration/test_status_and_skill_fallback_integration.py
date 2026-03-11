@@ -9,7 +9,14 @@ from automation_agent.__main__ import run_agent
 from automation_agent.config import AgentConfig, StatusUIMode
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.orchestrator.agent import AutomationAgent
-from automation_agent.shared_models import ActionPlan, ActionStep, ExecutionResult
+from automation_agent.shared_models import (
+    ActionPlan,
+    ActionStep,
+    ExecutionResult,
+    MatchType,
+    SkillRouteCandidate,
+    SkillRouteResult,
+)
 from automation_agent.skills import SkillRegistryImpl
 from automation_agent.status_overlay import StatusOverlayTailer
 
@@ -61,13 +68,17 @@ async def test_real_amazon_skill_fallback_executes_browser_steps(tmp_path):
     planner.replan = AsyncMock(return_value=ActionPlan(steps=[]))
 
     skill_registry = SkillRegistryImpl(config=config)
+    _route_result = SkillRouteResult(candidates=[
+        SkillRouteCandidate(
+            skill_id="return-amazon-order",
+            match_type=MatchType.DIRECT,
+            confidence=0.95,
+            reason="Exact match",
+        ),
+    ])
+    _route_result.params = {"item": "blue headphones"}
     skill_registry._router = MagicMock()
-    skill_registry._router.route = AsyncMock(
-        return_value={
-            "skill_name": "return-amazon-order",
-            "params": {"item": "blue headphones"},
-        }
-    )
+    skill_registry._router.route = AsyncMock(return_value=_route_result)
 
     coordinator = AsyncMock()
     coordinator.describe_screen = AsyncMock(return_value="Terminal is frontmost")

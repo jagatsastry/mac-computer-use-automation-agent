@@ -129,12 +129,29 @@ async def run_agent(
     status_overlay = StatusOverlayController(config=config, events_file=agent.logger.events_file)
 
     if dry_run:
-        # Dry run - just plan without executing
+        # Dry run - plan with skill matching but without executing
         logger.info("dry_run_parsing", prompt=prompt)
         print(f"\n[DRY RUN] Planning: {prompt}")
 
         try:
-            plan = await planner.plan(prompt)
+            # Match skills first (same as execute() path)
+            skill_context = None
+            skill_match = await skill_registry.match(prompt)
+            if skill_match:
+                skill_name = skill_match.skill_name
+                candidates = skill_match.candidates
+                print(f"\n[SKILLS] Matched: {skill_name}")
+                for c in candidates:
+                    print(
+                        f"    - {c.skill_id} "
+                        f"[{c.match_type}] "
+                        f"(confidence: {c.confidence:.2f})"
+                    )
+                skill_context = skill_match.skill_context
+            else:
+                print("\n[SKILLS] No skill match found")
+
+            plan = await planner.plan(prompt, skill_context=skill_context)
             print(f"\nPlanned Steps:")
             for i, step in enumerate(plan.steps, 1):
                 print(f"    {i}. {step.action}: {step.params}")

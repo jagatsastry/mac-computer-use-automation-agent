@@ -1,6 +1,9 @@
 ---
 name: amazon-search
+skill-id: amazon-search
 description: Search Amazon for a product and find the cheapest option
+summary: Navigate to Amazon, search for a product, and sort results by price to find the cheapest option.
+tags: [ecommerce, amazon, shopping, search, price]
 trigger-keywords: [amazon, buy, cheapest, shop, purchase, price, product]
 parameters:
   product:

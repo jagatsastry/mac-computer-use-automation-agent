@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import structlog
 
 from automation_agent.config import AgentConfig
-from automation_agent.shared_models import ActionPlan, ActionStep, StepResult
+from automation_agent.shared_models import ActionPlan, ActionStep, ReplanPatch, StepResult
 
 logger = structlog.get_logger(__name__)
 
@@ -282,6 +282,25 @@ class ActionPlannerImpl:
                 f"Response: {content[:500]}"
             )
 
+        # Extract derived_skill_patch BEFORE the steps check so it is
+        # captured even if the response is otherwise invalid (for logging).
+        replan_patch = None
+        if isinstance(data, dict):
+            patch_dict = data.get("derived_skill_patch")
+            if patch_dict is not None:
+                try:
+                    replan_patch = ReplanPatch.from_dict(patch_dict)
+                except Exception:
+                    logger.debug(
+                        "Failed to parse derived_skill_patch",
+                        exc_info=True,
+                    )
+                    replan_patch = ReplanPatch()
+                logger.debug(
+                    "Extracted replan patch before steps check",
+                    has_patch=replan_patch is not None,
+                )
+
         if not isinstance(data, dict) or "steps" not in data:
             raise ValueError(
                 f"LLM response missing 'steps' key: {content[:500]}"
@@ -308,4 +327,5 @@ class ActionPlannerImpl:
             goal=goal,
             raw_llm_response=content,
             token_usage=response.get("usage"),
+            replan_patch=replan_patch,
         )

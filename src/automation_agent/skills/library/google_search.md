@@ -1,6 +1,9 @@
 ---
 name: google-search
+skill-id: google-search
 description: Search Google for a query
+summary: Open a web browser, navigate to Google, and execute a search query to display results.
+tags: [search, web, google, browser]
 trigger-keywords: [google, search, look up, find]
 parameters:
   query:
