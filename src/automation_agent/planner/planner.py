@@ -120,10 +120,7 @@ class ActionPlannerImpl:
         return plan
 
     async def _call_llm(self, prompt: str) -> dict:
-        """Call Anthropic Claude API with retry and exponential backoff.
-
-        Retries on overloaded (529) and rate-limit (429) errors up to 4 times
-        with exponential backoff (1s, 2s, 4s, 8s).
+        """Call LLM for planning — routes to Anthropic or local based on config.
 
         Args:
             prompt: The prompt to send to the LLM.
@@ -131,6 +128,39 @@ class ActionPlannerImpl:
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
         """
+        provider = getattr(self.config.model_provider, "value", self.config.model_provider)
+        if provider == "local":
+            return await self._call_local_llm(prompt)
+        return await self._call_anthropic_llm(prompt)
+
+    async def _call_local_llm(self, prompt: str) -> dict:
+        """Call a local OpenAI-compatible endpoint (e.g. Ollama)."""
+        import httpx
+
+        url = f"{self.config.text_server_url}/v1/chat/completions"
+        payload = {
+            "model": self.config.text_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 4096,
+            "temperature": 0.0,
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            choice = data["choices"][0]
+            usage = data.get("usage", {})
+            return {
+                "content": choice["message"]["content"],
+                "usage": {
+                    "input_tokens": usage.get("prompt_tokens", 0),
+                    "output_tokens": usage.get("completion_tokens", 0),
+                },
+            }
+
+    async def _call_anthropic_llm(self, prompt: str) -> dict:
+        """Call Anthropic Claude API with retry and exponential backoff."""
         import asyncio
 
         import anthropic

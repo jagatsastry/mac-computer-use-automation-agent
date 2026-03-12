@@ -66,6 +66,10 @@ class AgentConfig(BaseSettings):
         default="gemma2:9b",
         description="Text model for planning and reasoning",
     )
+    text_server_url: str = Field(
+        default="http://localhost:11434",
+        description="Server URL for text/planning model (any OpenAI-compatible endpoint, e.g. Ollama)",
+    )
     vision_server_timeout: int = Field(
         default=300,
         description="Timeout in seconds for vision server API calls",

@@ -32,7 +32,8 @@ async def _call_local(
 ) -> str:
     import httpx
 
-    url = f"{config.vision_server_url}/v1/chat/completions"
+    base = getattr(config, "text_server_url", None) or config.vision_server_url
+    url = f"{base}/v1/chat/completions"
     payload = {
         "model": model or config.text_model or config.vision_model,
         "messages": [{"role": "user", "content": prompt}],
