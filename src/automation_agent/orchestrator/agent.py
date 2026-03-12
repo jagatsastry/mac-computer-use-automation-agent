@@ -349,7 +349,7 @@ class AutomationAgent:
                 duration_s=round(duration / 1000, 1),
                 iterations=iterations,
             )
-            await self._maybe_learn_skill_run(
+            observations = await self._maybe_learn_skill_run(
                 goal=goal,
                 skill_name=skill_name,
                 skill_context=skill_context or "",
@@ -357,6 +357,16 @@ class AutomationAgent:
                 had_replan=False,
                 derived_session=derived_session,
                 expanded_steps_for_distiller=expanded_steps_for_distiller,
+            )
+            await self._maybe_promote_skill(
+                goal=goal,
+                skill_name=skill_name,
+                observations=observations,
+                derived_session=derived_session,
+                step_results=step_results,
+                run_id=self.logger.run_id,
+                had_replan=False,
+                success=True,
             )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
@@ -2391,7 +2401,7 @@ class AutomationAgent:
         # skill_context arg is ignored when derived_session is set;
         # _maybe_learn_skill_run rebuilds distiller context from
         # expanded_steps_for_distiller + derived_session.
-        await self._maybe_learn_skill_run(
+        observations = await self._maybe_learn_skill_run(
             goal=goal,
             skill_name=skill_name,
             skill_context=skill_context or "",
@@ -2399,6 +2409,16 @@ class AutomationAgent:
             had_replan=True,
             derived_session=derived_session,
             expanded_steps_for_distiller=expanded_steps_for_distiller,
+        )
+        await self._maybe_promote_skill(
+            goal=goal,
+            skill_name=skill_name,
+            observations=observations,
+            derived_session=derived_session,
+            step_results=step_results,
+            run_id=self.logger.run_id,
+            had_replan=True,
+            success=success,
         )
         self.logger.finalize(success, f"Replanned: {goal}")
         if abort_error:
@@ -2432,18 +2452,21 @@ class AutomationAgent:
         had_replan: bool,
         derived_session: Optional[DerivedSkillSession] = None,
         expanded_steps_for_distiller: Optional[str] = None,
-    ) -> None:
+    ) -> list:
         """Best-effort skill learning from execution traces.
 
         Builds a distiller-specific context containing only the primary
         skill's original steps plus the derived procedure. Does NOT pass
         the full multi-skill context to the distiller.
+
+        Returns list of SkillObservation distilled from this run (empty on
+        early exit or error).
         """
         if not skill_name or not step_results:
-            return
+            return []
         learn = getattr(self.skill_registry, "learn_from_run", None)
         if learn is None:
-            return
+            return []
 
         # Build distiller-specific context: primary skill + derived procedure
         distiller_ctx = skill_context
@@ -2464,10 +2487,53 @@ class AutomationAgent:
             )
         except Exception:
             slog.warning("skill_learning_failed", skill_name=skill_name, exc_info=True)
-            return
+            return []
         if observations:
             self.logger.log_event(
                 EventType.SKILL_EXPAND,
                 f"Learned {len(observations)} generalized skill observation(s)",
                 data={"skill_name": skill_name, "count": len(observations)},
             )
+        return observations if observations else []
+
+    async def _maybe_promote_skill(
+        self,
+        *,
+        goal: str,
+        skill_name: Optional[str],
+        observations: list,
+        derived_session=None,
+        step_results: list = None,
+        run_id: str = "",
+        had_replan: bool = False,
+        success: bool = True,
+    ) -> None:
+        """Best-effort skill promotion from accumulated observations.
+
+        Uses getattr to check for promote_from_run on the registry, consistent
+        with the learn_from_run pattern.
+        """
+        if not skill_name or not observations:
+            return
+        promote = getattr(self.skill_registry, "promote_from_run", None)
+        if promote is None:
+            return
+        try:
+            decision = await promote(
+                goal=goal,
+                skill_name=skill_name,
+                derived_session=derived_session,
+                observations=observations,
+                trace=step_results or [],
+                run_id=run_id,
+                had_replan=had_replan,
+                success=success,
+            )
+            if decision and getattr(decision, "promotion_type", None) != "observation_only":
+                slog.info(
+                    "skill_promotion_applied",
+                    skill_name=skill_name,
+                    promotion_type=getattr(decision, "promotion_type", "unknown"),
+                )
+        except Exception:
+            slog.warning("skill_promotion_failed", skill_name=skill_name, exc_info=True)

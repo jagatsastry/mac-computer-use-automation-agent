@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Set, Tuple
 
 from automation_agent.skills.models import SkillObservation
 
@@ -63,7 +64,9 @@ class SkillExperienceStore:
         observations = [
             item
             for item in self.load(skill_name)
-            if item.confidence >= min_confidence and item.recommendation.strip()
+            if item.confidence >= min_confidence
+            and item.recommendation.strip()
+            and not getattr(item, "promoted", False)
         ]
         observations.sort(key=lambda item: (item.confidence, item.created_at), reverse=True)
         seen: set[tuple[str, str]] = set()
@@ -77,6 +80,42 @@ class SkillExperienceStore:
             if len(selected) >= limit:
                 break
         return selected
+
+    def mark_promoted(
+        self, skill_name: str, keys: Set[Tuple[str, str]]
+    ) -> int:
+        """Mark observations matching (category, recommendation) keys as promoted.
+
+        Returns count marked. Uses atomic write-to-temp + rename.
+        """
+        path = self._path_for(skill_name)
+        if not path.exists():
+            return 0
+        lines = path.read_text(encoding="utf-8").splitlines()
+        marked = 0
+        updated_lines: List[str] = []
+        for line in lines:
+            if not line.strip():
+                updated_lines.append(line)
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                updated_lines.append(line)
+                continue
+            key = (
+                data.get("category", "").strip().lower(),
+                data.get("recommendation", "").strip().lower(),
+            )
+            if key in keys and not data.get("promoted", False):
+                data["promoted"] = True
+                marked += 1
+            updated_lines.append(json.dumps(data, sort_keys=True))
+        if marked > 0:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+            os.replace(str(tmp), str(path))
+        return marked
 
     def _path_for(self, skill_name: str) -> Path:
         safe_name = skill_name.replace("/", "_")

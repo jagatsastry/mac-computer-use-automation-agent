@@ -1,0 +1,1276 @@
+"""Unit tests for SkillLibrarian — core evaluation, LLM calls, validation, file ops."""
+
+from __future__ import annotations
+
+import json
+import os
+import textwrap
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from automation_agent.config import AgentConfig
+from automation_agent.skills.experience import SkillExperienceStore
+from automation_agent.skills.models import (
+    PromotionDecision,
+    Skill,
+    SkillObservation,
+    SkillRequirements,
+)
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+SAMPLE_SKILL_MD = textwrap.dedent("""\
+---
+name: return-amazon-order
+skill-id: return-amazon-order
+description: Return an item on Amazon
+summary: Automates the Amazon return flow
+tags: [ecommerce, return]
+trigger-keywords: [return, amazon, refund]
+parameters:
+  item:
+    type: string
+    required: true
+    description: What to return
+requires:
+  apps: [Safari]
+  os: darwin
+success-condition: Return confirmation visible
+max-retries: 3
+---
+
+## Steps
+1. Open orders page
+   - verify: Orders page visible
+2. Search for "{{item}}"
+   - verify: Matching order visible
+
+## Error Recovery
+- If return button is absent: look for order details first
+
+## Notes
+- Treat labels as likely affordances, not guarantees
+""")
+
+SAMPLE_SKILL_WITH_TIPS_MD = textwrap.dedent("""\
+---
+name: return-amazon-order
+skill-id: return-amazon-order
+description: Return an item on Amazon
+summary: Automates the Amazon return flow
+tags: [ecommerce, return]
+trigger-keywords: [return, amazon, refund]
+parameters:
+  item:
+    type: string
+    required: true
+    description: What to return
+requires:
+  apps: [Safari]
+  os: darwin
+success-condition: Return confirmation visible
+max-retries: 3
+---
+
+## Steps
+1. Open orders page
+   - verify: Orders page visible
+2. Search for "{{item}}"
+   - verify: Matching order visible
+
+## Error Recovery
+- If return button is absent: look for order details first
+
+## Learned Tips
+- When the return button is hidden, click "View order details" first
+
+## Notes
+- Treat labels as likely affordances, not guarantees
+""")
+
+
+def _make_config(tmp_path: Path, **overrides) -> AgentConfig:
+    defaults = dict(
+        _env_file=None,
+        anthropic_api_key="test-key-not-real",
+        model_provider="local",
+        skill_learning_dir=tmp_path / "learning",
+        skill_librarian_enabled=True,
+    )
+    defaults.update(overrides)
+    return AgentConfig(**defaults)
+
+
+def _make_skill(**overrides) -> Skill:
+    defaults = dict(
+        name="return-amazon-order",
+        description="Return an item on Amazon",
+        trigger_keywords=["return", "amazon", "refund"],
+        parameters={},
+        requires=SkillRequirements(apps=["Safari"], os="darwin"),
+        success_condition="Return confirmation visible",
+        steps_text="1. Open orders\n   - verify: Orders visible",
+        error_recovery_text="- If return absent: view details first",
+        notes_text="- Treat labels as affordances",
+        raw_content=SAMPLE_SKILL_MD,
+        skill_id="return-amazon-order",
+        tags=["ecommerce", "return"],
+        summary="Automates Amazon return flow",
+    )
+    defaults.update(overrides)
+    return Skill(**defaults)
+
+
+def _make_observations(
+    n: int = 5,
+    category: str = "alternative_path",
+    recommendation: str = "click View item first",
+    confidence: float = 0.8,
+    run_ids: list[str] | None = None,
+) -> list[SkillObservation]:
+    if run_ids is None:
+        run_ids = [f"run-{i}" for i in range(n)]
+    obs = []
+    for i in range(n):
+        obs.append(
+            SkillObservation(
+                category=category,
+                condition="When return button is absent",
+                recommendation=recommendation,
+                rationale="Trace showed View item was visible",
+                confidence=confidence,
+                run_id=run_ids[i % len(run_ids)],
+            )
+        )
+    return obs
+
+
+@pytest.fixture
+def tmp_config(tmp_path):
+    return _make_config(tmp_path)
+
+
+@pytest.fixture
+def experience_store(tmp_path):
+    store = SkillExperienceStore(tmp_path / "learning")
+    return store
+
+
+@pytest.fixture
+def mock_registry():
+    registry = MagicMock()
+    skill = _make_skill()
+    registry.get_skill.return_value = skill
+    registry._skills = {"return-amazon-order": skill}
+    registry.load_from_string.return_value = skill
+    return registry
+
+
+@pytest.fixture
+def librarian(tmp_config, experience_store, mock_registry):
+    from automation_agent.skills.librarian import SkillLibrarian
+
+    return SkillLibrarian(
+        config=tmp_config,
+        experience_store=experience_store,
+        registry=mock_registry,
+    )
+
+
+# ===========================================================================
+# 1. Data Model Tests
+# ===========================================================================
+
+
+class TestDataModels:
+    def test_skill_observation_promoted_default(self):
+        obs = SkillObservation(
+            category="checkpoint",
+            condition="Page loaded",
+            recommendation="Check title",
+        )
+        assert obs.promoted is False
+
+    def test_skill_observation_promoted_explicit(self):
+        obs = SkillObservation(
+            category="checkpoint",
+            condition="Page loaded",
+            recommendation="Check title",
+            promoted=True,
+        )
+        assert obs.promoted is True
+
+    def test_skill_parent_skill_id_default(self):
+        skill = _make_skill()
+        assert skill.parent_skill_id == ""
+
+    def test_skill_learned_tips_text_default(self):
+        skill = _make_skill()
+        assert skill.learned_tips_text == ""
+
+    def test_promotion_decision_fields(self):
+        decision = PromotionDecision(
+            skill_name="return-amazon-order",
+            promotion_type="patch_parent",
+            reason="Strong evidence",
+            confidence_score=0.85,
+            observation_keys=[["alternative_path", "click view item first"]],
+            run_id="run-1",
+            timestamp="2026-03-12T00:00:00",
+            generated_tips="- Tip one",
+            observation_count=5,
+            distinct_run_count=3,
+        )
+        assert decision.promotion_type == "patch_parent"
+        assert decision.new_skill_id == ""
+        assert decision.parent_skill_id == ""
+
+    def test_promotion_decision_serializes_to_json(self):
+        decision = PromotionDecision(
+            skill_name="test",
+            promotion_type="observation_only",
+            reason="Not enough evidence",
+            confidence_score=0.5,
+            observation_keys=[],
+            run_id="run-1",
+            timestamp="2026-03-12T00:00:00",
+        )
+        data = asdict(decision)
+        text = json.dumps(data)
+        restored = json.loads(text)
+        assert restored["promotion_type"] == "observation_only"
+
+
+# ===========================================================================
+# 2. Config Tests
+# ===========================================================================
+
+
+class TestConfig:
+    def test_librarian_defaults(self):
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        assert config.skill_librarian_enabled is False
+        assert config.skill_librarian_min_confidence == 0.7
+        assert config.skill_librarian_min_observations == 5
+        assert config.skill_librarian_min_runs == 3
+        assert config.skill_librarian_max_tips == 10
+
+    def test_librarian_env_override(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AGENT_SKILL_LIBRARIAN_ENABLED", "true")
+        monkeypatch.setenv("AGENT_SKILL_LIBRARIAN_MIN_CONFIDENCE", "0.8")
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        assert config.skill_librarian_enabled is True
+        assert config.skill_librarian_min_confidence == 0.8
+
+
+# ===========================================================================
+# 3. Experience Store Tests
+# ===========================================================================
+
+
+class TestExperienceStore:
+    def test_mark_promoted_round_trip(self, experience_store):
+        obs = _make_observations(3, run_ids=["r1", "r2", "r3"])
+        experience_store.append("test-skill", obs)
+
+        keys = {("alternative_path", "click view item first")}
+        marked = experience_store.mark_promoted("test-skill", keys)
+        assert marked == 3
+
+        reloaded = experience_store.load("test-skill")
+        for item in reloaded:
+            assert item.promoted is True
+
+    def test_top_for_context_excludes_promoted(self, experience_store):
+        obs = _make_observations(3, confidence=0.9, run_ids=["r1", "r2", "r3"])
+        experience_store.append("test-skill", obs)
+
+        # Before marking: should be returned
+        top = experience_store.top_for_context("test-skill", limit=5)
+        assert len(top) == 1  # deduplicated to 1 unique key
+
+        # Mark promoted
+        keys = {("alternative_path", "click view item first")}
+        experience_store.mark_promoted("test-skill", keys)
+
+        # After marking: should be excluded
+        top = experience_store.top_for_context("test-skill", limit=5)
+        assert len(top) == 0
+
+    def test_mark_promoted_backward_compat(self, experience_store):
+        """Old JSONL lines without 'promoted' field still work."""
+        path = experience_store._path_for("test-skill")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write a line without 'promoted' field
+        line = json.dumps({
+            "category": "checkpoint",
+            "condition": "Page loaded",
+            "recommendation": "Check title",
+            "rationale": "",
+            "confidence": 0.9,
+            "run_id": "r1",
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        path.write_text(line + "\n")
+
+        loaded = experience_store.load("test-skill")
+        assert len(loaded) == 1
+        assert loaded[0].promoted is False
+
+        top = experience_store.top_for_context("test-skill", limit=5)
+        assert len(top) == 1
+
+    def test_mark_promoted_no_matching_keys(self, experience_store):
+        obs = _make_observations(2, run_ids=["r1", "r2"])
+        experience_store.append("test-skill", obs)
+
+        keys = {("nonexistent", "nothing")}
+        marked = experience_store.mark_promoted("test-skill", keys)
+        assert marked == 0
+
+    def test_mark_promoted_missing_file(self, experience_store):
+        keys = {("x", "y")}
+        marked = experience_store.mark_promoted("nonexistent-skill", keys)
+        assert marked == 0
+
+
+# ===========================================================================
+# 4. Score Computation Tests
+# ===========================================================================
+
+
+class TestScoreComputation:
+    def test_all_corroborating(self, librarian):
+        obs = _make_observations(5, confidence=0.9)
+        score = librarian._compute_score(obs)
+        # alpha=5, beta=0 -> (5+1)/(5+0+2) = 6/7 ≈ 0.857
+        assert abs(score - 6 / 7) < 1e-6
+
+    def test_all_contradicting(self, librarian):
+        obs = _make_observations(5, confidence=0.2)
+        score = librarian._compute_score(obs)
+        # alpha=0, beta=5 -> (0+1)/(0+5+2) = 1/7 ≈ 0.143
+        assert abs(score - 1 / 7) < 1e-6
+
+    def test_mixed(self, librarian):
+        obs = [
+            *_make_observations(3, confidence=0.8, run_ids=["r1", "r2", "r3"]),
+            *_make_observations(2, confidence=0.2, run_ids=["r4", "r5"]),
+        ]
+        score = librarian._compute_score(obs)
+        # alpha=3, beta=2 -> (3+1)/(3+2+2) = 4/7 ≈ 0.571
+        assert abs(score - 4 / 7) < 1e-6
+
+    def test_all_neutral(self, librarian):
+        obs = _make_observations(5, confidence=0.5)
+        score = librarian._compute_score(obs)
+        # alpha=0, beta=0 -> 1/2 = 0.5
+        assert score == 0.5
+
+    def test_empty_group(self, librarian):
+        score = librarian._compute_score([])
+        # alpha=0, beta=0 -> 1/2 = 0.5
+        assert score == 0.5
+
+
+# ===========================================================================
+# 5. Grouping Tests
+# ===========================================================================
+
+
+class TestGrouping:
+    def test_multi_group(self, librarian):
+        obs = [
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click View item",
+                confidence=0.8,
+                run_id="r1",
+            ),
+            SkillObservation(
+                category="checkpoint",
+                condition="c",
+                recommendation="verify order title",
+                confidence=0.7,
+                run_id="r2",
+            ),
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click View item",
+                confidence=0.9,
+                run_id="r3",
+            ),
+        ]
+        groups = librarian._group_observations(obs)
+        assert len(groups) == 2
+
+    def test_case_insensitive_dedup(self, librarian):
+        obs = [
+            SkillObservation(
+                category="Alternative_Path",
+                condition="c",
+                recommendation="Click VIEW item",
+                confidence=0.8,
+                run_id="r1",
+            ),
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click view item",
+                confidence=0.9,
+                run_id="r2",
+            ),
+        ]
+        groups = librarian._group_observations(obs)
+        assert len(groups) == 1
+
+    def test_punctuation_normalization(self, librarian):
+        obs = [
+            SkillObservation(
+                category="checkpoint",
+                condition="c",
+                recommendation="Click the 'confirm' button.",
+                confidence=0.8,
+                run_id="r1",
+            ),
+            SkillObservation(
+                category="checkpoint",
+                condition="c",
+                recommendation="Click the confirm button",
+                confidence=0.9,
+                run_id="r2",
+            ),
+        ]
+        groups = librarian._group_observations(obs)
+        assert len(groups) == 1
+
+    def test_empty_observations(self, librarian):
+        groups = librarian._group_observations([])
+        assert groups == {}
+
+
+# ===========================================================================
+# 6. History Dedup Tests
+# ===========================================================================
+
+
+class TestHistoryDedup:
+    def test_skip_already_promoted(self, librarian, tmp_config):
+        history_dir = tmp_config.skill_learning_dir / "promotions"
+        history_dir.mkdir(parents=True)
+        entry = {
+            "skill_name": "return-amazon-order",
+            "observation_keys": [["alternative_path", "click view item first"]],
+        }
+        (history_dir / "history.jsonl").write_text(
+            json.dumps(entry) + "\n", encoding="utf-8"
+        )
+
+        promoted = librarian._load_promotion_history("return-amazon-order")
+        assert ("alternative_path", "click view item first") in promoted
+
+    def test_missing_history_file(self, librarian):
+        promoted = librarian._load_promotion_history("return-amazon-order")
+        assert promoted == set()
+
+    def test_corrupt_jsonl_line(self, librarian, tmp_config):
+        history_dir = tmp_config.skill_learning_dir / "promotions"
+        history_dir.mkdir(parents=True)
+        content = "not valid json\n" + json.dumps({
+            "skill_name": "return-amazon-order",
+            "observation_keys": [["checkpoint", "verify title"]],
+        }) + "\n"
+        (history_dir / "history.jsonl").write_text(content, encoding="utf-8")
+
+        promoted = librarian._load_promotion_history("return-amazon-order")
+        assert ("checkpoint", "verify title") in promoted
+
+
+# ===========================================================================
+# 7. Threshold Filtering Tests
+# ===========================================================================
+
+
+class TestThresholdFiltering:
+    def test_below_min_observations(self, librarian, tmp_config):
+        """Group with fewer than min_observations should not qualify."""
+        tmp_config.skill_librarian_min_observations = 5
+        obs = _make_observations(3, confidence=0.9, run_ids=["r1", "r2", "r3"])
+        groups = librarian._group_observations(obs)
+        key = list(groups.keys())[0]
+        group = groups[key]
+        assert len(group) < tmp_config.skill_librarian_min_observations
+
+    def test_below_min_runs(self, librarian, tmp_config):
+        """Group with fewer than min_runs distinct run_ids should not qualify."""
+        tmp_config.skill_librarian_min_runs = 3
+        obs = _make_observations(5, confidence=0.9, run_ids=["r1", "r2"])
+        groups = librarian._group_observations(obs)
+        key = list(groups.keys())[0]
+        group = groups[key]
+        distinct = len({o.run_id for o in group if o.run_id})
+        assert distinct < tmp_config.skill_librarian_min_runs
+
+    def test_below_min_confidence(self, librarian, tmp_config):
+        """Group with score below min_confidence should not qualify."""
+        tmp_config.skill_librarian_min_confidence = 0.7
+        obs = _make_observations(5, confidence=0.5, run_ids=["r1", "r2", "r3", "r4", "r5"])
+        score = librarian._compute_score(obs)
+        assert score < tmp_config.skill_librarian_min_confidence
+
+    def test_exactly_at_threshold(self, librarian, tmp_config):
+        """Group exactly at thresholds should qualify."""
+        tmp_config.skill_librarian_min_observations = 5
+        tmp_config.skill_librarian_min_runs = 3
+        obs = _make_observations(
+            5, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5"]
+        )
+        groups = librarian._group_observations(obs)
+        key = list(groups.keys())[0]
+        group = groups[key]
+        assert len(group) >= tmp_config.skill_librarian_min_observations
+        distinct = len({o.run_id for o in group if o.run_id})
+        assert distinct >= tmp_config.skill_librarian_min_runs
+        score = librarian._compute_score(group)
+        assert score >= tmp_config.skill_librarian_min_confidence
+
+
+# ===========================================================================
+# 8. LLM Parse Tests
+# ===========================================================================
+
+
+class TestLLMParse:
+    def test_valid_json(self, librarian):
+        result = librarian._parse_response(
+            '{"promotion_type": "patch_parent", "reason": "Strong evidence"}'
+        )
+        assert result is not None
+        assert result["promotion_type"] == "patch_parent"
+
+    def test_fenced_json(self, librarian):
+        result = librarian._parse_response(
+            '```json\n{"promotion_type": "observation_only", "reason": "Not enough"}\n```'
+        )
+        assert result is not None
+        assert result["promotion_type"] == "observation_only"
+
+    def test_missing_fields(self, librarian):
+        result = librarian._parse_response('{"promotion_type": "patch_parent"}')
+        assert result is None  # missing "reason"
+
+    def test_invalid_promotion_type(self, librarian):
+        result = librarian._parse_response(
+            '{"promotion_type": "invalid_type", "reason": "test"}'
+        )
+        assert result is None
+
+    def test_non_json_response(self, librarian):
+        result = librarian._parse_response("This is not JSON at all")
+        assert result is None
+
+
+# ===========================================================================
+# 9. Tips Validation Tests
+# ===========================================================================
+
+
+class TestTipsValidation:
+    def test_valid_tips(self, librarian):
+        assert librarian._validate_tips("- Tip one\n- Tip two") is True
+
+    def test_empty_tips(self, librarian):
+        assert librarian._validate_tips("") is False
+        assert librarian._validate_tips("   ") is False
+
+    def test_tips_with_frontmatter_delimiter(self, librarian):
+        assert librarian._validate_tips("---\nname: bad\n---") is False
+
+    def test_tips_with_steps_heading(self, librarian):
+        assert librarian._validate_tips("## Steps\n1. Do thing") is False
+
+    def test_tips_with_error_recovery_heading(self, librarian):
+        assert librarian._validate_tips("## Error Recovery\n- If X: Y") is False
+
+
+# ===========================================================================
+# 10. Sibling Validation Tests
+# ===========================================================================
+
+
+class TestSiblingValidation:
+    def test_valid_sibling_md(self, librarian):
+        md = textwrap.dedent("""\
+        ---
+        name: return-walmart-order
+        skill-id: return-walmart-order
+        description: Return an item on Walmart
+        summary: Automates the Walmart return flow
+        tags: [ecommerce, return]
+        trigger-keywords: [return, walmart]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Return confirmation visible
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Open orders page
+           - verify: Orders page visible
+
+        ## Error Recovery
+        - If return button absent: check order details
+
+        ## Notes
+        - Walmart-specific notes
+        """)
+        assert librarian._validate_sibling_md(md) is True
+
+    def test_sibling_missing_frontmatter(self, librarian):
+        md = "# No frontmatter\nJust text"
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_missing_steps(self, librarian):
+        md = textwrap.dedent("""\
+        ---
+        name: bad-skill
+        description: Missing steps
+        trigger-keywords: [test]
+        requires:
+          os: darwin
+        success-condition: Done
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Notes
+        - No steps section
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_missing_parent_skill_id(self, librarian):
+        md = textwrap.dedent("""\
+        ---
+        name: no-parent
+        skill-id: no-parent
+        description: Missing parent
+        summary: No parent
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+
+# ===========================================================================
+# 11. File Manipulation Tests
+# ===========================================================================
+
+
+class TestFileManipulation:
+    def test_patch_without_existing_tips(self, librarian, mock_registry):
+        skill = _make_skill(raw_content=SAMPLE_SKILL_MD)
+        mock_registry.get_skill.return_value = skill
+
+        result = librarian._apply_patch_parent(
+            "return-amazon-order", "- New tip one\n- New tip two"
+        )
+        assert "## Learned Tips" in result
+        assert "- New tip one" in result
+        assert "- New tip two" in result
+        # Original sections should remain
+        assert "## Steps" in result
+        assert "## Notes" in result
+
+    def test_patch_with_existing_tips(self, librarian, mock_registry):
+        skill = _make_skill(raw_content=SAMPLE_SKILL_WITH_TIPS_MD)
+        mock_registry.get_skill.return_value = skill
+
+        result = librarian._apply_patch_parent(
+            "return-amazon-order", "- New appended tip"
+        )
+        assert "## Learned Tips" in result
+        # Both old and new tips present
+        assert "click \"View order details\" first" in result
+        assert "- New appended tip" in result
+
+    def test_sibling_write(self, librarian, tmp_config, mock_registry):
+        md = textwrap.dedent("""\
+        ---
+        name: return-walmart-order
+        skill-id: return-walmart-order
+        description: Return item on Walmart
+        summary: Walmart return flow
+        tags: [ecommerce]
+        trigger-keywords: [return, walmart]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Return confirmed
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Go to orders
+           - verify: Orders visible
+
+        ## Error Recovery
+        - If absent: refresh
+
+        ## Notes
+        - Walmart notes
+        """)
+        parent = _make_skill()
+        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        assert skill_id == "return-walmart-order"
+        assert Path(file_path).exists()
+
+    def test_sibling_name_collision(self, librarian, mock_registry):
+        """When skill name already exists, append numeric suffix."""
+        mock_registry._skills = {
+            "return-amazon-order": _make_skill(),
+            "return-walmart-order": _make_skill(name="return-walmart-order"),
+        }
+        md = textwrap.dedent("""\
+        ---
+        name: return-walmart-order
+        skill-id: return-walmart-order
+        description: Duplicate name
+        summary: Duplicate
+        tags: [test]
+        trigger-keywords: [return, walmart]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        parent = _make_skill()
+        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        # Should have a suffix to avoid collision
+        assert skill_id != "return-walmart-order"
+        assert "return-walmart-order" in skill_id
+
+
+# ===========================================================================
+# 12. Commit Sequence Tests
+# ===========================================================================
+
+
+class TestCommitSequence:
+    @pytest.mark.asyncio
+    async def test_successful_patch_parent(self, librarian, mock_registry, experience_store):
+        """Full patch_parent commit: write file, reload, mark promoted, write history."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        # Mock LLM calls
+        librarian._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "patch_parent",
+                "reason": "Strong evidence for tips",
+            }
+        )
+        librarian._generate_content = AsyncMock(
+            return_value={"learned_tips": "- When return is hidden, try View item"}
+        )
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-eval-1",
+            had_replan=False,
+            success=True,
+        )
+
+        assert decision is not None
+        assert decision.promotion_type == "patch_parent"
+        assert decision.generated_tips != ""
+        # History file should exist
+        history_path = (
+            librarian.config.skill_learning_dir / "promotions" / "history.jsonl"
+        )
+        assert history_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_rollback_on_router_failure(
+        self, librarian, mock_registry, experience_store
+    ):
+        """If load_from_string fails, rollback and return observation_only."""
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        librarian._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "patch_parent",
+                "reason": "Strong evidence",
+            }
+        )
+        librarian._generate_content = AsyncMock(
+            return_value={"learned_tips": "- Tip"}
+        )
+        mock_registry.load_from_string.side_effect = Exception("Router rebuild failed")
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-rollback",
+            had_replan=False,
+            success=True,
+        )
+
+        assert decision is not None
+        assert decision.promotion_type == "observation_only"
+        assert "rollback" in decision.reason.lower() or "fail" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_successful_create_sibling(
+        self, librarian, mock_registry, experience_store
+    ):
+        sibling_md = textwrap.dedent("""\
+        ---
+        name: return-walmart-order
+        skill-id: return-walmart-order
+        description: Return item on Walmart
+        summary: Walmart return
+        tags: [ecommerce]
+        trigger-keywords: [return, walmart]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Return confirmed
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Go to orders
+           - verify: Orders visible
+
+        ## Error Recovery
+        - If absent: refresh
+
+        ## Notes
+        - Walmart notes
+        """)
+
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        librarian._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "create_sibling",
+                "reason": "Distinct workflow for Walmart",
+            }
+        )
+        librarian._generate_content = AsyncMock(
+            return_value={"sibling_skill_md": sibling_md}
+        )
+
+        # Create a mock DerivedSkillSession
+        derived = MagicMock()
+        derived.serialize_for_context.return_value = "Derived context"
+        derived.parent_skill_ids = ["return-amazon-order"]
+
+        decision = await librarian.evaluate_run(
+            goal="Return item on Walmart",
+            skill_name="return-amazon-order",
+            derived_session=derived,
+            observations=obs,
+            trace=[],
+            run_id="run-sibling",
+            had_replan=False,
+            success=True,
+        )
+
+        assert decision is not None
+        assert decision.promotion_type == "create_sibling"
+        assert decision.new_skill_id != ""
+
+
+# ===========================================================================
+# 13. evaluate_run Flow Tests
+# ===========================================================================
+
+
+class TestEvaluateRunFlow:
+    @pytest.mark.asyncio
+    async def test_no_qualifying_groups(self, librarian, experience_store):
+        """With insufficient observations, should return None."""
+        obs = _make_observations(2, confidence=0.9, run_ids=["r1", "r2"])
+        experience_store.append("return-amazon-order", obs)
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-noqualify",
+            had_replan=False,
+            success=True,
+        )
+        assert decision is None
+
+    @pytest.mark.asyncio
+    async def test_observation_only_decision(self, librarian, experience_store):
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        librarian._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "observation_only",
+                "reason": "Environment specific",
+            }
+        )
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-obsonly",
+            had_replan=False,
+            success=True,
+        )
+        assert decision is not None
+        assert decision.promotion_type == "observation_only"
+
+    @pytest.mark.asyncio
+    async def test_exception_during_llm_returns_none(
+        self, librarian, experience_store
+    ):
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        librarian._decide_promotion_type = AsyncMock(side_effect=Exception("LLM down"))
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-error",
+            had_replan=False,
+            success=True,
+        )
+        assert decision is None
+
+    @pytest.mark.asyncio
+    async def test_tip_limit_reached(self, librarian, mock_registry, experience_store):
+        """When existing tips exceed max, should return observation_only."""
+        librarian.config.skill_librarian_max_tips = 2
+        skill_with_tips = _make_skill(
+            raw_content=SAMPLE_SKILL_WITH_TIPS_MD,
+            learned_tips_text="- Tip 1\n- Tip 2",
+        )
+        mock_registry.get_skill.return_value = skill_with_tips
+
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        experience_store.append("return-amazon-order", obs)
+
+        librarian._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "patch_parent",
+                "reason": "Strong evidence",
+            }
+        )
+        librarian._generate_content = AsyncMock(
+            return_value={"learned_tips": "- Another tip"}
+        )
+
+        decision = await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-limit",
+            had_replan=False,
+            success=True,
+        )
+        assert decision is not None
+        assert decision.promotion_type == "observation_only"
+        assert "tip_limit" in decision.reason.lower() or "limit" in decision.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_disabled_returns_none(self, tmp_path, experience_store, mock_registry):
+        """When librarian is disabled, evaluate_run should be a no-op."""
+        config = _make_config(tmp_path, skill_librarian_enabled=False)
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        lib = SkillLibrarian(config=config, experience_store=experience_store, registry=mock_registry)
+        obs = _make_observations(6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"])
+
+        decision = await lib.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-disabled",
+            had_replan=False,
+            success=True,
+        )
+        assert decision is None
+
+    @pytest.mark.asyncio
+    async def test_one_promotion_per_run(self, librarian, experience_store):
+        """Only the highest-scoring group should be promoted."""
+        obs_group1 = [
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click View item",
+                confidence=0.9,
+                run_id=f"r{i}",
+            )
+            for i in range(6)
+        ]
+        obs_group2 = [
+            SkillObservation(
+                category="checkpoint",
+                condition="c",
+                recommendation="verify title",
+                confidence=0.7,
+                run_id=f"r{i}",
+            )
+            for i in range(6)
+        ]
+        all_obs = obs_group1 + obs_group2
+        experience_store.append("return-amazon-order", all_obs)
+
+        call_count = 0
+
+        async def mock_decide(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {
+                "promotion_type": "observation_only",
+                "reason": "test",
+            }
+
+        librarian._decide_promotion_type = mock_decide
+
+        await librarian.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=all_obs,
+            trace=[],
+            run_id="run-multi",
+            had_replan=False,
+            success=True,
+        )
+        # Only one LLM call — the highest scoring group
+        assert call_count == 1
+
+
+# ===========================================================================
+# 14. LLM Utils / call_skill_llm Tests
+# ===========================================================================
+
+
+class TestCallSkillLLM:
+    @pytest.mark.asyncio
+    async def test_local_dispatch(self, tmp_config):
+        from automation_agent.skills.llm_utils import call_skill_llm
+
+        tmp_config.model_provider = "local"
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_response = MagicMock()
+            mock_response.json.return_value = {
+                "choices": [{"message": {"content": "test response"}}]
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            result = await call_skill_llm(tmp_config, "test prompt")
+            assert result == "test response"
+
+    @pytest.mark.asyncio
+    async def test_anthropic_dispatch(self, tmp_path):
+        config = _make_config(tmp_path, model_provider="anthropic")
+        from automation_agent.skills.llm_utils import call_skill_llm
+
+        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+            mock_client = MagicMock()
+            mock_message = MagicMock()
+            mock_message.content = [MagicMock(text="anthropic response")]
+            mock_client.messages.create = AsyncMock(return_value=mock_message)
+            mock_anthropic_cls.return_value = mock_client
+
+            result = await call_skill_llm(config, "test prompt")
+            assert result == "anthropic response"
+
+
+# ===========================================================================
+# 15. Atomic Write Tests
+# ===========================================================================
+
+
+class TestAtomicWrite:
+    def test_atomic_write(self, tmp_path):
+        from automation_agent.skills.librarian import _atomic_write
+
+        target = tmp_path / "test.md"
+        _atomic_write(target, "hello world")
+        assert target.read_text() == "hello world"
+        # Temp file should not remain
+        assert not (tmp_path / "test.md.tmp").exists()
+
+    def test_atomic_write_overwrites(self, tmp_path):
+        from automation_agent.skills.librarian import _atomic_write
+
+        target = tmp_path / "test.md"
+        target.write_text("old content")
+        _atomic_write(target, "new content")
+        assert target.read_text() == "new content"
+
+
+# ===========================================================================
+# 16. History Write Tests
+# ===========================================================================
+
+
+class TestHistoryWrite:
+    def test_write_history(self, librarian, tmp_config):
+        decision = PromotionDecision(
+            skill_name="return-amazon-order",
+            promotion_type="patch_parent",
+            reason="Strong evidence",
+            confidence_score=0.85,
+            observation_keys=[["alternative_path", "click view item first"]],
+            run_id="run-1",
+            timestamp="2026-03-12T00:00:00",
+            generated_tips="- Tip one",
+        )
+        librarian._write_history(decision)
+
+        history_path = tmp_config.skill_learning_dir / "promotions" / "history.jsonl"
+        assert history_path.exists()
+        data = json.loads(history_path.read_text().strip())
+        assert data["skill_name"] == "return-amazon-order"
+        assert data["promotion_type"] == "patch_parent"
+
+    def test_write_history_appends(self, librarian, tmp_config):
+        for i in range(3):
+            decision = PromotionDecision(
+                skill_name="return-amazon-order",
+                promotion_type="patch_parent",
+                reason=f"Reason {i}",
+                confidence_score=0.85,
+                observation_keys=[],
+                run_id=f"run-{i}",
+                timestamp="2026-03-12T00:00:00",
+            )
+            librarian._write_history(decision)
+
+        history_path = tmp_config.skill_learning_dir / "promotions" / "history.jsonl"
+        lines = [l for l in history_path.read_text().splitlines() if l.strip()]
+        assert len(lines) == 3
+
+
+# ===========================================================================
+# 17. Pre-promotion Baseline Tests
+# ===========================================================================
+
+
+class TestPrePromotionBaseline:
+    def test_baseline_computation(self, librarian, experience_store):
+        """Baseline should capture friction run stats before promotion."""
+        obs = [
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click view item",
+                confidence=0.9,
+                run_id="r1",
+            ),
+            SkillObservation(
+                category="alternative_path",
+                condition="c",
+                recommendation="click view item",
+                confidence=0.9,
+                run_id="r2",
+            ),
+        ]
+        baseline = librarian._compute_baseline(obs)
+        assert "friction_runs" in baseline
+        assert baseline["friction_runs"] == 2

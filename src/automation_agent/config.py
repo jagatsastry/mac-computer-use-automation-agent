@@ -161,6 +161,33 @@ class AgentConfig(BaseSettings):
         gt=0,
     )
 
+    # Skill Librarian Configuration
+    skill_librarian_enabled: bool = Field(
+        default=False,
+        description="Promote high-confidence observations into canonical skills",
+    )
+    skill_librarian_min_confidence: float = Field(
+        default=0.7,
+        description="Minimum Bayesian score for promotion",
+        gt=0.0,
+        le=1.0,
+    )
+    skill_librarian_min_observations: int = Field(
+        default=5,
+        description="Minimum observation count before promotion",
+        gt=0,
+    )
+    skill_librarian_min_runs: int = Field(
+        default=3,
+        description="Minimum distinct run_ids before promotion",
+        gt=0,
+    )
+    skill_librarian_max_tips: int = Field(
+        default=10,
+        description="Maximum bullet entries in a skill's Learned Tips section",
+        gt=0,
+    )
+
     # Event Logger Configuration
     event_log_dir: Path = Field(
         default=Path("logs/runs"),

@@ -92,6 +92,10 @@ def parse_skill_file(content: str) -> Skill:
     if not isinstance(tags, list):
         tags = []
     summary = meta.get("summary", "")
+    parent_skill_id = meta.get("parent-skill-id", "")
+
+    # Extract Learned Tips section
+    learned_tips_text = _extract_section(body, "Learned Tips")
 
     return Skill(
         name=name,
@@ -108,6 +112,8 @@ def parse_skill_file(content: str) -> Skill:
         skill_id=skill_id,
         tags=tags,
         summary=summary,
+        parent_skill_id=parent_skill_id,
+        learned_tips_text=learned_tips_text,
     )
 
 

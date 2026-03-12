@@ -78,36 +78,11 @@ class SkillDistiller:
         return prompt
 
     async def _call_llm(self, prompt: str) -> str:
-        if self.config.model_provider.value == "anthropic":
-            return await self._call_anthropic(prompt)
-        return await self._call_local(prompt)
+        from automation_agent.skills.llm_utils import call_skill_llm
 
-    async def _call_local(self, prompt: str) -> str:
-        import httpx
-
-        url = f"{self.config.vision_server_url}/v1/chat/completions"
-        payload = {
-            "model": self.config.text_model or self.config.vision_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "temperature": 0.0,
-            "stream": False,
-        }
-        async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-
-    async def _call_anthropic(self, prompt: str) -> str:
-        import anthropic
-
-        client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
-        message = await client.messages.create(
-            model=self.config.anthropic_model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
+        return await call_skill_llm(
+            self.config, prompt, max_tokens=1024, temperature=0.0,
         )
-        return message.content[0].text
 
     def _parse_response(self, response: str, run_id: str = "") -> List[SkillObservation]:
         text = response.strip()

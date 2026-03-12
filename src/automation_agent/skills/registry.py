@@ -74,9 +74,22 @@ class SkillRegistryImpl:
         self._config = config
         self._experience_store: Optional[SkillExperienceStore] = None
         self._distiller: Optional[SkillDistiller] = None
+        self._librarian = None
         if self._config is not None and self._config.skill_learning_enabled:
             self._experience_store = SkillExperienceStore(self._config.skill_learning_dir)
             self._distiller = SkillDistiller(self._config)
+        if (
+            self._config is not None
+            and self._config.skill_librarian_enabled
+            and self._experience_store is not None
+        ):
+            from automation_agent.skills.librarian import SkillLibrarian
+
+            self._librarian = SkillLibrarian(
+                config=self._config,
+                experience_store=self._experience_store,
+                registry=self,
+            )
         if self._skill_dir.is_dir():
             self.load_from_directory(self._skill_dir)
         # Router created lazily after skills are loaded
@@ -381,6 +394,8 @@ class SkillRegistryImpl:
             sections.extend(["", "## Recovery Heuristics", skill.error_recovery_text])
         if skill.notes_text:
             sections.extend(["", "## Notes", skill.notes_text])
+        if skill.learned_tips_text:
+            sections.extend(["", "## Learned Tips", skill.learned_tips_text])
         observations = self._load_observations_for_context(skill_name)
         if observations:
             sections.extend(["", "## Observed Variants"])
@@ -429,6 +444,34 @@ class SkillRegistryImpl:
                     observation.run_id = run_id
         self._experience_store.append(skill_name, observations)
         return observations
+
+    async def promote_from_run(
+        self,
+        goal: str,
+        skill_name: str,
+        derived_session,
+        observations: List[SkillObservation],
+        trace: List[StepResult],
+        run_id: str,
+        had_replan: bool,
+        success: bool,
+    ):
+        """Evaluate and promote accumulated observations after a run.
+
+        No-op if librarian is disabled. Same duck-typing pattern as learn_from_run.
+        """
+        if self._librarian is None:
+            return None
+        return await self._librarian.evaluate_run(
+            goal=goal,
+            skill_name=skill_name,
+            derived_session=derived_session,
+            observations=observations,
+            trace=trace,
+            run_id=run_id,
+            had_replan=had_replan,
+            success=success,
+        )
 
     def _load_observations_for_context(self, skill_name: str) -> List[SkillObservation]:
         if not self._experience_store or not self._config:
