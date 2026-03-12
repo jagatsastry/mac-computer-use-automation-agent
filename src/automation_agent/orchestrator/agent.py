@@ -75,10 +75,13 @@ class AutomationAgent:
         # Rec 4: tracks (left, top, right, bottom) of last successful click
         # in screenshot_resolution pixel space. Reset at start of each execute().
         self.last_successful_region: Optional[Tuple[int, int, int, int]] = None
+        # Current skill context for error recovery hint lookups
+        self._current_skill_context: Optional[str] = None
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
         self.last_successful_region = None  # Rec 4: reset for new task
+        self._current_skill_context = None  # Reset for new task
         start = time.monotonic()
         slog.info("🎯 Executing goal", goal=goal)
         self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
@@ -134,6 +137,9 @@ class AutomationAgent:
                 slog.info("🤔 No matching skill found")
                 self.logger.log_event(EventType.SKILL_NO_MATCH, "No matching skill found")
 
+            # Store skill context for error recovery hint lookups
+            self._current_skill_context = skill_context
+
             # 2. Get screen description for context
             screen_desc = ""
             desktop_context = ""
@@ -174,10 +180,16 @@ class AutomationAgent:
                     )
                     plan = fallback_plan
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
+            plan_data = {"step_count": len(plan.steps)}
+            if plan.raw_llm_response:
+                plan_data["llm_response"] = plan.raw_llm_response
+            plan_data["steps_summary"] = [
+                f"{s.action}({s.params})" for s in plan.steps
+            ]
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
                 f"Plan: {len(plan.steps)} steps",
-                data={"step_count": len(plan.steps)},
+                data=plan_data,
             )
 
             # BUG 5 FIX: Validate plan before execution — reject empty verify fields
@@ -258,21 +270,26 @@ class AutomationAgent:
                         step_results.append(recovery_result)
                         iterations += 1
                         if not recovery_result.success:
-                            # Recovery also failed
+                            # Recovery also failed — stop executing
+                            duration = int((time.monotonic() - start) * 1000)
                             if step.on_fail == "abort":
-                                duration = int((time.monotonic() - start) * 1000)
                                 self.logger.log_event(
                                     EventType.TASK_FAIL, "Step failed with abort policy"
                                 )
-                                return ExecutionResult(
-                                    success=False,
-                                    message=f"Step {i} failed: {result.evidence}",
-                                    steps=step_results,
-                                    total_duration_ms=duration,
-                                    iterations=iterations,
-                                    goal=goal,
-                                    run_id=self.logger.run_id,
+                            else:
+                                self.logger.log_event(
+                                    EventType.TASK_FAIL,
+                                    f"Step {i} failed after recovery; stopping",
                                 )
+                            return ExecutionResult(
+                                success=False,
+                                message=f"Step {i} failed: {result.evidence}",
+                                steps=step_results,
+                                total_duration_ms=duration,
+                                iterations=iterations,
+                                goal=goal,
+                                run_id=self.logger.run_id,
+                            )
 
             # Success
             duration = int((time.monotonic() - start) * 1000)
@@ -432,14 +449,22 @@ class AutomationAgent:
         ):
             verification = await self._reflect_failed_action(step, actuator_result, verification)
 
+        step_complete_data = {
+            "success": verification.success,
+            "method": verification.verification_method,
+            "evidence": verification.evidence,
+        }
+        if verification.reflection_hint:
+            step_complete_data["reflection_hint"] = verification.reflection_hint
+        if verification.suggested_element:
+            step_complete_data["suggested_element"] = verification.suggested_element
+        if verification.reflection_observed:
+            step_complete_data["reflection_observed"] = verification.reflection_observed
         self.logger.log_event(
             EventType.STEP_COMPLETE,
             f"Step {index}: {'PASS' if verification.success else 'FAIL'} -- {verification.evidence}",
             step_index=index,
-            data={
-                "success": verification.success,
-                "method": verification.verification_method,
-            },
+            data=step_complete_data,
         )
 
         # Rec 4: record the successful click region for resolution-aware narrowing
@@ -937,9 +962,19 @@ class AutomationAgent:
                                 ),
                             }
 
+                    element_data = {
+                        "element": params["element"],
+                        "x": location.x,
+                        "y": location.y,
+                        "confidence": location.confidence,
+                        "source": location.source,
+                    }
+                    if location.raw_response:
+                        element_data["vision_response"] = location.raw_response
                     self.logger.log_event(
                         EventType.ELEMENT_FOUND,
-                        f"Found at image ({location.x}, {location.y}) / screen ({location.screen_x}, {location.screen_y})",
+                        f"Found '{params['element']}' at ({location.x}, {location.y}) conf={location.confidence:.2f} via {location.source}",
+                        data=element_data,
                     )
                     screen_x = location.screen_x if location.screen_x is not None else location.x
                     screen_y = location.screen_y if location.screen_y is not None else location.y
@@ -996,6 +1031,27 @@ class AutomationAgent:
                     result = self.actuator.open_url(params.get("url", ""))
             elif action == "quit_app":
                 result = self.actuator.quit_app(params.get("app_name", ""))
+            elif action == "scroll":
+                direction = params.get("direction", "down")
+                try:
+                    amount = abs(int(params.get("amount", 3)))
+                except (ValueError, TypeError):
+                    amount = 3
+                clicks = amount if direction == "up" else -amount
+                if direction in ("left", "right"):
+                    clicks = amount if direction == "right" else -amount
+                    result = self.actuator.scroll(
+                        clicks,
+                        x=params.get("x"),
+                        y=params.get("y"),
+                        horizontal=True,
+                    )
+                else:
+                    result = self.actuator.scroll(
+                        clicks,
+                        x=params.get("x"),
+                        y=params.get("y"),
+                    )
             else:
                 result = {"success": False, "error": f"Unknown action: {action}"}
 
@@ -1571,14 +1627,43 @@ class AutomationAgent:
         goal: str,
         result: StepResult,
     ) -> StepResult:
-        """Suggest a visible alternative control when a click target is absent."""
+        """Suggest a visible alternative control when a click target is absent.
+
+        Checks skill error recovery hints first; falls back to vision model.
+        """
+        missing_target = str(step.params.get("element", ""))
+
+        # Check skill error recovery hints first
+        if self._current_skill_context:
+            skill_hint = self._check_skill_error_recovery(
+                missing_target, self._current_skill_context
+            )
+            if skill_hint:
+                self.logger.log_event(
+                    EventType.ELEMENT_SEARCH,
+                    f"Skill hint alternative: '{skill_hint}' for missing '{missing_target}'",
+                    data={
+                        "missing_target": missing_target,
+                        "suggested_affordance": skill_hint,
+                        "source": "skill_error_recovery",
+                    },
+                )
+                result.reflection_hint = "use_alternative_affordance"
+                result.suggested_element = skill_hint
+                result.reflection_observed = "Skill error recovery hint"
+                result.evidence = (
+                    f"{result.evidence}. Suggested from skill hints: {skill_hint}"
+                )
+                return result
+
+        # Fall back to vision model
         if not self._has_explicit_method(self.coordinator, "suggest_alternative_affordance"):
             return result
 
         try:
             screenshot_b64 = await self._capture_screenshot()
             suggestion = await self.coordinator.suggest_alternative_affordance(
-                missing_target=str(step.params.get("element", "")),
+                missing_target=missing_target,
                 task_goal=goal,
                 expected_observation=step.expected_observation or step.verify,
                 screenshot_b64=screenshot_b64,
@@ -1593,9 +1678,19 @@ class AutomationAgent:
         affordance = str(suggestion.get("affordance", "")).strip()
         if not affordance:
             return result
-        if affordance.lower() == str(step.params.get("element", "")).strip().lower():
+        if affordance.lower() == missing_target.strip().lower():
             return result
 
+        self.logger.log_event(
+            EventType.ELEMENT_SEARCH,
+            f"Alternative affordance suggested: '{affordance}' for missing '{missing_target}'",
+            data={
+                "missing_target": missing_target,
+                "suggested_affordance": affordance,
+                "reason": str(suggestion.get("reason", "")),
+                "vision_response": str(suggestion.get("raw_response", "")),
+            },
+        )
         result.reflection_hint = "use_alternative_affordance"
         result.suggested_element = affordance
         result.reflection_observed = str(suggestion.get("reason", "")).strip()
@@ -1607,6 +1702,57 @@ class AutomationAgent:
                 f"{result.evidence}. Suggestion reason: {result.reflection_observed}"
             )
         return result
+
+    @staticmethod
+    def _check_skill_error_recovery(
+        missing_target: str, skill_context: str
+    ) -> Optional[str]:
+        """Extract a suggested alternative from skill error recovery hints.
+
+        Scans the Error Recovery / Recovery Heuristics section for lines that
+        mention the missing target and extracts the suggested action.
+
+        Returns the suggested alternative element, or None if not found.
+        """
+        if not skill_context or not missing_target:
+            return None
+
+        # Find the error recovery section (supports both header variants)
+        recovery_match = re.search(
+            r"##\s*(?:Error Recovery|Recovery Heuristics)\s*\n(.*?)(?=\n##|\Z)",
+            skill_context,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not recovery_match:
+            return None
+
+        recovery_text = recovery_match.group(1)
+        missing_lower = missing_target.lower()
+
+        for line in recovery_text.splitlines():
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            # Match lines like: - If "X" is absent: click "Y" ...
+            if missing_lower in line_stripped.lower():
+                # Extract quoted alternative after the colon
+                colon_idx = line_stripped.find(":")
+                if colon_idx < 0:
+                    continue
+                after_colon = line_stripped[colon_idx + 1:]
+                # Look for quoted text as the suggested element
+                quoted = re.findall(r'"([^"]+)"', after_colon)
+                if quoted:
+                    return quoted[0]
+                # Look for "click X" / "look for X" patterns
+                action_match = re.search(
+                    r"(?:click|look for|try|use)\s+(\S+(?:\s+\S+){0,3})",
+                    after_colon,
+                    re.IGNORECASE,
+                )
+                if action_match:
+                    return action_match.group(1).strip().rstrip(".")
+        return None
 
     def _maybe_crop_screenshot(
         self, screenshot_b64: str
@@ -1903,8 +2049,16 @@ class AutomationAgent:
             desktop_context=desktop_context,
             skill_context=replan_ctx,
         )
+        replan_data = {"step_count": len(new_plan.steps)}
+        if new_plan.raw_llm_response:
+            replan_data["llm_response"] = new_plan.raw_llm_response
+        replan_data["steps_summary"] = [
+            f"{s.action}({s.params})" for s in new_plan.steps
+        ]
         self.logger.log_event(
-            EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
+            EventType.REPLAN_COMPLETE,
+            f"New plan: {len(new_plan.steps)} steps",
+            data=replan_data,
         )
 
         # Apply replan patch to derived session if present
@@ -1938,14 +2092,39 @@ class AutomationAgent:
                 )
                 continue
             if not result.success:
-                if step.on_fail == "abort":
-                    break
-                # Don't recurse into another replan — just record the failure
-                self.logger.log_event(
-                    EventType.STEP_RETRY,
-                    f"Replan step {i} failed: {result.evidence}",
-                    step_index=i,
+                # Use _handle_failure for retries, but do NOT recurse into
+                # another replan — one level of replanning is enough.
+                recovery_result = await self._handle_failure(
+                    i, step, result, step_results, goal, new_plan, iterations
                 )
+                if recovery_result is None:
+                    # _handle_failure wants to replan again, but we're already
+                    # in a replan. Log and stop rather than recurse.
+                    self.logger.log_event(
+                        EventType.STEP_REPLAN,
+                        f"Replan step {i} exhausted retries; stopping replan execution",
+                        step_index=i,
+                    )
+                    break  # Stop executing remaining steps
+                else:
+                    step_results.append(recovery_result)
+                    iterations += 1
+                    if not recovery_result.success:
+                        # Recovery failed — stop executing remaining steps
+                        # since they likely depend on this one succeeding.
+                        if step.on_fail == "abort":
+                            self.logger.log_event(
+                                EventType.TASK_FAIL,
+                                f"Replan step {i} failed with abort policy",
+                                step_index=i,
+                            )
+                        else:
+                            self.logger.log_event(
+                                EventType.STEP_REPLAN,
+                                f"Replan step {i} failed after recovery; stopping",
+                                step_index=i,
+                            )
+                        break
 
         duration = int((time.monotonic() - start_time) * 1000)
         # Check final state: success only if last step passed or was 'done'

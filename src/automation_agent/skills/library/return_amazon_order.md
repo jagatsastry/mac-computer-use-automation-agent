@@ -28,7 +28,7 @@ max-retries: 3
    - verify: Search bar is focused
 5. Type "{{item}}" and press Enter
    - verify: Search results visible
-6. Find the most recent order containing "{{item}}" and navigate into the return flow from that same order card or its details view
+6. Scroll through the search results to find the most recent order containing "{{item}}". Click into the order card or its details view, then locate and click the return-related control (e.g., "Return or Replace Items", "View return options")
    - verify: Return options page visible
 7. Select the return reason and continue through the return flow
    - verify: Return method or next return step is visible
@@ -36,10 +36,13 @@ max-retries: 3
    - verify: Return confirmation visible
 
 ## Error Recovery
-- If the orders page opens away from the search controls: reposition first, then search again
+- If login page appears at step 1: wait for user to sign in, then continue
+- If the orders page opens away from the search controls: scroll up or reposition first, then search again
+- If search results require scrolling: use scroll_down to reveal more orders before giving up
 - If "Return or Replace Items" is not visible on the matching order card: look for a semantically adjacent affordance on that same order card or order details view, such as "View item", "Order details", or another visible route toward returns
 - If the page changes but not into the return flow: observe the new page and continue from the visible order-specific controls instead of assuming the return step is complete
-- If item not eligible: abort with message to user
+- If return button is below the fold on the order details page: scroll down to reveal return-related controls
+- If item not eligible for return (return window closed or item type excluded): abort with message to user explaining why
 
 ## Notes
 - Treat the named controls in this skill as likely affordances, not guaranteed literal text

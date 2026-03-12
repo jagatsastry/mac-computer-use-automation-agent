@@ -136,6 +136,42 @@ class AppleScriptActuator:
         script = f'tell application "{app_name}" to quit'
         return self._run_osascript(script).to_dict()
 
+    def scroll(
+        self,
+        clicks: int,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        horizontal: bool = False,
+    ) -> Dict[str, Any]:
+        """Scroll the mouse wheel.
+
+        Args:
+            clicks: Number of scroll clicks. Positive = up, negative = down.
+            x: Optional x coordinate to scroll at.
+            y: Optional y coordinate to scroll at.
+            horizontal: If True, scroll horizontally instead of vertically.
+        """
+        try:
+            import pyautogui
+            saved_failsafe = pyautogui.FAILSAFE
+            pyautogui.FAILSAFE = False
+            try:
+                if horizontal:
+                    pyautogui.hscroll(clicks, x=x, y=y)
+                else:
+                    pyautogui.scroll(clicks, x=x, y=y)
+            finally:
+                pyautogui.FAILSAFE = saved_failsafe
+            direction = "up" if clicks > 0 else "down"
+            if horizontal:
+                direction = "right" if clicks > 0 else "left"
+            return ActuatorResult(
+                success=True,
+                output=f"Scrolled {direction} {abs(clicks)} clicks",
+            ).to_dict()
+        except Exception as e:
+            return ActuatorResult(success=False, error=str(e)).to_dict()
+
     def get_accessibility_elements(self, app_name: str = "") -> list:
         """Query macOS Accessibility API for visible, interactive UI elements.
 

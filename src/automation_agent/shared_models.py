@@ -30,6 +30,8 @@ _ACTION_ALIASES: Dict[str, str] = {
     "goto_url": "open_url",
     "go_to_url": "open_url",
     "find_element": "click",
+    "scroll_down": "scroll",
+    "scroll_up": "scroll",
     "wait": "wait_for_user",
     "finish": "done",
     "complete": "done",
@@ -70,7 +72,7 @@ class ActionStep:
     the expected screen state after the step executes.
     """
 
-    action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "observe", "wait_for_user", "done"
+    action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "scroll", "observe", "wait_for_user", "done"
     params: Dict[str, Any] = field(default_factory=dict)
     verify: str = ""  # MANDATORY — what must be true after this step
     expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
@@ -85,6 +87,7 @@ class ActionStep:
             "open_url",
             "activate_app",
             "quit_app",
+            "scroll",
             "observe",
             "wait_for_user",
             "done",
@@ -105,12 +108,20 @@ class ActionStep:
 
         Automatically corrects common LLM action name misspellings
         (e.g., 'key_press' → 'press_key').
+        Also infers scroll direction from aliases like 'scroll_down' → 'scroll'.
         """
         raw_action = data.get("action", "")
         action = _ACTION_ALIASES.get(raw_action, raw_action)
+        params = data.get("params", {})
+        # Inject direction for scroll aliases when not explicitly provided
+        if action == "scroll" and "direction" not in params:
+            if raw_action == "scroll_down":
+                params = {**params, "direction": "down"}
+            elif raw_action == "scroll_up":
+                params = {**params, "direction": "up"}
         return cls(
             action=action,
-            params=data.get("params", {}),
+            params=params,
             verify=data.get("verify", ""),
             expected_observation=data.get("expected_observation", ""),
             on_fail=data.get("on_fail", "retry_different"),

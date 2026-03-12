@@ -26,6 +26,7 @@ You are a macOS desktop automation planner. Given a user goal, produce a JSON ac
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
 - `open_url`: Open URL in browser. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)
+- `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at)
 - `observe`: Take a screenshot and describe what's on screen. Params: none
 - `wait_for_user`: Pause and wait for user action. Params: `message` (string)
 - `done`: Task complete. Params: none

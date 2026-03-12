@@ -29,6 +29,7 @@ or incomplete in a reusable way.
   - user-required gates such as login or MFA
   - anti-patterns: assumptions the skill should avoid
 - Ignore one-off wording differences.
+- If the execution required replanning (retries after failures), be skeptical of "alternative path" observations — only emit them if the alternative actually led to the correct outcome, not just a page transition.
 - If there is nothing reusable, return {"observations": []}.
 
 ## JSON Format

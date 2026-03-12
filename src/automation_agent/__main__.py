@@ -49,6 +49,8 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.log_dir = args.log_dir
     if hasattr(args, "status_ui") and args.status_ui:
         config.status_ui = args.status_ui
+    if hasattr(args, "verbose_overlay") and args.verbose_overlay:
+        config.verbose_overlay = True
 
     # Molmo mode: force local vision model for coordinate grounding
     if hasattr(args, "molmo") and args.molmo:

@@ -259,6 +259,10 @@ class AgentConfig(BaseSettings):
         description="How long the status overlay stays visible after completion",
         ge=0.0,
     )
+    verbose_overlay: bool = Field(
+        default=False,
+        description="Show detailed LLM responses and reasoning in the status overlay",
+    )
 
     # Safety Configuration
     require_confirmation: bool = Field(

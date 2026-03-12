@@ -86,6 +86,11 @@ Examples:
         choices=[mode.value for mode in StatusUIMode],
         help="Show a live on-screen status UI during execution",
     )
+    parser.add_argument(
+        "--verbose-overlay",
+        action="store_true",
+        help="Show detailed LLM responses and reasoning in the status overlay",
+    )
 
     # Execution
     parser.add_argument(

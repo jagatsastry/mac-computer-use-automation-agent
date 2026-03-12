@@ -420,6 +420,9 @@ class SkillRegistryImpl:
             trace=trace,
             run_id=run_id,
         )
+        if had_replan:
+            for obs in observations:
+                obs.confidence = min(obs.confidence, 0.6)
         if run_id:
             for observation in observations:
                 if not observation.run_id:

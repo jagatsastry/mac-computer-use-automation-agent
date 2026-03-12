@@ -143,6 +143,16 @@ class Actuator(Protocol):
         """Quit an application. Returns result dict."""
         ...
 
+    def scroll(
+        self,
+        clicks: int,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        horizontal: bool = False,
+    ) -> Dict[str, Any]:
+        """Scroll the mouse wheel. Returns result dict."""
+        ...
+
     def get_state(self) -> Dict[str, Any]:
         """Get current desktop state (frontmost app, window title, etc.)."""
         ...

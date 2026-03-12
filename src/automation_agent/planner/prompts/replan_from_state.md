@@ -17,6 +17,18 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 ## Strategies Already Tried
 {{retry_strategies}}
 
+## Available Actions
+- `activate_app`: Launch or bring an app to front. Params: `app_name` (string)
+- `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
+- `type_text`: Type text. Params: `text` (string)
+- `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
+- `open_url`: Open URL in browser. Params: `url` (string)
+- `quit_app`: Quit an application. Params: `app_name` (string)
+- `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at)
+- `observe`: Take a screenshot and describe what's on screen. Params: none
+- `wait_for_user`: Pause and wait for user action. Params: `message` (string)
+- `done`: Task complete. Params: none
+
 ## CRITICAL: You MUST try a DIFFERENT approach than what was already attempted.
 Do NOT repeat the same actions that failed. Consider:
 - Using a different UI path to reach the same goal
@@ -31,8 +43,14 @@ Do NOT repeat the same actions that failed. Consider:
 Respond with ONLY valid JSON (no markdown, no explanation).
 The "steps" key is REQUIRED. Every step MUST have a non-empty "verify" field.
 For visual or UI-changing actions, include `expected_observation` with the expected immediate visible result.
-Optionally include a "derived_skill_patch" if you discovered corrections
-that should be remembered for the rest of this run:
+
+If the previous attempt failed because a UI label, element name, or assumption from the skill was wrong, you MUST include a "derived_skill_patch" in your response. Specifically:
+- "replace_labels": when an expected label wasn't found and you're using a different one
+- "failed_assumptions": what the previous plan assumed that turned out wrong
+- "successful_adaptations": what alternative approach worked
+
+Only omit "derived_skill_patch" if the failure was purely execution-related (timeout, network error) rather than a wrong assumption about the UI.
+
 ```json
 {
   "steps": [
@@ -54,4 +72,3 @@ that should be remembered for the rest of this run:
   }
 }
 ```
-The "derived_skill_patch" field is optional. If you have no corrections, omit it.
