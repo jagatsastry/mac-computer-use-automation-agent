@@ -4,12 +4,28 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Set, Tuple
 
 from automation_agent.skills.models import SkillObservation
+
+_NORMALIZE_RE = re.compile(r"[^\w\s]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_key(text: str) -> str:
+    """Normalize text for matching: lowercase, strip punctuation, collapse whitespace.
+
+    Must match SkillLibrarian._normalize_key() to ensure mark_promoted() keys
+    align with the librarian's grouping keys.
+    """
+    text = text.strip().lower()
+    text = _NORMALIZE_RE.sub("", text)
+    text = _WHITESPACE_RE.sub(" ", text).strip()
+    return text
 
 
 class SkillExperienceStore:
@@ -72,7 +88,7 @@ class SkillExperienceStore:
         seen: set[tuple[str, str]] = set()
         selected: List[SkillObservation] = []
         for item in observations:
-            key = (item.category.strip().lower(), item.recommendation.strip().lower())
+            key = (_normalize_key(item.category), _normalize_key(item.recommendation))
             if key in seen:
                 continue
             selected.append(item)
@@ -104,8 +120,8 @@ class SkillExperienceStore:
                 updated_lines.append(line)
                 continue
             key = (
-                data.get("category", "").strip().lower(),
-                data.get("recommendation", "").strip().lower(),
+                _normalize_key(data.get("category", "")),
+                _normalize_key(data.get("recommendation", "")),
             )
             if key in keys and not data.get("promoted", False):
                 data["promoted"] = True
