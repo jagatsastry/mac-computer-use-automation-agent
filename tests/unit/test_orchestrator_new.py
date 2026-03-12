@@ -901,7 +901,7 @@ class TestBugFixes:
         mock_coordinator.find_element = AsyncMock(return_value=None)
         plan = _make_plan([step], goal="Return the most recent Tylenol order on Amazon")
 
-        result = await agent._execute_step(0, step, [], plan.goal, plan)
+        result, _tf = await agent._execute_step(0, step, [], plan.goal, plan)
 
         assert result.success is False
         assert result.error == "Element not found: Return or Replace Items button"
@@ -1313,7 +1313,7 @@ class TestBugFixes:
         )
         plan = _make_plan([step])
 
-        result = await agent._execute_step(0, step, [], "Focus the search box", plan)
+        result, _tf = await agent._execute_step(0, step, [], "Focus the search box", plan)
 
         assert result.success is False
         assert result.reflection_hint == "scroll_to_top"

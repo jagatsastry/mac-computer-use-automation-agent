@@ -610,15 +610,11 @@ class ScreenCoordinatorImpl:
 
     async def verify_condition(
         self, condition: str, screenshot_b64: Optional[str] = None
-    ) -> bool:
-        """Check if a visual condition holds. Conservative: ambiguous = False.
-
-        Args:
-            condition: The condition to verify (e.g., "Safari is open").
-            screenshot_b64: Optional pre-captured screenshot. If None, captures one.
+    ) -> Optional[bool]:
+        """Check if a visual condition holds.
 
         Returns:
-            True only if the model clearly responds YES.
+            True if confirmed, False if denied, None if inconclusive.
         """
         if screenshot_b64 is None:
             screenshot_b64 = self.capture.capture_b64()
@@ -628,11 +624,20 @@ class ScreenCoordinatorImpl:
         )
         response = await self._call_vision_model(prompt, screenshot_b64)
 
-        # Parse YES/NO response, conservative default
+        # AC-3: Ternary parsing — YES / UNCLEAR / anything else
         response_lower = response.strip().lower()
-        result = response_lower.startswith("yes")
-        emoji = "✅" if result else "❌"
-        logger.info(f"{emoji} Vision verify", condition=condition, result=result)
+        if response_lower.startswith("yes"):
+            result = True
+        elif response_lower.startswith("unclear"):
+            result = None
+        else:
+            result = False
+
+        logger.info(
+            "Vision verify",
+            condition=condition,
+            result=result,
+        )
         return result
 
     async def verify_multiscale_target(

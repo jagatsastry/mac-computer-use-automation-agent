@@ -17,6 +17,9 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 ## Strategies Already Tried
 {{retry_strategies}}
 
+## Confirmed Absent Elements
+{{absent_elements}}
+
 ## Available Actions
 - `activate_app`: Launch or bring an app to front. Params: `app_name` (string)
 - `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
@@ -27,7 +30,7 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 - `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at)
 - `observe`: Take a screenshot and describe what's on screen. Params: none
 - `wait_for_user`: Pause and wait for user action. Params: `message` (string)
-- `done`: Task complete. Params: none
+- `done`: Task complete. Params: none. Optional: `abort_reason` (string) — set when the task is impossible in the current page state
 
 ## CRITICAL: You MUST try a DIFFERENT approach than what was already attempted.
 Do NOT repeat the same actions that failed. Consider:

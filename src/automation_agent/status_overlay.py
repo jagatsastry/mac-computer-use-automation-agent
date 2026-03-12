@@ -93,8 +93,8 @@ class StatusOverlayWindow:
         self._create_window()
 
     def _create_window(self) -> None:
-        width = 720 if self._verbose else 520
-        height = 520 if self._verbose else 320
+        width = 420 if self._verbose else 320
+        height = 300 if self._verbose else 200
         x = 40
         y = 40
         screen = NSScreen.mainScreen()
@@ -102,7 +102,7 @@ class StatusOverlayWindow:
             try:
                 frame = screen.visibleFrame()
                 x = int(frame.origin.x + frame.size.width - width - 24)
-                y = int(frame.origin.y + frame.size.height - height - 24)
+                y = int(frame.origin.y + 24)  # bottom-right to avoid covering browser UI
             except Exception:
                 pass
 
@@ -131,6 +131,8 @@ class StatusOverlayWindow:
             | NSWindowCollectionBehaviorFullScreenAuxiliary
             | NSWindowCollectionBehaviorStationary
         )
+        # Exclude overlay from screencapture so the vision model never sees it
+        panel.setSharingType_(0)  # NSWindowSharingNone
 
         content = panel.contentView()
 

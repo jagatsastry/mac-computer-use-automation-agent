@@ -76,6 +76,7 @@ class ActionPlannerImpl:
         retry_strategies_used: List[str],
         desktop_context: str = "",
         skill_context: Optional[str] = None,
+        absent_elements: Optional[List[str]] = None,
     ) -> ActionPlan:
         """Replan with history. Must produce DIFFERENT approach than what was tried.
 
@@ -95,7 +96,7 @@ class ActionPlannerImpl:
         """
         prompt = self._build_replan_prompt(
             goal, screen_description, history, retry_strategies_used,
-            desktop_context, skill_context,
+            desktop_context, skill_context, absent_elements,
         )
         logger.info("🔄 Replanning started", goal=goal)
         start = time.monotonic()
@@ -197,6 +198,7 @@ class ActionPlannerImpl:
         retry_strategies: List[str],
         desktop_context: str = "",
         skill_context: Optional[str] = None,
+        absent_elements: Optional[List[str]] = None,
     ) -> str:
         """Build the replanning prompt from the template.
 
@@ -223,6 +225,18 @@ class ActionPlannerImpl:
             ", ".join(retry_strategies) if retry_strategies else "None yet"
         )
 
+        # AC-5: Absent elements context
+        if absent_elements:
+            absent_text = (
+                "The following UI elements were confirmed absent from the current page:\n"
+                + "\n".join(f"- {el}" for el in absent_elements)
+                + "\n\nDo not generate steps that depend on these elements. "
+                "Consider that the task may be impossible in the current page state. "
+                "If the task cannot be completed, emit a done step with abort_reason explaining why."
+            )
+        else:
+            absent_text = ""
+
         prompt = template.replace("{{goal}}", goal)
         prompt = prompt.replace("{{desktop_context}}", desktop_context or "")
         prompt = prompt.replace(
@@ -231,6 +245,7 @@ class ActionPlannerImpl:
         prompt = prompt.replace("{{screen_description}}", screen_description)
         prompt = prompt.replace("{{history}}", history_text)
         prompt = prompt.replace("{{retry_strategies}}", strategies_text)
+        prompt = prompt.replace("{{absent_elements}}", absent_text)
         return prompt
 
     def _load_prompt(self, name: str) -> str:

@@ -17,7 +17,7 @@ import structlog
 
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
-from automation_agent.shared_models import ActionStep, StepResult
+from automation_agent.shared_models import ActionStep, StepResult, TEXT_INPUT_AX_ROLES
 
 slog = structlog.get_logger(__name__)
 
@@ -134,7 +134,7 @@ class StepVerifier:
 
         # Tier 2: Vision verification (slower but more thorough)
         if coord:
-            tier2_result, screenshot_b64 = await self._verify_tier2(
+            tier2_raw, screenshot_b64 = await self._verify_tier2(
                 step, coord, actuator_result
             )
             duration = int((time.monotonic() - start) * 1000)
@@ -148,33 +148,43 @@ class StepVerifier:
                 except Exception:
                     pass
 
-            emoji = "✅" if tier2_result[0] else "❌"
-            slog.info(
-                f"{emoji} Verified (tier2, vision)",
-                condition=step.verify,
-                passed=tier2_result[0],
-                duration_ms=duration,
-            )
-            if self.logger:
-                event_type = EventType.VERIFY_PASS if tier2_result[0] else EventType.VERIFY_FAIL
-                self.logger.log_event(event_type, f"Tier 2: {tier2_result[1]}")
+            if tier2_raw is not None:
+                # Tier 2 reached a conclusive result (pass or fail)
+                emoji = "✅" if tier2_raw[0] else "❌"
+                slog.info(
+                    f"{emoji} Verified (tier2, vision)",
+                    condition=step.verify,
+                    passed=tier2_raw[0],
+                    duration_ms=duration,
+                )
+                if self.logger:
+                    event_type = EventType.VERIFY_PASS if tier2_raw[0] else EventType.VERIFY_FAIL
+                    self.logger.log_event(event_type, f"Tier 2: {tier2_raw[1]}")
 
-            return StepResult(
-                step=step,
-                success=tier2_result[0],
-                verification_method="vision",
-                evidence=tier2_result[1],
-                duration_ms=duration,
-                screenshot_path=screenshot_path,
-            )
+                return StepResult(
+                    step=step,
+                    success=tier2_raw[0],
+                    verification_method="vision",
+                    evidence=tier2_raw[1],
+                    duration_ms=duration,
+                    screenshot_path=screenshot_path,
+                )
+            else:
+                # AC-3: All Tier 2 conditions returned UNCLEAR.
+                # Fall through to actuator-result fallback below.
+                if self.logger:
+                    self.logger.log_event(
+                        EventType.VERIFY_ESCALATE,
+                        "Tier 2 inconclusive (all UNCLEAR), falling back to actuator result",
+                    )
 
-        # No verification backend available -- use actuator result
+        # No verification backend conclusive -- use actuator result
         duration = int((time.monotonic() - start) * 1000)
         return StepResult(
             step=step,
             success=actuator_result.get("success", False),
             verification_method="",
-            evidence=f"No verifier available. Actuator: {actuator_result}",
+            evidence=f"No verifier conclusive. Actuator: {actuator_result}",
             duration_ms=duration,
         )
 
@@ -294,6 +304,21 @@ class StepVerifier:
                 f"Accessibility reports focused element value '{actual_value}', expected '{expected_text}'",
             )
 
+        # AC-2: Click action — check if focused element is a text input field
+        if step.action == "click":
+            try:
+                focused = accessibility.get_focused_element()
+            except Exception:
+                focused = None
+            if focused is not None:
+                role = getattr(focused, "role", None) or ""
+                if role in TEXT_INPUT_AX_ROLES:
+                    return (
+                        True,
+                        f"Accessibility confirms text field focused: {role}",
+                    )
+            return None  # Inconclusive -- let Tier 1/2 decide
+
         return None
 
     def _verify_tier1(
@@ -392,10 +417,13 @@ class StepVerifier:
 
     async def _verify_tier2(
         self, step: ActionStep, coordinator, actuator_result: Dict[str, Any]
-    ) -> Tuple[Tuple[bool, str], Optional[str]]:
+    ) -> Tuple[Optional[Tuple[bool, str]], Optional[str]]:
         """Tier 2: Vision-based verification.
 
-        Returns ((success, evidence), screenshot_b64).
+        Returns (result, screenshot_b64) where result is:
+          (True, evidence)  -- condition confirmed
+          (False, evidence) -- condition denied by at least one check
+          None              -- all checks inconclusive (UNCLEAR)
         """
         screenshot_b64 = None
         try:
@@ -403,7 +431,12 @@ class StepVerifier:
         except Exception:
             screenshot_b64 = None
 
+        # AC-3: Track whether ANY condition was explicitly denied (False)
+        # vs. all returning None (inconclusive).
+        any_denied = False
+
         if screenshot_b64:
+            # Site 1: Crop-region check for click actions
             region_b64 = self._crop_click_region(
                 screenshot_b64,
                 actuator_result.get("image_x"),
@@ -412,7 +445,7 @@ class StepVerifier:
             if region_b64 is not None:
                 local_condition = step.expected_observation.strip() or step.verify
                 result = await coordinator.verify_condition(local_condition, screenshot_b64=region_b64)
-                if result:
+                if result is True:
                     return (
                         (
                             True,
@@ -420,7 +453,10 @@ class StepVerifier:
                         ),
                         screenshot_b64,
                     )
+                if result is False:
+                    any_denied = True
 
+            # Site 2: type_text special case
             if step.action == "type_text" and step.params.get("text"):
                 expected_text = step.params["text"]
                 focused_text_condition = f'The focused text field contains "{expected_text}"'
@@ -428,7 +464,7 @@ class StepVerifier:
                     focused_text_condition,
                     screenshot_b64=screenshot_b64,
                 )
-                if result:
+                if result is True:
                     return (
                         (
                             True,
@@ -436,7 +472,10 @@ class StepVerifier:
                         ),
                         screenshot_b64,
                     )
+                if result is False:
+                    any_denied = True
 
+            # Site 3: open_url special case
             if step.action == "open_url" and step.params.get("url"):
                 url_condition = self._build_url_condition(step.params["url"])
                 if url_condition:
@@ -444,7 +483,7 @@ class StepVerifier:
                         url_condition,
                         screenshot_b64=screenshot_b64,
                     )
-                    if result:
+                    if result is True:
                         return (
                             (
                                 True,
@@ -452,22 +491,33 @@ class StepVerifier:
                             ),
                             screenshot_b64,
                         )
+                    if result is False:
+                        any_denied = True
 
+            # Sites 4-5: Generic conditions (expected_observation, verify)
             for condition in self._tier2_conditions(step):
                 result = await coordinator.verify_condition(
                     condition,
                     screenshot_b64=screenshot_b64,
                 )
-                if result:
+                if result is True:
                     return ((True, f"Vision confirms: {condition}"), screenshot_b64)
+                if result is False:
+                    any_denied = True
         else:
             for condition in self._tier2_conditions(step):
                 result = await coordinator.verify_condition(condition)
-                if result:
+                if result is True:
                     return ((True, f"Vision confirms: {condition}"), screenshot_b64)
+                if result is False:
+                    any_denied = True
 
-        denied_condition = step.expected_observation.strip() or step.verify
-        return ((False, f"Vision denies: {denied_condition}"), screenshot_b64)
+        # No condition passed. Distinguish denial from inconclusive.
+        if any_denied:
+            denied_condition = step.expected_observation.strip() or step.verify
+            return ((False, f"Vision denies: {denied_condition}"), screenshot_b64)
+        # All conditions returned None (UNCLEAR) -- truly inconclusive
+        return (None, screenshot_b64)
 
     def _crop_click_region(
         self,

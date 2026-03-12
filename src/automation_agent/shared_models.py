@@ -12,6 +12,21 @@ except ImportError:  # Python < 3.11
             return self.value
 from typing import Any, Dict, List, Optional
 
+# AC-1/AC-2: Canonical AX roles for text input fields.
+# Shared between verifier (Tier 0 click check) and orchestrator (type-and-check bypass).
+TEXT_INPUT_AX_ROLES: frozenset[str] = frozenset({
+    "AXTextField",
+    "AXTextArea",
+    "AXSearchField",
+    "AXComboBox",
+})
+
+# AC-1: Heuristic fallback for when AX is unavailable. English-only; expand for i18n.
+TEXT_INPUT_KEYWORDS: frozenset[str] = frozenset({
+    "search", "input", "text field", "text box",
+    "search bar", "address bar", "url bar",
+})
+
 # Common LLM misspellings → correct action name.
 # Used by ActionStep.from_dict() to auto-correct invalid action names.
 _ACTION_ALIASES: Dict[str, str] = {
@@ -224,7 +239,7 @@ class StepResult:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
-        valid_methods = {"", "accessibility", "actuator_state", "vision", "both"}
+        valid_methods = {"", "accessibility", "actuator_state", "vision", "both", "type_and_check"}
         if self.verification_method not in valid_methods:
             raise ValueError(
                 f"Unknown verification_method '{self.verification_method}'. "

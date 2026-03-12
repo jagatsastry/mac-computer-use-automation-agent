@@ -1457,7 +1457,7 @@ class TestFindElementCropIntegration:
             )
         )
 
-        await agent._execute_step(0, step, [], "test goal", MagicMock())
+        await agent._execute_step(0, step, [], "test goal", MagicMock())  # returns tuple now
 
         assert agent.last_successful_region is not None
         left, top, right, bottom = agent.last_successful_region

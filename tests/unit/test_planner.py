@@ -586,6 +586,70 @@ class TestResilientParsing:
             await planner.plan("Do something")
 
 
+class TestAbsentElementsReplan:
+    """AC-5: Replan prompt receives absence context."""
+
+    async def test_replan_prompt_includes_absent_elements_section(self, planner):
+        """12. Verify {{absent_elements}} replaced with element list."""
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(VALID_STEPS))
+
+        history = [
+            StepResult(
+                step=ActionStep(
+                    action="click",
+                    params={"element": "Return or Replace Items"},
+                    verify="Return flow visible",
+                ),
+                success=False,
+                evidence="Element not found",
+                verification_method="",
+                error="Element absent: Return or Replace Items",
+            ),
+        ]
+
+        await planner.replan(
+            "Return my headphones",
+            "Amazon order details page",
+            history,
+            ["refine_element_query", "replan_missing_target"],
+            absent_elements=["Return or Replace Items"],
+        )
+
+        prompt = planner._call_llm.call_args[0][0]
+        assert "confirmed absent from the current page" in prompt
+        assert "Return or Replace Items" in prompt
+        assert "Do not generate steps that depend on these elements" in prompt
+
+    async def test_replan_prompt_absent_elements_empty(self, planner):
+        """13. No absent elements -> section is empty string."""
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(VALID_STEPS))
+
+        history = [
+            StepResult(
+                step=ActionStep(
+                    action="click",
+                    params={"element": "Submit"},
+                    verify="Form submitted",
+                ),
+                success=False,
+                evidence="Button not found",
+                verification_method="vision",
+            ),
+        ]
+
+        await planner.replan(
+            "Submit form",
+            "Form page",
+            history,
+            ["click_center"],
+            absent_elements=[],
+        )
+
+        prompt = planner._call_llm.call_args[0][0]
+        # Should not contain the absent elements instruction text
+        assert "confirmed absent from the current page" not in prompt
+
+
 class TestAPIRetry:
     """Tests for API retry with exponential backoff."""
 
