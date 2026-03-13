@@ -252,6 +252,7 @@ class TestThreeStagePipeline:
         registry._distiller = None
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
+        registry._event_logger = None
 
         # Mock embedding index
         mock_index = MagicMock()
@@ -448,6 +449,7 @@ class TestThreeStagePipeline:
         registry._distiller = None
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
+        registry._event_logger = None
 
         # Mock the EmbeddingIndex at the import site inside _rebuild_router
         mock_embedding_cls = MagicMock()
@@ -484,6 +486,7 @@ class TestThreeStagePipeline:
         registry._distiller = None
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
+        registry._event_logger = None
 
         # Mock EmbeddingIndex to raise OSError on construction
         mock_embedding_cls = MagicMock(side_effect=OSError("Model download failed"))
@@ -495,3 +498,41 @@ class TestThreeStagePipeline:
 
         # Embedding index should be None (graceful degradation)
         assert registry._embedding_index is None
+
+    @pytest.mark.asyncio
+    async def test_embedding_query_empty_prompt(self):
+        """Edge case: empty prompt should still return candidates (cosine sim may be low)."""
+        skills = {"return-amazon": _make_skill("return-amazon")}
+        embedding_results = [
+            SkillRouteCandidate(
+                skill_id="return-amazon",
+                match_type=MatchType.GENERIC,
+                confidence=0.1,
+                reason="Embedding similarity: 0.100",
+            ),
+        ]
+        registry = self._make_registry_with_embedding(
+            skills, embedding_results=embedding_results
+        )
+        result = await registry.match("")
+        # With sim=0.1 < 0.92 threshold and no router, falls through
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_embedding_single_skill_auto_gap(self):
+        """Edge case: single skill → gap defaults to 1.0 (auto-skip rerank)."""
+        skills = {"return-amazon": _make_skill("return-amazon")}
+        embedding_results = [
+            SkillRouteCandidate(
+                skill_id="return-amazon",
+                match_type=MatchType.GENERIC,
+                confidence=0.95,
+                reason="Embedding similarity: 0.950",
+            ),
+        ]
+        registry = self._make_registry_with_embedding(
+            skills, embedding_results=embedding_results
+        )
+        result = await registry.match("Return my Amazon order")
+        assert result is not None
+        assert result.skill_name == "return-amazon"

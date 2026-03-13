@@ -714,6 +714,13 @@ class AutomationAgent:
                         timeout_s=self.config.lookahead_timeout_s,
                         fallback="pessimistic" if _is_hard else "optimistic",
                     )
+                    self.logger.log_event(
+                        EventType.LOOKAHEAD_ERROR,
+                        f"Lookahead timeout ({self.config.lookahead_timeout_s}s)",
+                        step_index=index,
+                        data={"action": step.action, "is_hard": _is_hard},
+                        duration_ms=_la_duration,
+                    )
                     prediction = (
                         {
                             "likely_success": False,
@@ -734,6 +741,13 @@ class AutomationAgent:
                         action=step.action,
                         error=str(e),
                     )
+                    self.logger.log_event(
+                        EventType.LOOKAHEAD_ERROR,
+                        f"Lookahead error: {e}",
+                        step_index=index,
+                        data={"action": step.action, "is_hard": _is_hard},
+                        duration_ms=_la_duration,
+                    )
                     prediction = (
                         {
                             "likely_success": False,
@@ -750,6 +764,18 @@ class AutomationAgent:
                         (time.monotonic() - _la_start) * 1000
                     )
 
+                self.logger.log_event(
+                    EventType.LOOKAHEAD_PREDICT,
+                    f"Lookahead: likely_success={prediction.get('likely_success')}",
+                    step_index=index,
+                    data={
+                        "action": step.action,
+                        "likely_success": prediction.get("likely_success"),
+                        "reasoning": prediction.get("reasoning", ""),
+                        "is_hard": _is_hard,
+                    },
+                    duration_ms=_la_duration,
+                )
                 slog.debug(
                     "lookahead_result",
                     action=step.action,
@@ -760,6 +786,18 @@ class AutomationAgent:
 
                 # AC-32: skip dispatch if prediction says failure
                 if not prediction.get("likely_success", True):
+                    self.logger.log_event(
+                        EventType.LOOKAHEAD_BLOCK,
+                        f"Lookahead blocked: {prediction.get('risk', '')}",
+                        step_index=index,
+                        data={
+                            "action": step.action,
+                            "risk": prediction.get("risk", ""),
+                            "mismatch_reason": prediction.get(
+                                "mismatch_reason", ""
+                            ),
+                        },
+                    )
                     slog.warning(
                         "lookahead_blocked",
                         action=step.action,
@@ -788,6 +826,18 @@ class AutomationAgent:
         # ----------------------------------------------------------
         # Gap 6: Two-phase destructive action confirmation gate
         # ----------------------------------------------------------
+        # TOCTOU: capture reference screenshot before confirmation dialog
+        self._toctou_ref_b64 = None
+        if (
+            classification.is_destructive
+            and classification.matched_keyword in self._HARD_DESTRUCTIVE_KEYWORDS
+            and not getattr(self.config, "dry_run", False)
+        ):
+            try:
+                self._toctou_ref_b64 = await self._capture_screenshot()
+            except Exception:
+                pass  # best-effort; TOCTOU check will skip if no reference
+
         _phase1_decision = None
         if classification.is_destructive:
             _phase1_decision = self._should_confirm_phase1(step)
@@ -895,9 +945,55 @@ class AutomationAgent:
             # If _pre_resolved_location is None, element not found —
             # _dispatch_action will handle the error normally.
 
-        # TODO(gap6): TOCTOU mitigation — for hard-destructive steps, take a
-        # post-confirmation screenshot and diff against pre-confirmation state
-        # to detect UI changes between grounding and dispatch (spec lines 681-698).
+        # Gap 6 TOCTOU mitigation: for hard-destructive steps that went through
+        # user confirmation, take a post-confirmation screenshot and diff against
+        # the pre-confirmation state to detect UI changes between grounding and
+        # dispatch. Only applies when confirmation actually paused execution.
+        if (
+            classification.is_destructive
+            and _phase1_decision in (Phase1Decision.CONFIRM, Phase1Decision.DEFER)
+            and classification.matched_keyword in self._HARD_DESTRUCTIVE_KEYWORDS
+            and not getattr(self.config, "dry_run", False)
+        ):
+            try:
+                post_confirm_b64 = await self._capture_screenshot()
+                # Compare against pre-grounding screenshot if we captured one
+                # during lookahead, otherwise skip (no reference point).
+                if hasattr(self, "_toctou_ref_b64") and self._toctou_ref_b64:
+                    import base64 as _b64
+                    import io as _io
+
+                    from PIL import Image as _Img
+
+                    ref_img = _Img.open(
+                        _io.BytesIO(_b64.b64decode(self._toctou_ref_b64))
+                    ).convert("L")
+                    post_img = _Img.open(
+                        _io.BytesIO(_b64.b64decode(post_confirm_b64))
+                    ).convert("L")
+                    diff_ratio = self._image_diff_ratio(ref_img, post_img)
+
+                    if diff_ratio > self.config.infeasibility_same_state_threshold:
+                        slog.warning(
+                            "toctou_ui_changed",
+                            diff_ratio=round(diff_ratio, 3),
+                            threshold=self.config.infeasibility_same_state_threshold,
+                            action=step.action,
+                        )
+                        return StepResult(
+                            step=step,
+                            success=False,
+                            error=(
+                                "UI changed during confirmation "
+                                f"(diff={diff_ratio:.1%}). Re-plan needed."
+                            ),
+                            evidence="TOCTOU: UI state changed between grounding and dispatch",
+                            reflection_hint="The page changed while waiting for user confirmation. "
+                            "Re-ground the element before retrying.",
+                        ), False
+                    self._toctou_ref_b64 = None  # consumed
+            except Exception as e:
+                slog.debug("toctou_check_skipped", error=str(e))
 
         # Capture screenshot before visually meaningful actions for diff-based verification.
         if self.screenshot_diff and step.action in ("click", "open_url"):

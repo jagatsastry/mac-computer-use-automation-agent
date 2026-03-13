@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.logging.models import EventType
 from automation_agent.shared_models import (
     MatchType,
     SkillMatchResult,
@@ -71,11 +72,13 @@ class SkillRegistryImpl:
         self,
         skill_dir: Optional[Path] = None,
         config: Optional[AgentConfig] = None,
+        event_logger: Optional[Any] = None,
     ) -> None:
         self._skills: Dict[str, Skill] = {}
         self._cards: list[SkillCard] = []
         self._skill_dir = skill_dir or Path(__file__).parent / "library"
         self._config = config
+        self._event_logger = event_logger
         self._experience_store: Optional[SkillExperienceStore] = None
         self._distiller: Optional[SkillDistiller] = None
         self._librarian = None
@@ -137,12 +140,28 @@ class SkillRegistryImpl:
                     model=self._config.skill_embedding_model,
                     duration_ms=_build_ms,
                 )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_BUILD,
+                        f"Embedding index built ({len(trusted_skills)} skills)",
+                        data={
+                            "skill_count": len(trusted_skills),
+                            "model": self._config.skill_embedding_model,
+                        },
+                        duration_ms=_build_ms,
+                    )
             except (ImportError, OSError, RuntimeError) as e:
                 # AC-19: graceful degradation
                 std_logger.warning(
                     "Embedding index build failed: %s. Falling back to keyword matching.",
                     e,
                 )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_ERROR,
+                        f"Embedding build failed: {e}",
+                        data={"error": str(e)},
+                    )
                 self._embedding_index = None
 
     def load_from_directory(self, path: Path) -> None:
@@ -243,6 +262,18 @@ class SkillRegistryImpl:
                     prompt=prompt[:100],
                     duration_ms=_emb_duration,
                 )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_QUERY,
+                        f"Embedding query: top={emb_candidates[0].skill_id} "
+                        f"sim={emb_candidates[0].confidence:.3f}",
+                        data={
+                            "top_skill": emb_candidates[0].skill_id,
+                            "top_sim": round(emb_candidates[0].confidence, 3),
+                            "candidate_count": len(emb_candidates),
+                        },
+                        duration_ms=_emb_duration,
+                    )
 
             if emb_candidates:
                 top_sim = emb_candidates[0].confidence
@@ -268,6 +299,17 @@ class SkillRegistryImpl:
                             similarity=top_sim,
                             gap=top_gap,
                         )
+                        if self._event_logger:
+                            self._event_logger.log_event(
+                                EventType.EMBEDDING_RERANK_SKIP,
+                                f"Embedding rerank skipped: {best.skill_id} "
+                                f"(sim={top_sim:.3f}, gap={top_gap:.3f})",
+                                data={
+                                    "skill_id": best.skill_id,
+                                    "similarity": round(top_sim, 3),
+                                    "gap": round(top_gap, 3),
+                                },
+                            )
                         return self._build_match_result(skill, prompt, [best])
 
                 # Stage 2a: LLM re-rank on embedding candidates only

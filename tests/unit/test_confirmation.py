@@ -803,3 +803,78 @@ class TestPhase2Integration:
         result, _ = await agent._execute_step(0, step, [], "delete item", plan)
         # Handler should NOT have been called (dry_run)
         assert len(handler.calls) == 0
+
+
+class TestTOCTOUMitigation:
+    """Tests for TOCTOU mitigation: UI change detection between grounding and dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_toctou_aborts_when_ui_changed(self):
+        """TOCTOU: step is aborted when UI changes during confirmation."""
+        import base64
+        import io
+
+        from PIL import Image
+
+        # Create two visually different screenshots (base64)
+        img_a = Image.new("RGB", (100, 100), color="red")
+        buf_a = io.BytesIO()
+        img_a.save(buf_a, format="PNG")
+        b64_a = base64.b64encode(buf_a.getvalue()).decode()
+
+        img_b = Image.new("RGB", (100, 100), color="blue")
+        buf_b = io.BytesIO()
+        img_b.save(buf_b, format="PNG")
+        b64_b = base64.b64encode(buf_b.getvalue()).decode()
+
+        from automation_agent.shared_models import FindElementResult
+
+        # First call returns pre-confirmation screenshot,
+        # second call returns different post-confirmation screenshot
+        coordinator = AsyncMock()
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+        coordinator.capture_screenshot = AsyncMock(side_effect=[b64_a, b64_b, b64_b])
+        coordinator.describe_screen = AsyncMock(return_value="Screen")
+        coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(x=50, y=50, confidence=0.95, source="mock")
+        )
+
+        class MockHandler:
+            def __init__(self):
+                self.calls = []
+
+            async def confirm(self, step):
+                self.calls.append(step)
+                return True  # User approves
+
+        handler = MockHandler()
+        config = _make_config(
+            confirm_destructive="smart",
+            infeasibility_same_state_threshold=0.05,
+        )
+        logger = MagicMock(spec=EventLogger)
+        logger.run_id = "test-run"
+
+        actuator = MagicMock()
+        actuator.get_state.return_value = {"frontmost_app": "TestApp"}
+
+        agent = _make_agent(
+            config=config,
+            coordinator=coordinator,
+            actuator=actuator,
+            confirmation_handler=handler,
+            logger=logger,
+        )
+        agent.screenshot_diff = None
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Delete Account"},
+            verify="Account is deleted",
+        )
+        plan = ActionPlan(steps=[step], goal="delete account")
+
+        result, _ = await agent._execute_step(0, step, [], "delete account", plan)
+        # Step should fail due to TOCTOU detection
+        assert not result.success
+        assert "UI changed" in result.error

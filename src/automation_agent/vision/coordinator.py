@@ -11,6 +11,7 @@ from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Tuple
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.logging.models import EventType
 from automation_agent.protocols import CoordinatorCapability
 from automation_agent.shared_models import FindElementResult
 from automation_agent.vision.capture import ScreenCapture
@@ -48,9 +49,11 @@ class ScreenCoordinatorImpl:
         config: AgentConfig,
         capture: Optional[ScreenCapture] = None,
         accessibility: Optional[Any] = None,
+        event_logger: Optional[Any] = None,
     ):
         self.config = config
         self.capture = capture or ScreenCapture(config.screenshot_resolution)
+        self._event_logger = event_logger
         self._validate_model()
         self._grounding_enabled = bool(config.grounding_model)
 
@@ -610,6 +613,13 @@ class ScreenCoordinatorImpl:
                     element_count=len(candidates),
                     duration_ms=_ann_ms,
                 )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.SOM_ANNOTATE,
+                        f"SoM annotated {len(candidates)} elements",
+                        data={"element_count": len(candidates)},
+                        duration_ms=_ann_ms,
+                    )
 
                 som_prompt = self._load_prompt("find_element_som.md")
                 som_prompt = som_prompt.replace(
@@ -633,6 +643,15 @@ class ScreenCoordinatorImpl:
                         confidence=result.confidence,
                         source="som",
                     )
+                    if self._event_logger:
+                        self._event_logger.log_event(
+                            EventType.SOM_PARSE,
+                            f"SoM matched element #{int(_num_match.group(1)) if _num_match else '?'}",
+                            data={
+                                "element_number": int(_num_match.group(1)) if _num_match else 0,
+                                "confidence": result.confidence,
+                            },
+                        )
                     return result
 
                 # AC-14: SoM didn't match by number, try raw coordinate parsing
@@ -653,6 +672,12 @@ class ScreenCoordinatorImpl:
                     error=str(e),
                     element_count=len(candidates) if candidates else 0,
                 )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.SOM_ERROR,
+                        f"SoM error: {e}",
+                        data={"error": str(e)},
+                    )
                 # Fall through to standard grounding path below
 
         base_prompt = self._load_prompt("find_element.md").replace(
