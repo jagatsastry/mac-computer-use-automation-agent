@@ -178,6 +178,9 @@ class AutomationAgent:
     _WAIT_TIMEOUT_S = 120.0
     _WAIT_DIFF_THRESHOLD = 0.02  # 2% pixel change = "screen changed"
 
+    # Scroll recovery config
+    _SCROLL_SETTLE_S: float = 1.0  # seconds to wait after scroll for lazy-loaded content
+
     def __init__(
         self,
         planner,
@@ -332,6 +335,13 @@ class AutomationAgent:
                     data={"step_count": len(fallback_plan.steps)},
                 )
                 plan = fallback_plan
+
+            # AC-2: Ensure skill-mandated navigation is present.
+            # Skip for trivial done plans that were intentionally accepted
+            # (target already satisfied — no need to re-navigate).
+            if skill_context and fallback_plan and not self._is_trivial_done_plan(plan):
+                plan = AutomationAgent._ensure_skill_navigation(plan, fallback_plan)
+
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             plan_data = {"step_count": len(plan.steps)}
             if plan.raw_llm_response:
@@ -451,25 +461,35 @@ class AutomationAgent:
                     frustration.identical_action_count = 0
                 frustration._last_action_key = action_key
 
-                # AC-4: critical-path absence — immediate trigger
+                # AC-4: On element NOT_FOUND, attempt scroll recovery
+                # before infeasibility
+                _scrollable_actions = {"click", "type_text"}
                 if (
                     not result.success
-                    and step.action == "click"
+                    and step.action in _scrollable_actions
                     and step.params.get("element")
                     and result.error
                     and "not found" in result.error.lower()
                 ):
-                    infeas_result = await self._check_infeasibility(
-                        goal, frustration, step_results, force=True
+                    max_scrolls = step.params.get("_max_scrolls", 3)
+                    scroll_result = await self._scroll_recovery(
+                        step, result, step_results, goal, max_scrolls
                     )
-                    if infeas_result is not None:
-                        infeas_result.total_duration_ms = int(
-                            (time.monotonic() - start) * 1000
-                        )
-                        infeas_result.iterations = iterations
-                        infeas_result.goal = goal
-                        infeas_result.run_id = self.logger.run_id
-                        return infeas_result
+                    if scroll_result is not None:
+                        if scroll_result.success:
+                            result = scroll_result
+                        else:
+                            infeas_result = await self._check_infeasibility(
+                                goal, frustration, step_results, force=True
+                            )
+                            if infeas_result is not None:
+                                infeas_result.total_duration_ms = int(
+                                    (time.monotonic() - start) * 1000
+                                )
+                                infeas_result.iterations = iterations
+                                infeas_result.goal = goal
+                                infeas_result.run_id = self.logger.run_id
+                                return infeas_result
 
                 # AC-2: threshold-based trigger
                 if frustration.is_triggered(
@@ -671,6 +691,17 @@ class AutomationAgent:
 
         if step.action == "observe":
             desc = await self.coordinator.describe_screen()
+            # AC-6: Save observe screenshot
+            if self.config.save_step_screenshots:
+                try:
+                    obs_b64 = await self._capture_screenshot()
+                    if obs_b64:
+                        self.logger.save_screenshot(
+                            base64.b64decode(obs_b64),
+                            f"step_{index:02d}_observe",
+                        )
+                except Exception as exc:
+                    slog.debug("Screenshot save failed", error=str(exc))
             return StepResult(
                 step=step,
                 success=True,
@@ -1126,6 +1157,19 @@ class AutomationAgent:
                 click_y + half,
             )
 
+        # AC-6: Save post-action screenshot
+        if self.config.save_step_screenshots:
+            try:
+                post_b64 = await self._capture_screenshot()
+                if post_b64:
+                    path = self.logger.save_screenshot(
+                        base64.b64decode(post_b64),
+                        f"step_{index:02d}_post_{step.action}",
+                    )
+                    verification.screenshot_path = path
+            except Exception as exc:
+                slog.debug("Screenshot save failed", error=str(exc))
+
         return verification, _text_field_focused
 
     def _check_text_field_focused(self) -> bool:
@@ -1467,10 +1511,26 @@ class AutomationAgent:
         compiled_steps: list[ActionStep] = []
         stop_matched = False
 
-        for instruction, verify in self._parse_skill_steps(primary_section):
+        for instruction, verify, on_fail in self._parse_skill_steps(primary_section):
             action_steps = self._compile_skill_instruction(instruction, verify)
             if action_steps is None:
                 return None
+            # Apply on_fail metadata to the LAST compiled step
+            if action_steps and on_fail:
+                last_step = action_steps[-1]
+                if "scroll" in on_fail.lower():
+                    last_step.params["_scroll_recovery"] = True
+                    last_step.params["_max_scrolls"] = 3
+                if "wait_for_user" in on_fail.lower() or "log in" in on_fail.lower():
+                    wait_condition = self._extract_wait_condition(on_fail)
+                    if wait_condition:
+                        wait_step = ActionStep(
+                            action="wait_for_user",
+                            params={"message": on_fail, "condition": wait_condition},
+                            verify="",
+                            on_fail="abort",
+                        )
+                        action_steps.append(wait_step)
             if action_steps:
                 compiled_steps.extend(action_steps)
             if stop_condition and verify and self._conditions_overlap(stop_condition, verify):
@@ -1484,6 +1544,51 @@ class AutomationAgent:
         if compiled_steps[-1].action != "done":
             compiled_steps.append(ActionStep(action="done", params={}, verify="", on_fail="abort"))
         return ActionPlan(steps=compiled_steps, goal=goal)
+
+    @staticmethod
+    def _ensure_skill_navigation(
+        plan: ActionPlan,
+        fallback_plan: ActionPlan,
+    ) -> ActionPlan:
+        """Prepend skill-mandated navigation if the LLM plan omits it.
+
+        Checks whether the first navigation step from the fallback (skill) plan
+        is present in the first 3 steps of the LLM plan. If missing, prepends it.
+        """
+        nav_actions = {"open_url", "activate_app"}
+
+        # Find the first nav step in the fallback plan
+        fallback_nav = None
+        for step in fallback_plan.steps:
+            if step.action in nav_actions:
+                fallback_nav = step
+                break
+
+        if fallback_nav is None:
+            return plan  # Skill has no navigation — nothing to enforce
+
+        # Check if the LLM plan already has a nav step in its first 3 steps
+        head = plan.steps[:3]
+        has_nav = any(s.action in nav_actions for s in head)
+        if has_nav:
+            return plan
+
+        # Prepend the skill's navigation step
+        slog.warning(
+            "LLM plan missing skill-mandated navigation — prepending",
+            nav_action=fallback_nav.action,
+            nav_params=fallback_nav.params,
+        )
+        new_steps = [fallback_nav] + list(plan.steps)
+        return ActionPlan(
+            steps=new_steps,
+            goal=plan.goal,
+            skill_name=plan.skill_name,
+            raw_llm_response=plan.raw_llm_response,
+            planning_duration_ms=plan.planning_duration_ms,
+            token_usage=plan.token_usage,
+            replan_patch=plan.replan_patch,
+        )
 
     @staticmethod
     def _extract_primary_skill_section(skill_context: str) -> str:
@@ -1518,11 +1623,12 @@ class AutomationAgent:
         return match.group(1).strip()
 
     @staticmethod
-    def _parse_skill_steps(skill_context: str) -> list[tuple[str, str]]:
-        """Parse numbered skill text into (instruction, verify) tuples."""
-        steps: list[tuple[str, str]] = []
+    def _parse_skill_steps(skill_context: str) -> list[tuple[str, str, str]]:
+        """Parse numbered skill text into (instruction, verify, on_fail) tuples."""
+        steps: list[tuple[str, str, str]] = []
         instruction: Optional[str] = None
         verify = ""
+        on_fail = ""
 
         for raw_line in skill_context.splitlines():
             line = raw_line.strip()
@@ -1531,15 +1637,18 @@ class AutomationAgent:
             step_match = re.match(r"^\d+\.\s+(.*)$", line)
             if step_match:
                 if instruction is not None:
-                    steps.append((instruction, verify))
+                    steps.append((instruction, verify, on_fail))
                 instruction = step_match.group(1).strip()
                 verify = ""
+                on_fail = ""
                 continue
             if instruction and line.lower().startswith("- verify:"):
                 verify = line.split(":", 1)[1].strip()
+            elif instruction and line.lower().startswith("- on_fail:"):
+                on_fail = line.split(":", 1)[1].strip()
 
         if instruction is not None:
-            steps.append((instruction, verify))
+            steps.append((instruction, verify, on_fail))
         return steps
 
     def _compile_skill_instruction(
@@ -1788,20 +1897,48 @@ class AutomationAgent:
     @staticmethod
     def _extract_wait_condition(text: str) -> str:
         """Extract a visibility predicate from a conditional wait instruction."""
+        stripped = text.strip()
+
+        # Pattern 1: "If X, wait for user..." / "If X, use wait_for_user..."
         match = re.match(
-            r"^If\s+(.+?),\s*wait for (?:the )?user(?:\s+to\s+.+)?$",
-            text.strip(),
+            r"^If\s+(.+?),\s*(?:wait for (?:the )?user|use wait_for_user)"
+            r"(?:\s+to\s+.+)?(?:,\s*then\s+.+)?$",
+            stripped,
             flags=re.IGNORECASE,
         )
-        if match is None:
-            return ""
+        if match:
+            condition = match.group(1).strip().rstrip(".")
+            condition = re.sub(r"(?i)\bappears?\b", "is visible", condition)
+            condition = re.sub(r"\s+", " ", condition).strip()
+            if not re.search(
+                r"(?i)\b(?:is|are|visible|shown|loaded|frontmost)\b",
+                condition,
+            ):
+                condition = f"{condition} is visible"
+            return condition
 
-        condition = match.group(1).strip().rstrip(".")
-        condition = re.sub(r"(?i)\bappears?\b", "is visible", condition)
-        condition = re.sub(r"\s+", " ", condition).strip()
-        if not re.search(r"(?i)\b(?:is|are|visible|shown|loaded|frontmost)\b", condition):
-            condition = f"{condition} is visible"
-        return condition
+        # Pattern 2: Login/sign-in variants
+        login_match = re.match(
+            r"^(?:Please\s+)?(?:You\s+(?:need|may need)\s+to\s+)?"
+            r"(?:log|sign)\s+in\s+to\s+(.+?)(?:\s+first)?$",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if login_match:
+            site = login_match.group(1).strip().rstrip(".")
+            return f"{site} login page is visible"
+
+        # Pattern 3: "Please complete X" / "Complete X"
+        complete_match = re.match(
+            r"^(?:Please\s+)?complete\s+(.+)$",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if complete_match:
+            task = complete_match.group(1).strip().rstrip(".")
+            return f"{task} form is visible"
+
+        return ""
 
     @staticmethod
     def _conditions_overlap(left: str, right: str) -> bool:
@@ -2082,6 +2219,16 @@ class AutomationAgent:
                         image_point=debug_point,
                     )
                 return normalized
+            # AC-6: Save full screenshot on NOT_FOUND
+            if self.config.save_step_screenshots and screenshot_b64:
+                try:
+                    slug = re.sub(r"[^a-zA-Z0-9]+", "_", description)[:40]
+                    self.logger.save_screenshot(
+                        base64.b64decode(screenshot_b64),
+                        f"not_found_{slug}",
+                    )
+                except Exception as exc:
+                    slog.debug("Screenshot save failed", error=str(exc))
             return None
 
         # Rec 1: get accessibility candidates if actuator supports it
@@ -2194,6 +2341,16 @@ class AutomationAgent:
                 self._save_debug_image(original_b64, normalized, description)
             return normalized
 
+        # AC-6: Save full screenshot on NOT_FOUND
+        if self.config.save_step_screenshots and screenshot_b64:
+            try:
+                slug = re.sub(r"[^a-zA-Z0-9]+", "_", description)[:40]
+                self.logger.save_screenshot(
+                    base64.b64decode(screenshot_b64),
+                    f"not_found_{slug}",
+                )
+            except Exception as exc:
+                slog.debug("Screenshot save failed", error=str(exc))
         return None
 
     def _save_debug_image(
@@ -2268,9 +2425,14 @@ class AutomationAgent:
                     evidence=f"Skipped wait because '{wait_condition}' is not present",
                 )
 
+        # AC-3: If no condition was extracted, use a shorter timeout
+        effective_timeout = self._WAIT_TIMEOUT_S
+        if not wait_condition:
+            effective_timeout = min(self._WAIT_TIMEOUT_S, 30.0)
+
         slog.info("⏳ Waiting for user action", message=message)
         print(f"\n[WAITING] {message}")
-        print(f"  (will auto-resume when screen changes, timeout {self._WAIT_TIMEOUT_S}s)")
+        print(f"  (will auto-resume when screen changes, timeout {effective_timeout}s)")
 
         try:
             from PIL import Image
@@ -2294,7 +2456,7 @@ class AutomationAgent:
             )
 
         elapsed = 0.0
-        while elapsed < self._WAIT_TIMEOUT_S:
+        while elapsed < effective_timeout:
             await asyncio.sleep(self._WAIT_POLL_INTERVAL_S)
             elapsed += self._WAIT_POLL_INTERVAL_S
 
@@ -2319,11 +2481,11 @@ class AutomationAgent:
             except Exception:
                 pass  # Screenshot capture failed — keep polling
 
-        slog.warning("wait_for_user timed out", timeout_s=self._WAIT_TIMEOUT_S)
-        print(f"  [TIMEOUT] No screen change detected after {self._WAIT_TIMEOUT_S}s")
+        slog.warning("wait_for_user timed out", timeout_s=effective_timeout)
+        print(f"  [TIMEOUT] No screen change detected after {effective_timeout}s")
         return StepResult(
             step=step, success=True, verification_method="",
-            evidence=f"Timed out after {self._WAIT_TIMEOUT_S}s — proceeding anyway",
+            evidence=f"Timed out after {effective_timeout}s — proceeding anyway",
         )
 
     @staticmethod
@@ -2337,6 +2499,85 @@ class AutomationAgent:
             return 1.0
         diff_count = sum(1 for a, b in zip(pixels_a, pixels_b) if abs(a - b) > 20)
         return diff_count / len(pixels_a)
+
+    async def _scroll_recovery(
+        self,
+        step: ActionStep,
+        initial_result: StepResult,
+        history: list,
+        goal: str,
+        max_scrolls: int = 3,
+    ) -> Optional[StepResult]:
+        """Attempt to find an element by scrolling down before declaring failure.
+
+        Returns:
+            StepResult with success=True if element found after scrolling.
+            StepResult with success=False if max_scrolls exhausted.
+            None if scroll recovery is not applicable.
+        """
+        element_desc = step.params.get("element", "")
+        if not element_desc:
+            return None
+
+        for i in range(max_scrolls):
+            slog.info(
+                "Scroll recovery attempt",
+                attempt=i + 1,
+                max_scrolls=max_scrolls,
+                element=element_desc,
+            )
+            self.logger.log_event(
+                EventType.STEP_RETRY,
+                f"Scroll recovery {i + 1}/{max_scrolls} for '{element_desc}'",
+                data={"strategy": "scroll_down_and_retry", "scroll_attempt": i + 1},
+            )
+
+            # Scroll down half a viewport
+            scroll_step = ActionStep(
+                action="scroll",
+                params={"direction": "down", "amount": 3},
+                verify="",
+                on_fail="abort",
+            )
+            await self._dispatch_action(scroll_step)
+            await asyncio.sleep(self._SCROLL_SETTLE_S)
+
+            # Retry finding the element
+            find_result = await self._find_element(element_desc)
+            if find_result is not None:
+                slog.info(
+                    "Scroll recovery succeeded",
+                    attempt=i + 1,
+                    element=element_desc,
+                )
+                action_result = await self._dispatch_action(
+                    step, _pre_resolved_location=find_result
+                )
+                success = action_result.get("success", False)
+                return StepResult(
+                    step=step,
+                    success=success,
+                    verification_method="",
+                    evidence=f"Scroll recovery click after {i + 1} scrolls",
+                    error=action_result.get("error") if not success else None,
+                    retry_strategies_used=[f"scroll_recovery_{i + 1}"],
+                )
+
+        slog.warning(
+            "Scroll recovery exhausted",
+            max_scrolls=max_scrolls,
+            element=element_desc,
+        )
+        return StepResult(
+            step=step,
+            success=False,
+            verification_method="",
+            evidence=(
+                f"Element '{element_desc}' not found after"
+                f" {max_scrolls} scroll attempts"
+            ),
+            error=f"Element not found after {max_scrolls} scrolls: {element_desc}",
+        )
 
     def _get_confidence_threshold(self, step: ActionStep) -> float:
         """Return the confidence threshold for a step (Rec 2).
@@ -3057,8 +3298,12 @@ class AutomationAgent:
                     )
                     return ("refine_visible_alternative_affordance", _retry_step("click", params))
                 return ("replan_after_alternative_affordance", None)
+            # AC-4: Scroll down as first recovery strategy for NOT_FOUND
+            if missing_target and not suggested_element and attempt == 1:
+                scroll_params = {"direction": "down", "amount": 3}
+                return ("scroll_down_and_retry", _retry_step("scroll", scroll_params))
             if missing_target and not suggested_element:
-                if attempt == 1:
+                if attempt == 2:
                     params["element"] = (
                         f"{params['element']} (visible on the same relevant card/section only)"
                     )

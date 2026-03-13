@@ -457,6 +457,12 @@ class AgentConfig(BaseSettings):
         description="List of blocked application names",
     )
 
+    # AC-6: Screenshot persistence
+    save_step_screenshots: bool = Field(
+        default=True,
+        description="Save screenshots at each step (observe, NOT_FOUND, post-action)",
+    )
+
     @field_validator("log_dir")
     @classmethod
     def create_log_dir(cls, v: Path) -> Path:

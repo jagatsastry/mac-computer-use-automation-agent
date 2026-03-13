@@ -182,11 +182,13 @@ class SkillRegistryImpl:
                 if not _os_matches(skill.requires.os):
                     continue
                 if skill.name in self._skills:
-                    std_logger.warning(
-                        "Duplicate skill name '%s': '%s' overwrites previous definition",
+                    std_logger.error(
+                        "Duplicate skill name '%s': '%s' conflicts with previous "
+                        "definition — skipping duplicate",
                         skill.name,
                         md_file,
                     )
+                    continue  # Skip duplicate instead of overwriting
                 self._skills[skill.name] = skill
             except Exception:
                 # Skip malformed files during loading; validate_all catches them
@@ -513,7 +515,7 @@ class SkillRegistryImpl:
         def _replace_placeholder(m: re.Match) -> str:
             pname = m.group(1)
             if pname in params:
-                return params[pname]
+                return str(params[pname])
             # Optional param not provided -- log warning and strip
             std_logger.warning(
                 "Unexpanded placeholder '{{%s}}' in skill '%s' (stripped)",

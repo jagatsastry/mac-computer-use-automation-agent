@@ -243,7 +243,7 @@ class ActionPlannerImpl:
                     model=self.config.gemini_model,
                     contents=prompt,
                     config=genai.types.GenerateContentConfig(
-                        max_output_tokens=4096,
+                        max_output_tokens=8192,
                         temperature=0.0,
                     ),
                 )
@@ -461,8 +461,50 @@ class ActionPlannerImpl:
             try:
                 steps.append(ActionStep.from_dict(s))
             except ValueError as e:
-                # LLM returned an invalid action — skip it rather than crash
-                skipped.append(f"{s.get('action', '?')}: {e}")
+                # AC-1: Smart fallback — map unknown actions instead of dropping.
+                # Fix 1's alias map should catch all common LLM action names.
+                # This only fires for truly novel actions.
+                action_name = s.get("action", "")
+                params = s.get("params", {})
+
+                # Guard: actions that sound like waits/scrolls should NOT become clicks
+                _no_click_keywords = {"wait", "scroll", "delay", "sleep", "pause"}
+                if any(kw in action_name.lower() for kw in _no_click_keywords):
+                    skipped.append(f"{action_name}: {e} (refused click fallback)")
+                    continue
+
+                if "text" in params:
+                    fallback_action = "type_text"
+                else:
+                    fallback_action = "click"
+                logger.warning(
+                    "Unknown action '%s' mapped to '%s' (best-effort fallback)",
+                    action_name,
+                    fallback_action,
+                    original_error=str(e),
+                    step_description=s.get("verify", ""),
+                )
+                # Preserve the step with the fallback action
+                s_copy = dict(s)
+                s_copy["action"] = fallback_action
+                try:
+                    steps.append(ActionStep.from_dict(s_copy))
+                except ValueError:
+                    # Even the fallback failed — truly skip
+                    skipped.append(f"{action_name}: {e}")
+
+        raw_count = len(data["steps"])
+        parsed_count = len(steps)
+        if parsed_count < raw_count:
+            dropped = raw_count - parsed_count
+            logger.warning(
+                "Plan step count mismatch: LLM returned %d steps but only %d parsed "
+                "(%d dropped). Skipped: %s",
+                raw_count,
+                parsed_count,
+                dropped,
+                "; ".join(skipped),
+            )
 
         if not steps:
             if skipped:
