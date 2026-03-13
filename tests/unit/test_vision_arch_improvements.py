@@ -50,7 +50,10 @@ def _make_config(**overrides):
 
     defaults = {
         "vision_model": "molmo",
+        "model_provider": "local",
         "log_dir": "/tmp/test_arch_improvement_logs",
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)

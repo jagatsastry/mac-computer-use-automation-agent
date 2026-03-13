@@ -236,9 +236,10 @@ class StepVerifier:
         path_tokens = [token for token in parsed.path.lower().split("/") if token]
         host_parts = [part for part in host.replace(".", " ").split() if part not in {"com", "org", "net"}]
         path_parts = []
-        for token in path_tokens[:2]:
+        for token in path_tokens[:4]:
             path_parts.extend(part for part in token.replace("-", " ").replace("_", " ").split() if part)
-        return [token for token in host_parts + path_parts if token]
+        # Filter out short/generic path segments
+        return [token for token in host_parts + path_parts if token and len(token) > 2]
 
     def _build_url_condition(self, url: str) -> Optional[str]:
         """Build an action-specific vision condition for navigation checks."""
@@ -369,15 +370,50 @@ class StepVerifier:
         if step.action == "open_url" and step.params.get("url"):
             actual_app = state.get("app_name", "")
             window_title = state.get("window_title", "")
+            browser_url = state.get("browser_url", "")
             if actual_app and not self._is_browser_app(actual_app):
                 return (
                     False,
                     f"Navigation opened '{actual_app}' instead of a browser",
                 )
-            if not actual_app and not window_title:
+            if not actual_app and not window_title and not browser_url:
                 return None
 
-            tokens = self._url_tokens(step.params["url"])
+            expected_url = step.params["url"]
+            tokens = self._url_tokens(expected_url)
+
+            # Direct URL match (most reliable)
+            if browser_url:
+                expected_lower = expected_url.lower().rstrip("/")
+                actual_lower = browser_url.lower().rstrip("/")
+
+                # Login redirect detection: if the actual URL contains login/signin
+                # paths but the expected URL does not, this is a redirect — not a match
+                _login_segments = ("/login", "/signin", "/sign-in", "/auth", "/sso", "/ap/signin")
+                redirected_to_login = (
+                    any(seg in actual_lower for seg in _login_segments)
+                    and not any(seg in expected_lower for seg in _login_segments)
+                )
+                if redirected_to_login:
+                    return (
+                        False,
+                        f"Browser URL '{browser_url}' was redirected to login page "
+                        f"(expected '{expected_url}')",
+                    )
+
+                if expected_lower in actual_lower or actual_lower in expected_lower:
+                    return (
+                        True,
+                        f"Browser URL '{browser_url}' matches destination",
+                    )
+                # Token match against actual URL
+                if tokens and any(token in actual_lower for token in tokens):
+                    return (
+                        True,
+                        f"Browser URL '{browser_url}' contains destination tokens",
+                    )
+
+            # Fallback: window title match
             title_lower = window_title.lower()
             if tokens and title_lower and any(token in title_lower for token in tokens):
                 return (

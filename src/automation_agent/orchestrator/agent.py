@@ -307,20 +307,31 @@ class AutomationAgent:
                 plan_kwargs["desktop_context"] = desktop_context
             plan = await self.planner.plan(goal, **plan_kwargs)
             fallback_plan = self._build_skill_fallback_plan(goal, skill_context)
+            replace_with_fallback = False
             if self._is_trivial_done_plan(plan) and fallback_plan is not None:
                 if await self._plan_already_satisfied(fallback_plan):
                     slog.info("✅ Trivial done plan accepted because fallback condition is already met")
                 else:
+                    replace_with_fallback = True
                     slog.warning(
                         "Planner returned trivial done plan before fallback target was satisfied",
                         goal=goal,
                     )
-                    self.logger.log_event(
-                        EventType.SKILL_EXPAND,
-                        f"Replacing trivial done plan with skill fallback ({len(fallback_plan.steps)} steps)",
-                        data={"step_count": len(fallback_plan.steps)},
-                    )
-                    plan = fallback_plan
+            elif self._is_truncated_plan(plan, fallback_plan):
+                replace_with_fallback = True
+                slog.warning(
+                    "Planner returned truncated plan (navigation only, no interactions)",
+                    plan_steps=len(plan.steps),
+                    fallback_steps=len(fallback_plan.steps),
+                    goal=goal,
+                )
+            if replace_with_fallback and fallback_plan is not None:
+                self.logger.log_event(
+                    EventType.SKILL_EXPAND,
+                    f"Replacing incomplete plan with skill fallback ({len(fallback_plan.steps)} steps)",
+                    data={"step_count": len(fallback_plan.steps)},
+                )
+                plan = fallback_plan
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             plan_data = {"step_count": len(plan.steps)}
             if plan.raw_llm_response:
@@ -1406,6 +1417,20 @@ class AutomationAgent:
         """Return True when the plan is only a single done step."""
         return len(plan.steps) == 1 and plan.steps[0].action == "done"
 
+    @staticmethod
+    def _is_truncated_plan(plan: ActionPlan, fallback: Optional[ActionPlan]) -> bool:
+        """Return True when the LLM plan is suspiciously shorter than the skill template.
+
+        A plan with only navigation steps (open_url, activate_app) but no interaction
+        steps (click, type_text) is likely truncated when the skill has interaction steps.
+        """
+        if fallback is None:
+            return False
+        interaction_actions = {"click", "type_text", "scroll"}
+        plan_has_interaction = any(s.action in interaction_actions for s in plan.steps)
+        fallback_has_interaction = any(s.action in interaction_actions for s in fallback.steps)
+        return fallback_has_interaction and not plan_has_interaction
+
     async def _plan_already_satisfied(self, plan: ActionPlan) -> bool:
         """Check whether the final actionable step in a fallback plan is already satisfied."""
         actionable_steps = [
@@ -1865,8 +1890,13 @@ class AutomationAgent:
                             "error": f"low_confidence:{confidence:.2f}",
                         }
 
-                    # Rec 3: pre-click validation (skip for accessibility or very high confidence)
-                    skip_validation = (location.source == "accessibility") or (confidence >= 0.9)
+                    # Rec 3: pre-click validation (skip for accessibility, high confidence,
+                    # or dedicated grounding model results — grounding is purpose-built for
+                    # element finding and more accurate than crop-based secondary validation)
+                    skip_validation = (
+                        location.source in ("accessibility", "grounding")
+                        or confidence >= 0.9
+                    )
                     if not skip_validation:
                         try:
                             is_valid = await self._validate_candidate(
@@ -1936,6 +1966,28 @@ class AutomationAgent:
                     result["screen_x"] = screen_x
                     result["screen_y"] = screen_y
             elif action == "type_text":
+                # Click-to-focus: if an element is specified, find and click it first
+                element_desc = params.pop("element", None)
+                if element_desc and not params.pop("_skip_focus", False):
+                    try:
+                        location = await self.coordinator.find_element(
+                            element_desc, screenshot_b64=screenshot_b64
+                        )
+                        if location and hasattr(location, "x") and location.x is not None:
+                            sx = location.screen_x if location.screen_x is not None else location.x
+                            sy = location.screen_y if location.screen_y is not None else location.y
+                            self.actuator.click(sx, sy)
+                            await asyncio.sleep(max(self.config.action_delay, 0.3))
+                        else:
+                            slog.debug(
+                                "type_text element not found, typing to current focus",
+                                element=element_desc,
+                            )
+                    except Exception:
+                        slog.debug(
+                            "type_text click-to-focus failed, typing to current focus",
+                            element=element_desc,
+                        )
                 if params.pop("_clear_first", False):
                     clear_result = self.actuator.press_key(["cmd", "a"])
                     if not clear_result.get("success", False):

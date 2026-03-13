@@ -21,9 +21,9 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 {{absent_elements}}
 
 ## Available Actions
-- `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps. Do NOT use before `open_url`.
+- `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps (Calculator, Finder, etc). Do NOT use before `open_url` — `open_url` already activates the default browser.
 - `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
-- `type_text`: Type text. Params: `text` (string)
+- `type_text`: Type text into a field. Params: `text` (string), `element` (optional string — description of the input field to click first). IMPORTANT: Always specify `element` when typing into a specific input field so the agent clicks it first to ensure focus.
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
 - `open_url`: Open URL in default browser and bring it to front. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)

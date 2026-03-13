@@ -33,6 +33,8 @@ def _make_config(**overrides) -> AgentConfig:
         "vision_model": "qwen3-vl",
         "model_provider": ModelProvider.LOCAL,
         "log_dir": "/tmp/test_grounding_adversarial_logs",
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)

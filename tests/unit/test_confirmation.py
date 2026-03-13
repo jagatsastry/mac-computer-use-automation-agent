@@ -34,6 +34,8 @@ def _make_config(**overrides) -> AgentConfig:
         "_env_file": None,
         "anthropic_api_key": "test-key-not-real",
         "model_provider": "local",
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)

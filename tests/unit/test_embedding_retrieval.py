@@ -28,6 +28,8 @@ def _make_config(**overrides) -> AgentConfig:
         skill_embedding_model="BAAI/bge-small-en-v1.5",
         skill_embedding_rerank_threshold=0.92,
         skill_embedding_min_gap=0.15,
+        grounding_model="",
+        grounding_server_url="",
     )
     defaults.update(overrides)
     return AgentConfig(**defaults)

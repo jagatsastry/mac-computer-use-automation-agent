@@ -116,7 +116,8 @@ class ScreenCoordinatorImpl:
         """Resolve coordinate space for a model via case-insensitive prefix matching.
 
         Handles GGUF filenames like 'Qwen2.5-VL-7B-Instruct-q4_k_m.gguf'
-        matching registry key 'qwen2.5-vl'.
+        matching registry key 'qwen2.5-vl', and HuggingFace IDs like
+        'mlx-community/Molmo-7B-D-0924-3bit' matching 'molmo'.
 
         Returns None if no match found.
         """
@@ -128,6 +129,14 @@ class ScreenCoordinatorImpl:
         for key, space in COORDINATE_SPACES.items():
             if model_lower.startswith(key):
                 return space
+        # Strip HuggingFace org prefix (e.g. 'mlx-community/Molmo-...' -> 'molmo-...')
+        if "/" in model_lower:
+            basename = model_lower.split("/", 1)[1]
+            if basename in COORDINATE_SPACES:
+                return COORDINATE_SPACES[basename]
+            for key, space in COORDINATE_SPACES.items():
+                if basename.startswith(key):
+                    return space
         return None
 
     def _get_coordinate_space(self, model: str) -> str:
@@ -463,8 +472,13 @@ class ScreenCoordinatorImpl:
 
         # Match "FOUND: x=<number>, y=<number>" with optional confidence
         patterns = [
+            # x=N, y=N (comma separated)
             r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s*,\s*y\s*=\s*"?([0-9]*\.?[0-9]+)"?'
             r'(?:\s*,?\s*confidence\s*=\s*"?([0-9]*\.?[0-9]+)"?)?',
+            # x=N y=N (space separated, with y= label — Molmo v1 format)
+            r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s+y\s*=\s*"?([0-9]*\.?[0-9]+)"?'
+            r'(?:\s*,?\s*confidence\s*=\s*"?([0-9]*\.?[0-9]+)"?)?',
+            # x=N N (space separated, no y= label — Molmo2 fallback format)
             r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s+"?([0-9]*\.?[0-9]+)"?'
             r'(?:\s*,?\s*confidence\s*=\s*"?([0-9]*\.?[0-9]+)"?)?',
         ]
@@ -705,10 +719,11 @@ class ScreenCoordinatorImpl:
                     conf = raw_coords[2]
                     logger.info("👁️ Element found via grounding model", description=description, x=x, y=y)
                     return FindElementResult(
-                        x=x, y=y, confidence=conf, source="vision", raw_response=response
+                        x=x, y=y, confidence=conf, source="grounding", raw_response=response
                     )
                 logger.info(
-                    "👁️ Grounding model returned no result, falling back to vision model"
+                    "👁️ Grounding model returned no result, falling back to vision model",
+                    grounding_response=response[:200] if response else "(empty)",
                 )
             except Exception:
                 logger.warning(

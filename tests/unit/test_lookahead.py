@@ -26,6 +26,8 @@ def _make_config(**overrides) -> AgentConfig:
         lookahead_enabled=True,
         lookahead_skip_when_confirmed=True,
         lookahead_timeout_s=15.0,
+        grounding_model="",
+        grounding_server_url="",
     )
     defaults.update(overrides)
     return AgentConfig(**defaults)
