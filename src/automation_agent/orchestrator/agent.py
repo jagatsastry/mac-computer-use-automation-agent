@@ -2031,7 +2031,7 @@ class AutomationAgent:
                     # or dedicated grounding model results — grounding is purpose-built for
                     # element finding and more accurate than crop-based secondary validation)
                     skip_validation = (
-                        location.source in ("accessibility", "grounding")
+                        location.source in ("accessibility", "grounding", "vision")
                         or confidence >= 0.9
                     )
                     if not skip_validation:

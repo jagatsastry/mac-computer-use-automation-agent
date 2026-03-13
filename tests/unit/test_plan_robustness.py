@@ -297,11 +297,10 @@ class TestSmartFallback:
         assert plan.steps[0].action == "click"
         assert plan.steps[0].params["element"] == "button"
 
-    def test_double_fallback_failure_skips_step(self):
-        """If the fallback action itself fails validation, the step is truly skipped."""
+    def test_double_fallback_with_invalid_on_fail_normalizes(self):
+        """Invalid on_fail is now normalized (not rejected), so the fallback
+        action survives with a corrected on_fail value."""
         planner = ActionPlannerImpl(_make_config())
-        # Create a step where even the click fallback will fail: provide an
-        # invalid on_fail value that ActionStep.__post_init__ rejects.
         response = self._make_llm_response([
             {
                 "action": "zap",
@@ -312,10 +311,11 @@ class TestSmartFallback:
             {"action": "done", "params": {}, "verify": ""},
         ])
         plan = planner._parse_plan_response(response, "test goal")
-        # "zap" fallback to click will fail because on_fail is invalid
-        # Only "done" survives
-        assert len(plan.steps) == 1
-        assert plan.steps[0].action == "done"
+        # "zap" falls back to "click", invalid on_fail normalized to "retry_different"
+        assert len(plan.steps) == 2
+        assert plan.steps[0].action == "click"
+        assert plan.steps[0].on_fail == "retry_different"
+        assert plan.steps[1].action == "done"
 
     def test_fallback_preserves_params(self):
         """Original params survive through the fallback mapping."""

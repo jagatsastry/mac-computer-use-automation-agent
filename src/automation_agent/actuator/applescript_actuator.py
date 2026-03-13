@@ -129,7 +129,31 @@ class AppleScriptActuator:
             ).to_dict()
 
     def open_url(self, url: str) -> Dict[str, Any]:
-        script = f'open location "{url}"'
+        # Open the URL and then bring the default browser to the front.
+        # "open location" hands off to the system default browser which may
+        # open behind other windows.  The old approach got "the frontmost app"
+        # which was still the terminal — we now iterate visible processes and
+        # activate the first non-terminal app that has windows (the browser).
+        script = (
+            f'open location "{url}"\n'
+            'delay 1.0\n'
+            'tell application "System Events"\n'
+            '  set _procs to every application process '
+            'whose visible is true and frontmost is false\n'
+            '  repeat with _p in _procs\n'
+            '    try\n'
+            '      if (count of windows of _p) > 0 then\n'
+            '        set _name to name of _p\n'
+            '        if _name is not "Terminal" and _name is not "iTerm2" '
+            'and _name is not "Claude" then\n'
+            '          tell application _name to activate\n'
+            '          exit repeat\n'
+            '        end if\n'
+            '      end if\n'
+            '    end try\n'
+            '  end repeat\n'
+            'end tell'
+        )
         return self._run_osascript(script).to_dict()
 
     def quit_app(self, app_name: str) -> Dict[str, Any]:
@@ -266,11 +290,37 @@ function run(argv) {
         except Exception:
             return []
 
+    def _get_browser_url(self, app_name: str) -> str:
+        """Get the current URL from a browser's frontmost tab."""
+        lower = app_name.lower()
+        if "safari" in lower:
+            script = 'tell application "Safari" to return URL of front document'
+        elif "chrome" in lower:
+            script = 'tell application "Google Chrome" to return URL of active tab of front window'
+        elif "firefox" in lower:
+            # Firefox doesn't expose URL via AppleScript
+            return ""
+        elif "arc" in lower:
+            script = 'tell application "Arc" to return URL of active tab of front window'
+        else:
+            return ""
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=2,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception:
+            pass
+        return ""
+
     def get_state(self) -> Dict[str, Any]:
         default_state = {
             "app_name": "",
             "app_bundle": "",
             "window_title": "",
+            "browser_url": "",
             "window_x": 0,
             "window_y": 0,
             "window_w": 0,
@@ -306,14 +356,24 @@ return frontApp & "|" & frontBundle & "|" & winTitle & "|" & winX & "|" & winY &
             return default_state
         parts = result.output.split("|", 6)
         try:
-            return {
-                "app_name": parts[0] if len(parts) > 0 else "",
+            app_name = parts[0] if len(parts) > 0 else ""
+            state = {
+                "app_name": app_name,
                 "app_bundle": parts[1] if len(parts) > 1 else "",
                 "window_title": parts[2] if len(parts) > 2 else "",
+                "browser_url": "",
                 "window_x": int(parts[3]) if len(parts) > 3 and parts[3] else 0,
                 "window_y": int(parts[4]) if len(parts) > 4 and parts[4] else 0,
                 "window_w": int(parts[5]) if len(parts) > 5 and parts[5] else 0,
                 "window_h": int(parts[6]) if len(parts) > 6 and parts[6] else 0,
             }
+            if self._is_browser(app_name):
+                state["browser_url"] = self._get_browser_url(app_name)
+            return state
         except (ValueError, IndexError):
             return default_state
+
+    @staticmethod
+    def _is_browser(app_name: str) -> bool:
+        lowered = app_name.lower()
+        return any(b in lowered for b in ("safari", "chrome", "firefox", "arc", "edge", "brave", "opera"))

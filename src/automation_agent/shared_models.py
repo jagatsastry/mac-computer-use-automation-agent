@@ -27,6 +27,18 @@ TEXT_INPUT_KEYWORDS: frozenset[str] = frozenset({
     "search bar", "address bar", "url bar",
 })
 
+# Common LLM misspellings → correct on_fail value.
+# Used by ActionStep.from_dict() to normalize invalid on_fail strings.
+_ON_FAIL_ALIASES: Dict[str, str] = {
+    "scroll": "retry_different",
+    "retry": "retry_different",
+    "skip": "abort",
+    "abort_reason": "abort",
+    "continue": "retry_different",
+    "fail": "abort",
+    "stop": "abort",
+}
+
 # Common LLM misspellings → correct action name.
 # Used by ActionStep.from_dict() to auto-correct invalid action names.
 _ACTION_ALIASES: Dict[str, str] = {
@@ -154,12 +166,20 @@ class ActionStep:
                 params = {**params, "direction": "down"}
             elif raw_action == "scroll_up":
                 params = {**params, "direction": "up"}
+        # Normalize on_fail: coerce non-string types, then map aliases
+        raw_on_fail = data.get("on_fail", "retry_different")
+        if not isinstance(raw_on_fail, str):
+            raw_on_fail = "retry_different"
+        _valid_on_fail = {"retry_different", "replan", "abort", "wait_for_user"}
+        if raw_on_fail not in _valid_on_fail:
+            raw_on_fail = _ON_FAIL_ALIASES.get(raw_on_fail, "retry_different")
+
         return cls(
             action=action,
             params=params,
             verify=data.get("verify", ""),
             expected_observation=data.get("expected_observation", ""),
-            on_fail=data.get("on_fail", "retry_different"),
+            on_fail=raw_on_fail,
             max_retries=data.get("max_retries", 3),
             destructive=bool(data.get("destructive", False)),
         )

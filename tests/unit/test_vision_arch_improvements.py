@@ -1118,8 +1118,10 @@ class TestValidateCandidate:
         log_dir.mkdir()
 
         coordinator = AsyncMock()
+        # Use source="" so pre-click validation runs (source="vision" now skips it,
+        # matching the grounding router fix in cycle 2).
         coordinator.find_element = AsyncMock(
-            return_value=FindElementResult(x=100, y=100, confidence=0.6, source="vision")
+            return_value=FindElementResult(x=100, y=100, confidence=0.6, source="")
         )
         coordinator.describe_screen = AsyncMock(return_value="screen")
         coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())
