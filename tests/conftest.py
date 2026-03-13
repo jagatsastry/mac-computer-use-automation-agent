@@ -222,6 +222,11 @@ def mock_planner():
             goal="Open Safari (replanned)",
         )
     )
+    # Gap 5: Default infeasibility check says "still achievable" so existing
+    # tests that don't care about infeasibility are unaffected.
+    planner.check_infeasibility = AsyncMock(
+        return_value={"infeasible": False, "reason": "Still achievable"}
+    )
     return planner
 
 
@@ -239,6 +244,8 @@ def mock_coordinator():
     coordinator.capture_screenshot = AsyncMock(
         return_value=base64.b64encode(b"fake_screenshot_png_data").decode()
     )
+    # Match ScreenCoordinator protocol default: no special capabilities
+    coordinator.capabilities = MagicMock(return_value=frozenset())
     return coordinator
 
 

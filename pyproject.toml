@@ -56,6 +56,9 @@ dev = [
 anthropic = [
     "anthropic>=0.40.0",
 ]
+gemini = [
+    "google-genai>=1.0.0",
+]
 molmo = [
     "transformers>=4.46.0,<4.47.0",
     "torch>=2.8.0",
@@ -63,8 +66,11 @@ molmo = [
     "einops>=0.8.0",
     "accelerate>=1.10.0",
 ]
+embeddings = [
+    "fastembed>=0.3",
+]
 all = [
-    "automation-agent[dev,anthropic,molmo]",
+    "automation-agent[dev,anthropic,gemini,molmo,embeddings]",
 ]
 
 [project.scripts]

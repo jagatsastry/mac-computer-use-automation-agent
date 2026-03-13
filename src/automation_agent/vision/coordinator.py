@@ -1,14 +1,17 @@
 """Screen coordinator implementation using vision models for element finding and verification."""
 
+import asyncio
 import json
 import logging
 import re
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.protocols import CoordinatorCapability
 from automation_agent.shared_models import FindElementResult
 from automation_agent.vision.capture import ScreenCapture
 
@@ -81,9 +84,13 @@ class ScreenCoordinatorImpl:
 
     def _get_models_to_validate(self) -> list:
         """Return the list of model names that need validation."""
-        models = [self.config.vision_model]
-        if self.config.model_provider.value == "anthropic":
-            models.append(self.config.anthropic_vision_model)
+        # Gemini handles its own model routing — no coordinate space to validate
+        if self.config.model_provider.value == "gemini":
+            models = []
+        elif self.config.model_provider.value == "anthropic":
+            models = [self.config.vision_model, self.config.anthropic_vision_model]
+        else:
+            models = [self.config.vision_model]
         if self.config.grounding_model:
             models.append(self.config.grounding_model)
         return models
@@ -92,10 +99,13 @@ class ScreenCoordinatorImpl:
         """Return the model name actually used for vision calls based on provider.
 
         When model_provider is 'anthropic', the Anthropic vision model is used.
+        When model_provider is 'gemini', the Gemini model is used.
         Otherwise, the local vision model is used.
         """
         if self.config.model_provider.value == "anthropic":
             return self.config.anthropic_vision_model
+        if self.config.model_provider.value == "gemini":
+            return self.config.gemini_model
         return self.config.vision_model
 
     @staticmethod
@@ -211,8 +221,11 @@ class ScreenCoordinatorImpl:
         screenshots_b64: Sequence[str],
     ) -> str:
         """Call the configured vision model with one or more screenshots."""
-        if self.config.model_provider.value == "anthropic":
+        provider = self.config.model_provider.value
+        if provider == "anthropic":
             return await self._call_anthropic_vision(prompt, screenshots_b64)
+        elif provider == "gemini":
+            return await self._call_gemini_vision(prompt, screenshots_b64)
         else:
             return await self._call_local_vision(prompt, screenshots_b64)
 
@@ -260,6 +273,57 @@ class ScreenCoordinatorImpl:
             response = await client.post(url, json=payload)
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
+
+    async def _call_gemini_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+        """Call Google Gemini vision model with retry on overloaded errors.
+
+        Args:
+            prompt: The text prompt.
+            screenshots_b64: Base64-encoded screenshots.
+
+        Returns:
+            The model's text response.
+        """
+        import asyncio
+        import base64
+
+        from google import genai
+
+        client = genai.Client(api_key=self.config.gemini_api_key)
+
+        max_retries = 4
+        base_delay = 1.0
+
+        parts = []
+        for screenshot_b64 in screenshots_b64:
+            image_bytes = base64.b64decode(screenshot_b64)
+            parts.append(genai.types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
+        parts.append(prompt)
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=self.config.gemini_model,
+                    contents=parts,
+                    config=genai.types.GenerateContentConfig(
+                        max_output_tokens=1024,
+                        temperature=0.0,
+                    ),
+                )
+                return response.text or ""
+            except Exception as e:
+                if attempt < max_retries and ("429" in str(e) or "503" in str(e)):
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        "Gemini API error, retrying",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay_s=delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     async def _call_anthropic_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
         """Call Anthropic vision model with retry on overloaded/rate-limit errors.
@@ -526,6 +590,71 @@ class ScreenCoordinatorImpl:
         if screenshot_b64 is None:
             screenshot_b64 = self.capture.capture_b64()
 
+        # AC-15: SoM path — gate on config, candidates, and threshold
+        if (
+            self.config.som_enabled
+            and candidates is not None
+            and len(candidates) >= 3
+        ):
+            try:
+                from automation_agent.vision.annotator import annotate_screenshot
+
+                screen_size = self.capture.get_screen_size()
+                _ann_start = time.monotonic()
+                annotated_b64 = annotate_screenshot(
+                    screenshot_b64, candidates, screen_size
+                )
+                _ann_ms = int((time.monotonic() - _ann_start) * 1000)
+                logger.info(
+                    "som_annotate",
+                    element_count=len(candidates),
+                    duration_ms=_ann_ms,
+                )
+
+                som_prompt = self._load_prompt("find_element_som.md")
+                som_prompt = som_prompt.replace(
+                    "{{element_description}}", description
+                )
+                som_prompt = som_prompt.replace(
+                    "{{element_list}}",
+                    self._build_candidate_prefix(candidates, description),
+                )
+                response = await self._call_vision_model(som_prompt, annotated_b64)
+
+                # AC-13: parse element_number response
+                result = self._parse_som_response(response, candidates, description)
+                if result is not None:
+                    _num_match = re.search(
+                        r"element_number\s*=\s*(\d+)", response
+                    )
+                    logger.info(
+                        "som_parse",
+                        element_number=int(_num_match.group(1)) if _num_match else 0,
+                        confidence=result.confidence,
+                        source="som",
+                    )
+                    return result
+
+                # AC-14: SoM didn't match by number, try raw coordinate parsing
+                raw_coords = self._parse_coordinates(response)
+                if raw_coords is not None:
+                    model = self._get_active_model()
+                    w, h = self.config.screenshot_resolution
+                    x, y = self._convert_coordinates(
+                        raw_coords[0], raw_coords[1], model, w, h
+                    )
+                    return FindElementResult(
+                        x=x, y=y, confidence=raw_coords[2],
+                        source="vision", raw_response=response,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "som_error",
+                    error=str(e),
+                    element_count=len(candidates) if candidates else 0,
+                )
+                # Fall through to standard grounding path below
+
         base_prompt = self._load_prompt("find_element.md").replace(
             "{{element_description}}", description
         )
@@ -752,3 +881,199 @@ class ScreenCoordinatorImpl:
             Base64-encoded JPEG screenshot string.
         """
         return self.capture.capture_b64()
+
+    def capabilities(self) -> FrozenSet[CoordinatorCapability]:
+        """Advertise capabilities based on config and model support."""
+        caps: set[CoordinatorCapability] = set()
+        if self._supports_multi_image():
+            caps.add(CoordinatorCapability.DUAL_RESOLUTION)
+        if self._supports_vision_prediction():
+            caps.add(CoordinatorCapability.LOOKAHEAD)
+        caps.add(CoordinatorCapability.SOM)
+        return frozenset(caps)
+
+    def _supports_vision_prediction(self) -> bool:
+        """Check if current vision backend supports text prediction prompts."""
+        return True  # All VLM backends support text prompts
+
+    def _supports_multi_image(self) -> bool:
+        """Check if current vision backend supports multi-image input."""
+        return hasattr(self, "_call_vision_model_with_images")
+
+    async def find_element_dual(
+        self,
+        description: str,
+        screenshot_b64: str,
+        context_b64: str,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[FindElementResult]:
+        """AC-21: Find element using dual-resolution images.
+
+        Args:
+            description: Element description.
+            screenshot_b64: Detail crop (zoomed region).
+            context_b64: Full-page overview.
+            candidates: Optional AX candidates.
+
+        Returns:
+            FindElementResult or None.
+        """
+        prompt = self._load_prompt("find_element_dual.md").replace(
+            "{{element_description}}", description
+        )
+        if candidates and len(candidates) >= 3:
+            prefix = self._build_candidate_prefix(candidates, description)
+            prompt = prefix + "\n\n" + prompt
+
+        # Send both images with timeout protection (spec requirement)
+        try:
+            response = await asyncio.wait_for(
+                self._call_vision_model_with_images(
+                    prompt, [context_b64, screenshot_b64]
+                ),
+                timeout=self.config.dual_res_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Dual-res VLM call timed out",
+                timeout_s=self.config.dual_res_timeout_s,
+                element=description,
+            )
+            return None
+
+        raw_coords = self._parse_coordinates(response)
+        if raw_coords is None:
+            return None
+
+        model = self._get_active_model()
+        w, h = self.config.screenshot_resolution
+        x, y = self._convert_coordinates(raw_coords[0], raw_coords[1], model, w, h)
+        return FindElementResult(
+            x=x, y=y, confidence=raw_coords[2],
+            source="vision", raw_response=response,
+        )
+
+    def _parse_som_response(
+        self,
+        response: str,
+        candidates: List[Dict[str, Any]],
+        description: str = "",
+    ) -> Optional[FindElementResult]:
+        """AC-13: Parse FOUND: element_number=N response and map to AX element coords.
+
+        Confidence capped at 0.85 (below _CRITICAL_CONFIDENCE_THRESHOLD of 0.9).
+        """
+        match = re.search(
+            r"FOUND:\s*element_number\s*=\s*(\d+)"
+            r"(?:,\s*confidence\s*=\s*([0-9.]+))?",
+            response,
+        )
+        if not match:
+            return None
+        number = int(match.group(1))
+        if number < 1 or number > len(candidates):
+            return None
+
+        _SOM_CONFIDENCE_CAP = 0.85
+        raw_conf = float(match.group(2)) if match.group(2) else 0.8
+        confidence = min(raw_conf, _SOM_CONFIDENCE_CAP)
+
+        el = candidates[number - 1]  # 1-indexed
+
+        # Security (finding 9): Cross-check AX element title against search description
+        el_title = str(
+            el.get("title", "") or el.get("description", "") or ""
+        ).lower()
+        if el_title and len(el_title) > 2:
+            search_words = set(description.lower().split())
+            el_words = set(el_title.split())
+            if not search_words & el_words:
+                confidence = min(confidence, 0.5)
+
+        from automation_agent.vision.annotator import _extract_element_bounds
+
+        cx, cy, _, _ = _extract_element_bounds(el)
+        return FindElementResult(
+            x=int(cx), y=int(cy),
+            confidence=confidence,
+            source="som",
+            raw_response=response,
+        )
+
+    async def predict_action_outcome(
+        self,
+        action: str,
+        params: Dict[str, Any],
+        expected_observation: str,
+        screenshot_b64: str,
+        is_hard_destructive: bool = False,
+    ) -> Dict[str, Any]:
+        """AC-30: Predict what will happen after an action.
+
+        Args:
+            action: The action type (click, type_text, etc.).
+            params: Action parameters.
+            expected_observation: What the caller expects to see.
+            screenshot_b64: Current screen as base64.
+            is_hard_destructive: When True, parse failures use pessimistic default.
+
+        Returns:
+            Dict with likely_success, predicted_state, risk, mismatch_reason.
+        """
+        prompt = self._load_prompt("predict_outcome.md")
+        prompt = prompt.replace("{{action}}", action)
+        prompt = prompt.replace("{{params}}", str(params))
+        prompt = prompt.replace("{{expected_observation}}", expected_observation)
+        response = await self._call_vision_model(prompt, screenshot_b64)
+        return self._parse_prediction_response(response, is_hard_destructive=is_hard_destructive)
+
+    def _parse_prediction_response(
+        self, response: str, is_hard_destructive: bool = False
+    ) -> Dict[str, Any]:
+        """Parse lookahead VLM response into structured prediction.
+
+        Fallback behavior:
+        - Non-destructive: optimistic default (likely_success=True)
+        - Hard-destructive: pessimistic default (likely_success=False)
+        """
+        _OPTIMISTIC_DEFAULT: Dict[str, Any] = {
+            "likely_success": True,
+            "predicted_state": "",
+            "risk": "",
+            "mismatch_reason": "",
+        }
+        _PESSIMISTIC_DEFAULT: Dict[str, Any] = {
+            "likely_success": False,
+            "predicted_state": "",
+            "risk": "Prediction unavailable for destructive action",
+            "mismatch_reason": "VLM response unparseable; blocking as safety precaution",
+        }
+        _fallback = _PESSIMISTIC_DEFAULT if is_hard_destructive else _OPTIMISTIC_DEFAULT
+        try:
+            import json as _json
+
+            text = response.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+            parsed = _json.loads(text)
+            if not isinstance(parsed, dict):
+                return _fallback
+
+            return {
+                "likely_success": bool(parsed.get("likely_success", True)),
+                "predicted_state": str(parsed.get("predicted_state", "")),
+                "risk": str(parsed.get("risk", "")),
+                "mismatch_reason": str(parsed.get("mismatch_reason", "")),
+            }
+        except (ValueError, KeyError, TypeError):
+            fallback_type = "pessimistic" if is_hard_destructive else "optimistic"
+            logger.debug(
+                "Lookahead prediction parse failed, using %s default",
+                fallback_type,
+                exc_info=True,
+            )
+            return _fallback

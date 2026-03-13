@@ -43,6 +43,13 @@ def _make_plan(steps, goal="Test goal"):
     return ActionPlan(steps=steps, goal=goal)
 
 
+class _AutoApproveHandler:
+    """Auto-approve all destructive confirmations in tests."""
+
+    async def confirm(self, step):
+        return True
+
+
 def _make_agent(planner, skill_registry, coordinator, actuator, logger, config=None):
     if config is None:
         config = _make_config()
@@ -53,6 +60,7 @@ def _make_agent(planner, skill_registry, coordinator, actuator, logger, config=N
         actuator=actuator,
         config=config,
         logger=logger,
+        confirmation_handler=_AutoApproveHandler(),
     )
 
 

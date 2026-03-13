@@ -21,16 +21,20 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 {{absent_elements}}
 
 ## Available Actions
-- `activate_app`: Launch or bring an app to front. Params: `app_name` (string)
+- `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps. Do NOT use before `open_url`.
 - `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
 - `type_text`: Type text. Params: `text` (string)
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
-- `open_url`: Open URL in browser. Params: `url` (string)
+- `open_url`: Open URL in default browser and bring it to front. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)
 - `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at)
 - `observe`: Take a screenshot and describe what's on screen. Params: none
 - `wait_for_user`: Pause and wait for user action. Params: `message` (string)
 - `done`: Task complete. Params: none. Optional: `abort_reason` (string) — set when the task is impossible in the current page state
+
+## Destructive Actions
+For actions with irreversible consequences (placing an order, deleting data, sending a message,
+making a payment), set `"destructive": true` on the step. This triggers user confirmation.
 
 ## CRITICAL: You MUST try a DIFFERENT approach than what was already attempted.
 Do NOT repeat the same actions that failed. Consider:

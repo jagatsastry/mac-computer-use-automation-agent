@@ -3,8 +3,9 @@
 import logging
 import re
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import structlog
 
@@ -15,6 +16,9 @@ from automation_agent.shared_models import (
     SkillRouteCandidate,
     StepResult,
 )
+
+if TYPE_CHECKING:
+    from automation_agent.skills.embeddings import EmbeddingIndex
 from automation_agent.skills.distiller import SkillDistiller
 from automation_agent.skills.experience import SkillExperienceStore
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
@@ -94,11 +98,13 @@ class SkillRegistryImpl:
             self.load_from_directory(self._skill_dir)
         # Router created lazily after skills are loaded
         self._router: Optional[SkillRouter] = None
+        # Gap 3: Embedding index for semantic skill retrieval
+        self._embedding_index: Optional["EmbeddingIndex"] = None
         if self._config is not None:
             self._rebuild_router()
 
     def _rebuild_router(self) -> None:
-        """Rebuild the router and cached cards from current skills."""
+        """Rebuild the router, cached cards, and embedding index from current skills."""
         self._cards = _build_all_cards(self._skills)
         if len(self._cards) >= 25:
             logger.warning(
@@ -107,6 +113,37 @@ class SkillRegistryImpl:
             )
         if self._config is not None:
             self._router = SkillRouter(self._config, self._skills, self._cards)
+
+        # AC-18: rebuild embedding index when skills change
+        if self._config and self._config.skill_embedding_enabled:
+            try:
+                from automation_agent.skills.embeddings import EmbeddingIndex
+
+                if self._embedding_index is None:
+                    self._embedding_index = EmbeddingIndex(
+                        self._config.skill_embedding_model
+                    )
+                trusted_skills = {
+                    name: skill
+                    for name, skill in self._skills.items()
+                    if skill.metadata.get("trusted", True)
+                }
+                _build_start = time.monotonic()
+                self._embedding_index.build(trusted_skills)
+                _build_ms = int((time.monotonic() - _build_start) * 1000)
+                logger.info(
+                    "embedding_index_built",
+                    skill_count=len(trusted_skills),
+                    model=self._config.skill_embedding_model,
+                    duration_ms=_build_ms,
+                )
+            except (ImportError, OSError, RuntimeError) as e:
+                # AC-19: graceful degradation
+                std_logger.warning(
+                    "Embedding index build failed: %s. Falling back to keyword matching.",
+                    e,
+                )
+                self._embedding_index = None
 
     def load_from_directory(self, path: Path) -> None:
         """Load all .md skill files from a directory.
@@ -153,23 +190,119 @@ class SkillRegistryImpl:
         self._rebuild_router()
         return skill
 
-    async def match(self, prompt: str) -> Optional[SkillMatchResult]:
-        """Find a matching skill for the given prompt.
+    def _build_match_result(
+        self,
+        skill: Skill,
+        prompt: str,
+        candidates: list[SkillRouteCandidate],
+        params: Optional[Dict[str, str]] = None,
+    ) -> SkillMatchResult:
+        """Helper to build SkillMatchResult from a skill and candidates."""
+        params = params or {}
+        try:
+            expanded = self.expand(skill.name, params)
+        except (ValueError, KeyError):
+            expanded = None
+        skill_context = self._build_multi_skill_context(candidates, params)
+        return SkillMatchResult(
+            skill_name=skill.name,
+            expanded_steps=expanded or skill.steps_text,
+            skill_context=skill_context,
+            params=params,
+            candidates=candidates,
+        )
 
-        Uses the LLM-driven SkillRouter when available, falling back to
-        keyword matching if the router is not configured or the LLM call fails.
+    async def match(self, prompt: str) -> Optional[SkillMatchResult]:
+        """AC-17: Three-stage pipeline — embed → conditional LLM re-rank → keyword fallback.
 
         Returns:
             SkillMatchResult with skill_name, expanded_steps, skill_context,
             params, and candidates, or None if no match.
         """
-        # Primary path: LLM router
+        # Stage 1: Embedding retrieval (AC-20: gated by config)
+        if (
+            self._config
+            and self._config.skill_embedding_enabled
+            and self._embedding_index is not None
+        ):
+            _emb_start = time.monotonic()
+            emb_candidates = self._embedding_index.query(prompt, top_k=5)
+            _emb_duration = int((time.monotonic() - _emb_start) * 1000)
+
+            # Observability (DE review round 3, issue 13): structured embedding query log
+            if emb_candidates:
+                logger.info(
+                    "embedding_query",
+                    event_type="embedding_query",
+                    top_skill=emb_candidates[0].skill_id,
+                    top_sim=round(emb_candidates[0].confidence, 3),
+                    top_k=[
+                        {"id": c.skill_id, "sim": round(c.confidence, 3)}
+                        for c in emb_candidates
+                    ],
+                    prompt=prompt[:100],
+                    duration_ms=_emb_duration,
+                )
+
+            if emb_candidates:
+                top_sim = emb_candidates[0].confidence
+                top_gap = (
+                    emb_candidates[0].confidence - emb_candidates[1].confidence
+                    if len(emb_candidates) > 1
+                    else 1.0
+                )
+
+                # AC-17: skip LLM re-rank for clear winners
+                if (
+                    top_sim >= self._config.skill_embedding_rerank_threshold
+                    and top_gap >= self._config.skill_embedding_min_gap
+                ):
+                    best = emb_candidates[0]
+                    skill = self._skills.get(best.skill_id)
+                    if skill:
+                        # Observability: structured rerank-skip log
+                        logger.info(
+                            "embedding_rerank_skip",
+                            event_type="embedding_rerank_skip",
+                            skill_id=best.skill_id,
+                            similarity=top_sim,
+                            gap=top_gap,
+                        )
+                        return self._build_match_result(skill, prompt, [best])
+
+                # Stage 2a: LLM re-rank on embedding candidates only
+                if self._router is not None:
+                    route_result = await self._router.route(
+                        prompt,
+                        candidate_ids=[c.skill_id for c in emb_candidates],
+                    )
+                    if route_result and route_result.primary:
+                        valid = [
+                            c
+                            for c in route_result.candidates
+                            if c.confidence >= MIN_USEFUL_CONFIDENCE
+                        ]
+                        if valid:
+                            # Finding 7 fix: use valid[0].skill_id, not route_result.primary
+                            skill = self._skills.get(valid[0].skill_id)
+                            if skill:
+                                params = route_result.params or {}
+                                logger.info(
+                                    "Skill matched via embedding + LLM re-rank",
+                                    skill_name=valid[0].skill_id,
+                                    params=params,
+                                )
+                                return self._build_match_result(
+                                    skill, prompt, valid, params
+                                )
+
+        # Stage 2b fallback: full LLM routing (existing behavior)
         if self._router is not None:
             router_result = await self._router.route(prompt)
             if router_result is not None:
-                # Filter out candidates below MIN_USEFUL_CONFIDENCE
                 valid = [
-                    c for c in router_result.candidates
+                    c
+                    for c in router_result.candidates
                     if c.confidence >= MIN_USEFUL_CONFIDENCE
                 ]
                 if not valid:
@@ -181,7 +314,6 @@ class SkillRegistryImpl:
 
                 primary = valid[0]
                 skill_name = primary.skill_id
-                # Get params from router result
                 params = router_result.params or {}
                 try:
                     expanded = self.expand(skill_name, params)
@@ -204,7 +336,7 @@ class SkillRegistryImpl:
                     candidates=valid,
                 )
 
-        # Fallback: keyword matching (no param extraction)
+        # Stage 3: keyword fallback (no param extraction)
         result = match_skill(prompt, list(self._skills.values()))
         if result is None:
             return None

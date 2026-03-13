@@ -131,10 +131,76 @@ class ActionPlannerImpl:
         provider = getattr(self.config.model_provider, "value", self.config.model_provider)
         if provider == "local":
             return await self._call_local_llm(prompt)
+        if provider == "gemini":
+            return await self._call_gemini_llm(prompt)
         return await self._call_anthropic_llm(prompt)
 
+    # Ollama structured output schema — guarantees valid JSON via GBNF grammar.
+    _OLLAMA_FORMAT_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string"},
+                        "params": {"type": "object"},
+                        "verify": {"type": "string"},
+                        "expected_observation": {"type": "string"},
+                        "on_fail": {"type": "string"},
+                    },
+                    "required": ["action", "params", "verify"],
+                },
+            },
+        },
+        "required": ["steps"],
+    }
+
+    @staticmethod
+    def _is_ollama(url: str) -> bool:
+        """Heuristic: detect Ollama by port 11434."""
+        return "11434" in url
+
     async def _call_local_llm(self, prompt: str) -> dict:
-        """Call a local OpenAI-compatible endpoint (e.g. Ollama)."""
+        """Call a local LLM endpoint.
+
+        Uses Ollama native /api/chat with structured output (format schema) when
+        an Ollama server is detected, otherwise falls back to OpenAI-compatible
+        /v1/chat/completions.
+        """
+        import httpx
+
+        if self._is_ollama(self.config.text_server_url):
+            return await self._call_ollama_native(prompt)
+        return await self._call_openai_compat(prompt)
+
+    async def _call_ollama_native(self, prompt: str) -> dict:
+        """Call Ollama native /api/chat with grammar-constrained JSON output."""
+        import httpx
+
+        url = f"{self.config.text_server_url}/api/chat"
+        payload = {
+            "model": self.config.text_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "format": self._OLLAMA_FORMAT_SCHEMA,
+            "stream": False,
+            "options": {"temperature": 0.0, "num_predict": 4096},
+        }
+        async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return {
+                "content": data["message"]["content"],
+                "usage": {
+                    "input_tokens": data.get("prompt_eval_count", 0),
+                    "output_tokens": data.get("eval_count", 0),
+                },
+            }
+
+    async def _call_openai_compat(self, prompt: str) -> dict:
+        """Call an OpenAI-compatible /v1/chat/completions endpoint (e.g. llama.cpp)."""
         import httpx
 
         url = f"{self.config.text_server_url}/v1/chat/completions"
@@ -158,6 +224,44 @@ class ActionPlannerImpl:
                     "output_tokens": usage.get("completion_tokens", 0),
                 },
             }
+
+    async def _call_gemini_llm(self, prompt: str) -> dict:
+        """Call Google Gemini API."""
+        import asyncio
+
+        from google import genai
+
+        client = genai.Client(api_key=self.config.gemini_api_key)
+
+        max_retries = 4
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=self.config.gemini_model,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        max_output_tokens=4096,
+                        temperature=0.0,
+                    ),
+                )
+                text = response.text or ""
+                usage = response.usage_metadata
+                return {
+                    "content": text,
+                    "usage": {
+                        "input_tokens": getattr(usage, "prompt_token_count", 0) or 0,
+                        "output_tokens": getattr(usage, "candidates_token_count", 0) or 0,
+                    },
+                }
+            except Exception as e:
+                if attempt < max_retries and ("429" in str(e) or "503" in str(e)):
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     async def _call_anthropic_llm(self, prompt: str) -> dict:
         """Call Anthropic Claude API with retry and exponential backoff."""
@@ -374,3 +478,78 @@ class ActionPlannerImpl:
             token_usage=response.get("usage"),
             replan_patch=replan_patch,
         )
+
+    async def check_infeasibility(
+        self,
+        goal: str,
+        absent_elements: list[str],
+        failure_history: list[str],
+        frustration_summary: dict,
+    ) -> dict:
+        """Ask LLM whether the task is achievable given current state.
+
+        Returns:
+            {"infeasible": bool, "reason": str}
+        """
+        prompt = self._build_infeasibility_prompt(
+            goal, absent_elements, failure_history, frustration_summary
+        )
+        response = await self._call_llm(prompt)
+        return self._parse_infeasibility_response(response)
+
+    def _build_infeasibility_prompt(
+        self,
+        goal: str,
+        absent_elements: list[str],
+        failure_history: list[str],
+        frustration_summary: dict,
+    ) -> str:
+        """Build the infeasibility check prompt from the template."""
+        template = self._load_prompt("check_infeasibility.md")
+        prompt = template.replace("{{goal}}", goal)
+        prompt = prompt.replace(
+            "{{absent_elements}}",
+            "\n".join(f"- {el}" for el in absent_elements) if absent_elements else "None",
+        )
+        prompt = prompt.replace(
+            "{{failure_history}}",
+            "\n".join(f"- {h}" for h in failure_history) if failure_history else "None",
+        )
+        prompt = prompt.replace(
+            "{{same_state_count}}", str(frustration_summary.get("same_state_count", 0))
+        )
+        prompt = prompt.replace(
+            "{{identical_action_count}}",
+            str(frustration_summary.get("identical_action_count", 0)),
+        )
+        prompt = prompt.replace(
+            "{{replan_count}}", str(frustration_summary.get("replan_count", 0))
+        )
+        return prompt
+
+    def _parse_infeasibility_response(self, response: dict) -> dict:
+        """Parse infeasibility check LLM response.
+
+        Returns:
+            {"infeasible": bool, "reason": str}
+        """
+        content = response["content"]
+        json_str = content
+        if "```json" in content:
+            json_str = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            json_str = content.split("```")[1].split("```")[0]
+
+        try:
+            data = json.loads(json_str.strip())
+        except json.JSONDecodeError:
+            logger.warning(
+                "Failed to parse infeasibility response, treating as infeasible",
+                response=content[:200],
+            )
+            return {"infeasible": True, "reason": "Failed to parse LLM response"}
+
+        return {
+            "infeasible": bool(data.get("infeasible", True)),
+            "reason": str(data.get("reason", "No reason provided")),
+        }

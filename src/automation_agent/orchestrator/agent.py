@@ -6,13 +6,22 @@ import inspect
 import io
 import re
 import time
-from typing import Callable, Optional, Tuple
+import unicodedata
+import urllib.parse
+from dataclasses import dataclass, field as dataclass_field
+from enum import Enum
+from typing import Any, Callable, ClassVar, Optional, Tuple, Union
 
 import structlog
 
-from automation_agent.config import AgentConfig
+from automation_agent.config import AgentConfig, ConfirmMode
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
+from automation_agent.protocols import CoordinatorCapability
+from automation_agent.orchestrator.confirmation import (
+    ConsoleConfirmationHandler,
+    _sanitize_for_display,
+)
 from automation_agent.orchestrator.verifier import StepVerifier
 from automation_agent.shared_models import (
     ActionPlan,
@@ -29,6 +38,115 @@ from automation_agent.skills.derived_skill import DerivedSkillSession
 slog = structlog.get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Gap 5: Infeasibility Detection — FrustrationScore
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FrustrationScore:
+    """Tracks diminishing-returns signals for infeasibility detection (AC-1).
+
+    Lifecycle: Created FRESH at the top of each execute() call. Passed by
+    reference to _check_infeasibility() and updated in-place. Discarded
+    when execute() returns — NEVER stored on self.
+    """
+
+    same_state_count: int = 0
+    identical_action_count: int = 0
+    replan_count: int = 0
+    advisory_checks_used: int = 0
+    _last_action_key: str = ""
+    _last_screenshot_hash: str = ""
+
+    def reset_on_progress(self) -> None:
+        """Reset same-state and identical-action on visible progress."""
+        self.same_state_count = 0
+        self.identical_action_count = 0
+
+    def is_triggered(self, same_state_limit: int, replan_limit: int) -> bool:
+        """AC-2: OR-based trigger."""
+        return (
+            self.same_state_count >= same_state_limit
+            or self.replan_count >= replan_limit
+        )
+
+    def is_hard_abort(self, max_advisory: int) -> bool:
+        """Hard abort after N advisory checks returned 'still achievable'."""
+        return self.advisory_checks_used >= max_advisory
+
+
+# ---------------------------------------------------------------------------
+# Gap 6: Destructive Classification result type
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DestructiveClassification:
+    """Result of _is_destructive_step() — replaces unnamed tuple."""
+
+    NOT_DESTRUCTIVE: ClassVar["DestructiveClassification"]
+
+    is_destructive: bool
+    matched_keyword: Optional[str] = None
+    classification_path: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        return self.is_destructive
+
+
+DestructiveClassification.NOT_DESTRUCTIVE = DestructiveClassification(
+    is_destructive=False, matched_keyword=None, classification_path=None
+)
+
+
+# ---------------------------------------------------------------------------
+# Gap 6: Phase 1 decision enum
+# ---------------------------------------------------------------------------
+
+
+class Phase1Decision(str, Enum):
+    """Phase 1 confirmation decision."""
+
+    CONFIRM = "confirm"
+    SKIP = "skip"
+    DEFER = "defer"
+
+
+# ---------------------------------------------------------------------------
+# Gap 6: PII redaction for audit logs
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_PARAM_KEYS = frozenset({
+    "text", "password", "card_number", "cvv", "ssn", "secret",
+})
+
+_SAFE_PARAM_KEYS = frozenset({
+    "element", "key", "direction", "url", "app_name",
+    "_clear_first", "_slow_type", "_pre_delay",
+})
+
+
+def _redact_params_for_log(params: dict) -> dict:
+    """Redact PII-sensitive values from action params before logging."""
+    redacted = {}
+    for k, v in params.items():
+        if k in _SENSITIVE_PARAM_KEYS:
+            redacted[k] = "[REDACTED]"
+        elif k in _SAFE_PARAM_KEYS:
+            if k == "url" and isinstance(v, str) and "?" in v:
+                parsed = urllib.parse.urlparse(v)
+                redacted[k] = (
+                    f"{parsed.scheme}://{parsed.netloc}{parsed.path}?[REDACTED]"
+                )
+            else:
+                redacted[k] = v
+        else:
+            sv = str(v)
+            redacted[k] = sv[:50] + "[truncated]" if len(sv) > 50 else sv
+    return redacted
+
+
 class AutomationAgent:
     """Main orchestrator that coordinates planner, skills, vision, actuator, and verifier."""
 
@@ -36,8 +154,21 @@ class AutomationAgent:
     _DEFAULT_CONFIDENCE_THRESHOLD = 0.5
     _CRITICAL_CONFIDENCE_THRESHOLD = 0.9
     _CRITICAL_ACTION_KEYWORDS = frozenset(
-        {"submit", "pay", "confirm", "reserve", "delete", "remove", "send"}
+        {"submit", "pay", "confirm", "reserve", "delete", "remove", "send",
+         "purchase", "transfer", "authorize"}
     )
+
+    # Pre-compiled regex patterns for word-boundary keyword matching
+    _KEYWORD_PATTERNS: ClassVar[dict[str, re.Pattern]] = {
+        kw: re.compile(rf"\b{kw}\b", re.IGNORECASE)
+        for kw in _CRITICAL_ACTION_KEYWORDS
+    }
+
+    # Hard-destructive keywords — never get confidence-based skip
+    _HARD_DESTRUCTIVE_KEYWORDS = frozenset({
+        "pay", "submit", "delete", "remove", "send",
+        "purchase", "transfer", "authorize",
+    })
 
     # Resolution threshold for Rec 4 cropping
     _CROP_WIDTH_THRESHOLD = 1440
@@ -58,6 +189,7 @@ class AutomationAgent:
         screenshot_diff=None,
         context_monitor=None,
         grounding_router=None,
+        confirmation_handler=None,
     ):
         self.planner = planner
         self.skill_registry = skill_registry
@@ -74,11 +206,16 @@ class AutomationAgent:
         self.screenshot_diff = screenshot_diff
         self.context_monitor = context_monitor
         self.grounding_router = grounding_router
+        self._confirmation_handler = (
+            confirmation_handler or ConsoleConfirmationHandler()
+        )
         # Rec 4: tracks (left, top, right, bottom) of last successful click
         # in screenshot_resolution pixel space. Reset at start of each execute().
         self.last_successful_region: Optional[Tuple[int, int, int, int]] = None
         # Current skill context for error recovery hint lookups
         self._current_skill_context: Optional[str] = None
+        # Gap 5: Set by _execute_step, read by execute() for frustration tracking
+        self._last_step_pixel_changed: Optional[bool] = None
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
@@ -95,6 +232,9 @@ class AutomationAgent:
 
         derived_session: Optional[DerivedSkillSession] = None
         expanded_steps_for_distiller: Optional[str] = None
+
+        # Gap 5: Infeasibility detection — fresh per execute() call
+        frustration = FrustrationScore()
 
         try:
             # 1. Check for matching skill
@@ -253,8 +393,8 @@ class AutomationAgent:
                     if click_result.success:
                         # Bypass succeeded -- both steps passed, skip next in loop
                         if self.context_monitor:
-                            self._record_context(step)
-                            self._record_context(next_result.step)
+                            self._record_context(step, click_result)
+                            self._record_context(next_result.step, next_result)
                         if next_result.step.action == "done":
                             break
                         continue
@@ -265,9 +405,9 @@ class AutomationAgent:
                     step_results.append(result)
                     iterations += 1
 
-                # Record context after actions
+                # Record context after actions (AC-29: pass result for milestone/obstacle tracking)
                 if self.context_monitor:
-                    self._record_context(step)
+                    self._record_context(step, result)
 
                 if step.action == "done":
                     break
@@ -279,6 +419,85 @@ class AutomationAgent:
                     )
                     continue
 
+                # ----------------------------------------------------------
+                # Gap 5: Frustration tracking after each step
+                # ----------------------------------------------------------
+                # AC-1a: same-state detection via pixel diff OR semantic progress
+                pixel_changed = self._last_step_pixel_changed or False
+                semantic_progress = result.success and bool(step.verify)
+                if pixel_changed or semantic_progress:
+                    frustration.reset_on_progress()
+                else:
+                    frustration.same_state_count += 1
+
+                # AC-1b: identical-action detection
+                action_key = (
+                    f"{step.action}:{sorted(step.params.items())}"
+                )
+                if action_key == frustration._last_action_key:
+                    frustration.identical_action_count += 1
+                else:
+                    frustration.identical_action_count = 0
+                frustration._last_action_key = action_key
+
+                # AC-4: critical-path absence — immediate trigger
+                if (
+                    not result.success
+                    and step.action == "click"
+                    and step.params.get("element")
+                    and result.error
+                    and "not found" in result.error.lower()
+                ):
+                    infeas_result = await self._check_infeasibility(
+                        goal, frustration, step_results, force=True
+                    )
+                    if infeas_result is not None:
+                        infeas_result.total_duration_ms = int(
+                            (time.monotonic() - start) * 1000
+                        )
+                        infeas_result.iterations = iterations
+                        infeas_result.goal = goal
+                        infeas_result.run_id = self.logger.run_id
+                        return infeas_result
+
+                # AC-2: threshold-based trigger
+                if frustration.is_triggered(
+                    self.config.infeasibility_same_state_limit,
+                    self.config.infeasibility_replan_limit,
+                ):
+                    if frustration.is_hard_abort(
+                        self.config.infeasibility_max_advisory_checks
+                    ):
+                        duration = int(
+                            (time.monotonic() - start) * 1000
+                        )
+                        return ExecutionResult(
+                            success=False,
+                            message="Exhausted advisory checks without"
+                            " progress",
+                            infeasibility_reason=(
+                                f"Exhausted"
+                                f" {self.config.infeasibility_max_advisory_checks}"
+                                " advisory checks without progress"
+                            ),
+                            steps=step_results,
+                            total_duration_ms=duration,
+                            iterations=iterations,
+                            goal=goal,
+                            run_id=self.logger.run_id,
+                        )
+                    infeas_result = await self._check_infeasibility(
+                        goal, frustration, step_results
+                    )
+                    if infeas_result is not None:
+                        infeas_result.total_duration_ms = int(
+                            (time.monotonic() - start) * 1000
+                        )
+                        infeas_result.iterations = iterations
+                        infeas_result.goal = goal
+                        infeas_result.run_id = self.logger.run_id
+                        return infeas_result
+
                 if not result.success:
                     # Handle failure based on on_fail strategy
                     recovery_result = await self._handle_failure(
@@ -286,6 +505,7 @@ class AutomationAgent:
                     )
                     if recovery_result is None:
                         # None means replan was requested
+                        frustration.replan_count += 1
                         replan_result = await self._replan_and_continue(
                             goal,
                             step_results,
@@ -447,12 +667,246 @@ class AutomationAgent:
                 evidence=f"Screen: {desc}",
             ), False
 
+        # ----------------------------------------------------------
+        # Gap 4: Lookahead prediction (only for destructive steps)
+        # ----------------------------------------------------------
+        classification = self._is_destructive_step(step)
+
+        if (
+            self.config.lookahead_enabled
+            and classification.is_destructive
+            and CoordinatorCapability.LOOKAHEAD in self.coordinator.capabilities()
+        ):
+            skip_lookahead = (
+                self.config.lookahead_skip_when_confirmed
+                and self.config.confirm_destructive != ConfirmMode.NEVER
+                and self._should_confirm_phase1(step) != Phase1Decision.SKIP
+            )
+
+            _is_hard = (
+                classification.matched_keyword is not None
+                and classification.matched_keyword in self._HARD_DESTRUCTIVE_KEYWORDS
+            ) or self.config.confirm_destructive == ConfirmMode.NEVER
+
+            if not skip_lookahead:
+                _la_start = time.monotonic()
+                try:
+                    screenshot = await self._capture_screenshot()
+                    prediction = await asyncio.wait_for(
+                        self.coordinator.predict_action_outcome(
+                            action=step.action,
+                            params=step.params,
+                            expected_observation=(
+                                step.expected_observation or step.verify
+                            ),
+                            screenshot_b64=screenshot,
+                            is_hard_destructive=_is_hard,
+                        ),
+                        timeout=self.config.lookahead_timeout_s,
+                    )
+                except asyncio.TimeoutError:
+                    _la_duration = int(
+                        (time.monotonic() - _la_start) * 1000
+                    )
+                    slog.warning(
+                        "lookahead_timeout",
+                        action=step.action,
+                        timeout_s=self.config.lookahead_timeout_s,
+                        fallback="pessimistic" if _is_hard else "optimistic",
+                    )
+                    prediction = (
+                        {
+                            "likely_success": False,
+                            "reasoning": "Lookahead timed out",
+                        }
+                        if _is_hard
+                        else {
+                            "likely_success": True,
+                            "reasoning": "Lookahead timed out (non-critical)",
+                        }
+                    )
+                except Exception as e:
+                    _la_duration = int(
+                        (time.monotonic() - _la_start) * 1000
+                    )
+                    slog.error(
+                        "lookahead_error",
+                        action=step.action,
+                        error=str(e),
+                    )
+                    prediction = (
+                        {
+                            "likely_success": False,
+                            "reasoning": f"Lookahead error: {e}",
+                        }
+                        if _is_hard
+                        else {
+                            "likely_success": True,
+                            "reasoning": f"Lookahead error (non-critical): {e}",
+                        }
+                    )
+                else:
+                    _la_duration = int(
+                        (time.monotonic() - _la_start) * 1000
+                    )
+
+                slog.debug(
+                    "lookahead_result",
+                    action=step.action,
+                    prediction=prediction,
+                    duration_ms=_la_duration,
+                    is_hard_destructive=_is_hard,
+                )
+
+                # AC-32: skip dispatch if prediction says failure
+                if not prediction.get("likely_success", True):
+                    slog.warning(
+                        "lookahead_blocked",
+                        action=step.action,
+                        risk=prediction.get("risk", ""),
+                        mismatch_reason=prediction.get(
+                            "mismatch_reason", ""
+                        ),
+                    )
+                    return StepResult(
+                        step=step,
+                        success=False,
+                        verification_method="lookahead",
+                        evidence=(
+                            "Lookahead predicted failure: "
+                            + prediction.get("mismatch_reason", "")
+                        ),
+                        error=(
+                            "Lookahead: "
+                            + prediction.get("risk", "predicted failure")
+                        ),
+                        reflection_hint=prediction.get(
+                            "mismatch_reason", ""
+                        ),
+                    ), False
+
+        # ----------------------------------------------------------
+        # Gap 6: Two-phase destructive action confirmation gate
+        # ----------------------------------------------------------
+        _phase1_decision = None
+        if classification.is_destructive:
+            _phase1_decision = self._should_confirm_phase1(step)
+            if _phase1_decision == Phase1Decision.SKIP:
+                self._log_confirmation(
+                    step,
+                    "never_mode_auto_approved",
+                    classification_path=classification.classification_path,
+                    matched_keyword=classification.matched_keyword,
+                    phase=1,
+                )
+            elif _phase1_decision == Phase1Decision.CONFIRM:
+                if not getattr(self.config, "dry_run", False):
+                    _confirm_start = time.monotonic()
+                    confirmed = await self._prompt_user_confirmation(step)
+                    _confirm_dur = int(
+                        (time.monotonic() - _confirm_start) * 1000
+                    )
+                    self._log_confirmation(
+                        step,
+                        confirmed,
+                        classification_path=classification.classification_path,
+                        matched_keyword=classification.matched_keyword,
+                        phase=1,
+                        duration_ms=_confirm_dur,
+                    )
+                    if not confirmed:
+                        return StepResult(
+                            step=step,
+                            success=False,
+                            error="User denied destructive action",
+                            evidence="User denied destructive action",
+                        ), False
+                else:
+                    self._log_confirmation(
+                        step,
+                        "skipped_dry_run",
+                        classification_path=classification.classification_path,
+                        matched_keyword=classification.matched_keyword,
+                        phase=1,
+                    )
+            # Phase1Decision.DEFER — handled after grounding in phase 2
+
+        # ----------------------------------------------------------
+        # Gap 6: Phase 2 — pre-dispatch grounding + confirmation for DEFER'd clicks
+        # ----------------------------------------------------------
+        # For DEFER'd destructive clicks with "element", ground FIRST to get
+        # confidence, run phase 2, and only dispatch if approved.
+        _pre_resolved_location: Optional[FindElementResult] = None
+        if (
+            classification.is_destructive
+            and _phase1_decision == Phase1Decision.DEFER
+            and step.action == "click"
+            and "element" in step.params
+        ):
+            _pre_resolved_location = await self._find_element(
+                step.params["element"]
+            )
+            if _pre_resolved_location is not None:
+                grounding_confidence = _pre_resolved_location.confidence
+                if self._should_confirm_phase2(
+                    step, grounding_confidence, classification.matched_keyword
+                ):
+                    if not getattr(self.config, "dry_run", False):
+                        _confirm_start = time.monotonic()
+                        confirmed = await self._prompt_user_confirmation(step)
+                        _confirm_dur = int(
+                            (time.monotonic() - _confirm_start) * 1000
+                        )
+                        self._log_confirmation(
+                            step,
+                            confirmed,
+                            classification_path=classification.classification_path,
+                            matched_keyword=classification.matched_keyword,
+                            phase=2,
+                            confidence=grounding_confidence,
+                            duration_ms=_confirm_dur,
+                        )
+                        if not confirmed:
+                            return StepResult(
+                                step=step,
+                                success=False,
+                                error="User denied destructive action (phase 2)",
+                                evidence="User denied destructive action (phase 2)",
+                            ), False
+                    else:
+                        self._log_confirmation(
+                            step,
+                            "skipped_dry_run",
+                            classification_path=classification.classification_path,
+                            matched_keyword=classification.matched_keyword,
+                            phase=2,
+                            confidence=grounding_confidence,
+                        )
+                else:
+                    # Confidence high enough — auto-approve
+                    self._log_confirmation(
+                        step,
+                        "phase2_auto_approved",
+                        classification_path=classification.classification_path,
+                        matched_keyword=classification.matched_keyword,
+                        phase=2,
+                        confidence=grounding_confidence,
+                    )
+            # If _pre_resolved_location is None, element not found —
+            # _dispatch_action will handle the error normally.
+
+        # TODO(gap6): TOCTOU mitigation — for hard-destructive steps, take a
+        # post-confirmation screenshot and diff against pre-confirmation state
+        # to detect UI changes between grounding and dispatch (spec lines 681-698).
+
         # Capture screenshot before visually meaningful actions for diff-based verification.
         if self.screenshot_diff and step.action in ("click", "open_url"):
             self.screenshot_diff.capture_before()
 
-        # For element-based actions (click with element description), find the element first
-        actuator_result = await self._dispatch_action(step)
+        # Dispatch action (pass pre-resolved location to avoid double-grounding)
+        actuator_result = await self._dispatch_action(
+            step, _pre_resolved_location=_pre_resolved_location
+        )
 
         # AC-1: Capture focused element AX role immediately after click dispatch,
         # BEFORE the screenshot_diff gate can force failure.
@@ -461,6 +915,7 @@ class AutomationAgent:
             _text_field_focused = self._check_text_field_focused()
 
         visible_effect = None
+        self._last_step_pixel_changed = None
 
         # After click, quick diff check: if no visible effect, mark as failed for retry
         if (
@@ -478,6 +933,8 @@ class AutomationAgent:
                 )
             else:
                 visible_effect = self.screenshot_diff.screen_changed()
+
+            self._last_step_pixel_changed = bool(visible_effect)
 
             if not visible_effect:
                 actuator_result["success"] = False
@@ -592,6 +1049,213 @@ class AutomationAgent:
         """Keyword fallback for text field detection when AX is unavailable."""
         element_desc = str(step.params.get("element", "")).lower()
         return any(kw in element_desc for kw in TEXT_INPUT_KEYWORDS)
+
+    # ------------------------------------------------------------------
+    # Gap 5: Infeasibility Detection
+    # ------------------------------------------------------------------
+
+    async def _check_infeasibility(
+        self,
+        goal: str,
+        frustration: "FrustrationScore",
+        step_results: list[StepResult],
+        force: bool = False,
+    ) -> Optional[ExecutionResult]:
+        """AC-2: Ask planner if task is achievable."""
+        _MAX_ABSENT_LEN = 200
+        _MAX_HISTORY_LEN = 500
+        _MAX_ITEMS = 10
+
+        absent = [
+            sr.error[len("Element absent:"):].strip()[:_MAX_ABSENT_LEN]
+            for sr in step_results
+            if sr.error and sr.error.startswith("Element absent:")
+        ][:_MAX_ITEMS]
+
+        failure_history = [
+            sr.evidence[:_MAX_HISTORY_LEN]
+            for sr in step_results if not sr.success
+        ][:_MAX_ITEMS]
+
+        _infeas_start = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                self.planner.check_infeasibility(
+                    goal=goal,
+                    absent_elements=absent,
+                    failure_history=failure_history,
+                    frustration_summary={
+                        "same_state_count": frustration.same_state_count,
+                        "replan_count": frustration.replan_count,
+                        "identical_action_count": frustration.identical_action_count,
+                    },
+                ),
+                timeout=self.config.infeasibility_timeout_s,
+            )
+        except asyncio.TimeoutError:
+            _dur = int((time.monotonic() - _infeas_start) * 1000)
+            self.logger.log_event(
+                EventType.INFEASIBILITY_CHECK,
+                "Infeasibility check timed out",
+                data={"force": force, "timeout": True},
+                duration_ms=_dur,
+            )
+            return ExecutionResult(
+                success=False,
+                message="Infeasibility check timed out",
+                error="LLM infeasibility check did not respond within timeout",
+                infeasibility_reason=(
+                    "Infeasibility check timed out — treating as infeasible"
+                ),
+                steps=step_results,
+            )
+
+        _dur = int((time.monotonic() - _infeas_start) * 1000)
+        self.logger.log_event(
+            EventType.INFEASIBILITY_CHECK,
+            f"Infeasibility check: force={force}",
+            data={"force": force},
+            duration_ms=_dur,
+        )
+
+        if response["infeasible"]:
+            self.logger.log_event(
+                EventType.INFEASIBILITY_ABORT,
+                f"Task declared infeasible: {response['reason']}",
+                data={
+                    "reason": response["reason"],
+                    "absent_elements": absent,
+                },
+            )
+            return ExecutionResult(
+                success=False,
+                message=f"Task infeasible: {response['reason']}",
+                error=response["reason"],
+                infeasibility_reason=response["reason"],
+                steps=step_results,
+            )
+
+        # Planner says achievable — increment advisory count
+        frustration.advisory_checks_used += 1
+        if (
+            frustration.same_state_count
+            >= self.config.infeasibility_same_state_limit
+        ):
+            frustration.same_state_count = 0
+        return None
+
+    # ------------------------------------------------------------------
+    # Gap 6: Destructive Action Classification & Confirmation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_for_matching(text: str) -> str:
+        """NFKC-normalize text before keyword matching."""
+        return unicodedata.normalize("NFKC", text)
+
+    def _is_destructive_step(
+        self, step: ActionStep
+    ) -> "DestructiveClassification":
+        """AC-6: Classify a step as destructive."""
+        if step.destructive:
+            return DestructiveClassification(True, None, "planner_flag")
+
+        texts_to_check = [
+            self._normalize_for_matching(step.verify.lower())
+            if step.verify
+            else "",
+            self._normalize_for_matching(
+                str(step.params.get("element", "")).lower()
+            ),
+        ]
+        for text in texts_to_check:
+            for kw, pattern in self._KEYWORD_PATTERNS.items():
+                if pattern.search(text):
+                    return DestructiveClassification(
+                        True, kw, "keyword_match"
+                    )
+
+        return DestructiveClassification.NOT_DESTRUCTIVE
+
+    def _should_confirm_phase1(
+        self, step: ActionStep
+    ) -> "Phase1Decision":
+        """AC-8 phase 1: Pre-grounding confirmation decision."""
+        mode = self.config.confirm_destructive
+
+        if mode == ConfirmMode.NEVER:
+            return Phase1Decision.SKIP
+        elif mode == ConfirmMode.ALWAYS:
+            return Phase1Decision.CONFIRM
+        elif step.destructive:
+            return Phase1Decision.CONFIRM
+        elif step.action != "click":
+            return Phase1Decision.CONFIRM
+        else:
+            return Phase1Decision.DEFER
+
+    def _should_confirm_phase2(
+        self,
+        step: ActionStep,
+        confidence: float,
+        matched_keyword: Optional[str] = None,
+    ) -> bool:
+        """AC-8 phase 2: Post-grounding confirmation."""
+        if step.destructive:
+            return True
+        if (
+            matched_keyword
+            and matched_keyword in self._HARD_DESTRUCTIVE_KEYWORDS
+        ):
+            return True
+        return confidence < self._CRITICAL_CONFIDENCE_THRESHOLD
+
+    async def _prompt_user_confirmation(
+        self, step: ActionStep
+    ) -> bool:
+        """AC-7: Delegate to the injected ConfirmationHandler."""
+        try:
+            return await self._confirmation_handler.confirm(step)
+        except Exception as e:
+            self.logger.log_event(
+                EventType.DESTRUCTIVE_CONFIRM_ERROR,
+                f"Confirmation handler error: {e}",
+                data={"action": step.action, "error": str(e)},
+            )
+            return False
+
+    def _log_confirmation(
+        self,
+        step: ActionStep,
+        decision: Union[bool, str],
+        classification_path: Optional[str] = None,
+        matched_keyword: Optional[str] = None,
+        phase: Optional[int] = None,
+        confidence: Optional[float] = None,
+        duration_ms: Optional[int] = None,
+    ) -> None:
+        """AC-10: Log every confirmation decision to JSONL event log."""
+        if isinstance(decision, bool):
+            decision_str = "approved" if decision else "denied"
+        else:
+            decision_str = decision
+
+        self.logger.log_event(
+            EventType.DESTRUCTIVE_CONFIRM,
+            f"Destructive action {decision_str}: {step.action}",
+            data={
+                "action": step.action,
+                "params": _redact_params_for_log(step.params),
+                "verify": step.verify,
+                "destructive_flag": step.destructive,
+                "decision": decision_str,
+                "classification_path": classification_path,
+                "matched_keyword": matched_keyword,
+                "phase": phase,
+                "confidence": confidence,
+            },
+            duration_ms=duration_ms,
+        )
 
     async def _try_type_and_check_bypass(
         self,
@@ -1046,8 +1710,18 @@ class AutomationAgent:
         tokens = [token for token in normalized.split() if token not in stop_words]
         return " ".join(tokens)
 
-    async def _dispatch_action(self, step: ActionStep) -> dict:
-        """Dispatch an action to the actuator."""
+    async def _dispatch_action(
+        self,
+        step: ActionStep,
+        _pre_resolved_location: Optional["FindElementResult"] = None,
+    ) -> dict:
+        """Dispatch an action to the actuator.
+
+        Args:
+            _pre_resolved_location: If provided (for destructive click steps
+                that were grounded during the phase 2 confirmation gate), skip
+                the _find_element call and use this location directly.
+        """
         action = step.action
         params = dict(step.params)
 
@@ -1066,7 +1740,10 @@ class AutomationAgent:
             if action == "click":
                 # If element description given, find it first
                 if "element" in params:
-                    location = await self._find_element(params["element"])
+                    location = (
+                        _pre_resolved_location
+                        or await self._find_element(params["element"])
+                    )
                     if location is None:
                         self.logger.log_event(
                             EventType.ELEMENT_NOT_FOUND,
@@ -1145,6 +1822,7 @@ class AutomationAgent:
                     result["image_y"] = location.y
                     result["screen_x"] = screen_x
                     result["screen_y"] = screen_y
+                    result["confidence"] = location.confidence
                 else:
                     screen_x = params.get("x", 0)
                     screen_y = params.get("y", 0)
@@ -1273,6 +1951,67 @@ class AutomationAgent:
         screenshot_b64 = original_b64
         crop_offset = None
 
+        # AC-23 + AC-25: dual-res grounding gate
+        use_dual = (
+            self.config.dual_resolution_grounding
+            and hasattr(self.coordinator, "capabilities")
+            and CoordinatorCapability.DUAL_RESOLUTION
+            in self.coordinator.capabilities()
+        )
+
+        if use_dual and screenshot_b64:
+            should_crop = (
+                image_size[0] > self.config.dual_res_threshold
+                or self.last_successful_region is not None
+            )
+            if should_crop:
+                crop_result = self._maybe_crop_screenshot(screenshot_b64)
+                if crop_result is not None:
+                    cropped_b64, dual_crop_offset = crop_result
+                    _dual_start = time.monotonic()
+                    # Timeout is handled inside find_element_dual() itself
+                    # (asyncio.wait_for around _call_vision_model_with_images).
+                    # On timeout it returns None — no outer wait_for needed.
+                    dual_result = await self.coordinator.find_element_dual(
+                        description,
+                        screenshot_b64=cropped_b64,
+                        context_b64=original_b64,
+                        candidates=candidates,
+                    )
+                    _dual_duration = int(
+                        (time.monotonic() - _dual_start) * 1000
+                    )
+                    if dual_result is not None:
+                        self.logger.log_event(
+                            EventType.DUAL_RES_GROUNDING,
+                            f"Dual-res grounding: {description}",
+                            data={
+                                "element": description,
+                                "crop_offset": dual_crop_offset,
+                            },
+                            duration_ms=_dual_duration,
+                        )
+
+                    # AC-24: map crop coords back to full-image space
+                    if dual_result is not None and dual_crop_offset is not None:
+                        dual_result = FindElementResult(
+                            x=dual_result.x + dual_crop_offset[0],
+                            y=dual_result.y + dual_crop_offset[1],
+                            confidence=dual_result.confidence,
+                            source=dual_result.source,
+                            raw_response=dual_result.raw_response,
+                        )
+                    if dual_result is not None:
+                        normalized = self._normalize_find_result(
+                            dual_result, image_size
+                        )
+                        if original_b64:
+                            self._save_debug_image(
+                                original_b64, normalized, description
+                            )
+                        return normalized
+
+        # Standard single-image path (Rec 4 crop for non-dual-res)
         if screenshot_b64 and self.last_successful_region is not None:
             crop_result = self._maybe_crop_screenshot(screenshot_b64)
             if crop_result is not None:
@@ -1966,8 +2705,13 @@ class AutomationAgent:
             slog.warning("Resolution-aware crop failed, using full screenshot", exc_info=True)
             return None
 
-    def _record_context(self, step: ActionStep) -> None:
-        """Record action context in the context monitor after step execution."""
+    def _record_context(
+        self, step: ActionStep, result: Optional[StepResult] = None
+    ) -> None:
+        """Record action context in the context monitor after step execution.
+
+        AC-29: When result is provided, persist step outcomes (milestones/obstacles).
+        """
         if step.action == "click":
             self.context_monitor.record_click(step.params.get("element", ""))
         elif step.action == "type_text":
@@ -1977,6 +2721,25 @@ class AutomationAgent:
             )
         elif step.action == "open_url":
             self.context_monitor.record_navigation(step.params.get("url", ""))
+
+        # AC-29: persist step outcomes
+        if result is not None:
+            self.context_monitor.record_step_outcome(step, result)
+
+            # Observability: STATE_DIFF call site (spec §Observability, pushback 4).
+            # Log after record_step_outcome so diff reflects this step's changes.
+            diff = self.context_monitor.format_state_diff()
+            if diff:
+                self.logger.log_event(
+                    EventType.STATE_DIFF,
+                    f"State changed: {len(diff.changes)} changes",
+                    data={
+                        "changes": diff.changes,
+                        "new_elements": diff.new_elements[:5],
+                        "removed_elements": diff.removed_elements[:5],
+                        "step_action": step.action,
+                    },
+                )
 
     @staticmethod
     def _is_element_not_found(result: StepResult) -> bool:

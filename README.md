@@ -7,29 +7,43 @@ Vision-guided desktop automation for macOS. Give the agent a natural-language go
 - The runtime is now generic. There is no bespoke restaurant workflow path.
 - Planning still uses Anthropic Claude today. The project is not fully local yet.
 - The only active actuator backend is `AppleScriptActuator`. There is no live Hammerspoon backend in the current code.
-- Validated on March 10, 2026: `pytest -q -m 'not e2e'` -> `1198 passed, 3 skipped, 5 deselected`.
 
 ## Architecture
 
 ```text
 user prompt
-  -> optional skill match
-  -> screen description
+  -> optional skill match (embedding retrieval -> LLM re-rank -> keyword fallback)
+  -> screen description (world-state document with cumulative context)
   -> plan generation
-  -> execute step
-  -> verify step
-  -> replan on failure
+  -> for each step:
+      -> lookahead prediction (destructive steps only, opt-in)
+      -> destructive action confirmation (if classified as destructive)
+      -> execute step
+      -> verify step (3-tier: AX state -> vision -> fallback)
+      -> infeasibility detection (frustration score -> planner advisory)
+      -> replan on failure
 ```
 
 Core components:
 
 | Component | Role |
 |-----------|------|
-| Planner | Generates structured action plans from the prompt |
-| Vision coordinator | Screenshots, descriptions, grounding, and vision verification |
+| Planner | Generates structured action plans from the prompt; assesses infeasibility |
+| Vision coordinator | Screenshots, descriptions, grounding (SoM + dual-res), verification, and lookahead prediction |
 | Actuator | Executes app activation, typing, keypresses, URL opens, clicks, and state queries |
-| Skills | Optional markdown priors under `src/automation_agent/skills/library/` |
-| Orchestrator | Runs the execute / verify / replan loop |
+| Skills | Optional markdown priors under `src/automation_agent/skills/library/`; embedding-based retrieval |
+| Orchestrator | Runs the execute / verify / replan loop with infeasibility detection and destructive action gates |
+| Context Monitor | Maintains evolving world-state document with milestones, obstacles, and state diffs |
+
+## Safety Features
+
+- **Infeasibility detection**: Tracks a frustration score (same-state repeats, identical action retries, replans). When thresholds are exceeded, the planner is consulted on whether the task is achievable. Hard-aborts after configurable advisory check limit.
+- **Destructive action confirmation**: Actions classified as destructive (via planner flag, keyword match, or type-into-critical-field) trigger a user confirmation prompt before execution. Three modes: `always`, `smart` (default), `never`.
+- **Lookahead prediction**: For destructive steps, the VLM predicts the action outcome before execution. If the prediction indicates failure, the step is skipped and the agent replans. Off by default (`AGENT_LOOKAHEAD_ENABLED=true`).
+- **Set-of-Mark prompting**: Numbered bounding boxes drawn on screenshots using AX element positions, letting the VLM pick a label instead of predicting raw coordinates. Off by default (`AGENT_SOM_ENABLED=true`).
+- **Dual-resolution grounding**: Sends both full-page overview and zoomed crop to the VLM for high-DPI screens. Off by default (`AGENT_DUAL_RESOLUTION_GROUNDING=true`).
+- **Embedding-based skill retrieval**: Semantic matching via local embeddings (fastembed + BAAI/bge-small-en-v1.5), with conditional LLM re-rank. Off by default (`AGENT_SKILL_EMBEDDING_ENABLED=true`).
+- **World-state document**: Evolving desktop context with cumulative milestones, obstacles, state diffs, and semantic page labels fed to the planner.
 
 ## Requirements
 
@@ -47,6 +61,12 @@ Install the repo and the Anthropic extra:
 ```bash
 pip install -e ".[dev,anthropic]"
 cp .env.example .env
+```
+
+For embedding-based skill retrieval (optional):
+
+```bash
+pip install -e ".[embeddings]"
 ```
 
 Grant macOS permissions to the terminal app you are using:
@@ -97,12 +117,13 @@ Current bundled skill templates:
 
 - `amazon_search.md`
 - `google_search.md`
-- `open_app_and_navigate.md`
 - `return_amazon_order.md`
 - `send_imessage.md`
 - `restaurant_google.md`
 - `restaurant_opentable.md`
 - `restaurant_yelp.md`
+- `return-walmart-order.md`
+- `return-walmart-order-2.md`
 
 The restaurant templates are still available as skill hints, but they are not backed by special-case runtime code anymore.
 
@@ -115,6 +136,8 @@ Verification is layered and depends on what backends are enabled:
 3. Vision verification using the current vision backend
 
 Every non-terminal action step is expected to carry a postcondition.
+
+When verification repeatedly fails, the infeasibility detector tracks frustration signals and can abort early rather than exhausting the full iteration budget.
 
 ## Logs and Debugging
 
@@ -151,7 +174,7 @@ automation-agent --status-ui overlay "Open Safari"
 
 ## More Docs
 
-- Current setup: `docs/automation.md`
+- Current setup: `docs/guides/automation.md`
 - Current runbook: `docs/QUICKSTART.md`
 - Current repo status: `IMPLEMENTATION_STATUS.md`
-- Deep architecture walkthrough with stale sections clearly labeled: `docs/LIFE_OF_A_PROMPT.md`
+- Deep architecture walkthrough with stale sections clearly labeled: `docs/guides/LIFE_OF_A_PROMPT.md`

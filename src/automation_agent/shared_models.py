@@ -93,6 +93,7 @@ class ActionStep:
     expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
     on_fail: str = "retry_different"  # "retry_different" | "replan" | "abort" | "wait_for_user"
     max_retries: int = 3
+    destructive: bool = False  # AC-6b: optional planner flag for irreversible actions
 
     def __post_init__(self) -> None:
         valid_actions = {
@@ -141,6 +142,7 @@ class ActionStep:
             expected_observation=data.get("expected_observation", ""),
             on_fail=data.get("on_fail", "retry_different"),
             max_retries=data.get("max_retries", 3),
+            destructive=bool(data.get("destructive", False)),
         )
 
 
@@ -239,7 +241,10 @@ class StepResult:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
-        valid_methods = {"", "accessibility", "actuator_state", "vision", "both", "type_and_check"}
+        valid_methods = {
+            "", "accessibility", "actuator_state", "vision", "both",
+            "type_and_check", "lookahead",
+        }
         if self.verification_method not in valid_methods:
             raise ValueError(
                 f"Unknown verification_method '{self.verification_method}'. "
@@ -259,6 +264,7 @@ class ExecutionResult:
     iterations: int = 0
     goal: str = ""
     run_id: str = ""
+    infeasibility_reason: Optional[str] = None  # AC-3: human-readable explanation
 
 
 # ---------------------------------------------------------------------------

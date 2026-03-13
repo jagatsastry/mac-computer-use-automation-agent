@@ -52,12 +52,17 @@ All components communicate through **Protocol classes** (`src/automation_agent/p
 
 ```
 User prompt → Orchestrator.execute()
-  → SkillRegistry.match()          # Check for matching skill template
+  → SkillRegistry.match()          # Three-stage: embedding → LLM re-rank → keyword fallback
+  → ContextMonitor.update_cheap()  # Evolving world-state document
   → ScreenCoordinator.describe()   # Get current screen context
   → ActionPlanner.plan()           # Generate action steps via LLM
   → For each ActionStep:
+      → Lookahead prediction       # Destructive steps only (opt-in via config)
+      → Confirmation gate          # Destructive action user confirmation
       → Actuator.execute()         # Perform the action
       → StepVerifier.verify()      # 3-tier verification
+      → Infeasibility detection    # FrustrationScore → planner advisory check
+      → ContextMonitor.record_step_outcome()  # Track milestones/obstacles
       → On failure: replan()       # Retry with execution history
   → ExecutionResult
 ```
@@ -80,12 +85,31 @@ Bridge HTTP (`localhost:27741`) → `hs` CLI → AppleScript (`osascript`)
 
 **Skill file format** (`skills/library/*.md`): YAML frontmatter (name, trigger-keywords, parameters, OS requirements) + Markdown steps with `{{param}}` placeholders and `verify` conditions.
 
+**Capability-based protocol extension** (`protocols.py`): Optional coordinator methods (`find_element_dual`, `predict_action_outcome`) are advertised via `capabilities() -> FrozenSet[CoordinatorCapability]`. The orchestrator checks capabilities before calling optional methods using the `_has_explicit_method()` guard pattern.
+
+**Destructive action classification** (`orchestrator/agent.py`): `_is_destructive_step()` returns a `DestructiveClassification` dataclass (not a tuple). Classification paths: `planner_flag`, `keyword_match`, `type_text_verify`. The `NOT_DESTRUCTIVE` class constant avoids tuple unpacking errors.
+
+**Infeasibility detection** (`orchestrator/agent.py`): `FrustrationScore` is created FRESH per `execute()` call — never stored on `self`. Tracks same-state count, identical action retries, replan count, and advisory checks used.
+
+**Confirmation handler injection** (`orchestrator/confirmation.py`): `ConsoleConfirmationHandler` is the default; tests inject `AutoDenyConfirmationHandler`. All display values are sanitized against ANSI escape sequences and Unicode directional overrides.
+
 ## Configuration
 
 Settings are loaded from environment variables prefixed with `AGENT_` (see `.env.example`). Key settings:
 - `AGENT_VISION_SERVER_URL` — Vision server endpoint (default `localhost:8080`; any OpenAI-compatible server)
 - `AGENT_VISION_MODEL` / `AGENT_TEXT_MODEL` — model names
 - `AGENT_LOG_DIR` — structured JSONL event logs with per-run directories
+
+Safety and feature gate settings (all off by default):
+- `AGENT_SOM_ENABLED` — Set-of-Mark numbered label overlay on screenshots
+- `AGENT_DUAL_RESOLUTION_GROUNDING` — Send full + crop to VLM for grounding
+- `AGENT_DUAL_RES_THRESHOLD` — Screenshot width (px) to trigger dual-res (default 1440)
+- `AGENT_SKILL_EMBEDDING_ENABLED` — Embedding-based skill retrieval
+- `AGENT_LOOKAHEAD_ENABLED` — Pre-action lookahead for destructive steps
+- `AGENT_CONFIRM_DESTRUCTIVE` — Confirmation mode: `always`, `smart` (default), `never`
+- `AGENT_INFEASIBILITY_SAME_STATE_LIMIT` — Same-state threshold (default 3)
+- `AGENT_INFEASIBILITY_REPLAN_LIMIT` — Replan threshold (default 2)
+- `AGENT_INFEASIBILITY_MAX_ADVISORY_CHECKS` — Hard abort after N advisories (default 2)
 
 Config is in `src/automation_agent/config.py` using Pydantic Settings.
 
@@ -95,6 +119,13 @@ Located in `src/automation_agent/llm/`:
 - **OllamaClient** — local Qwen2-VL / Gemma2 (planner text generation)
 - **AnthropicClient** — Claude API (optional `pip install -e ".[anthropic]"`)
 - **MolmoVisionClient** — Molmo via OpenRouter or local HuggingFace
+
+## Install Extras
+
+- `pip install -e ".[dev]"` — development (pytest, ruff, black, mypy)
+- `pip install -e ".[anthropic]"` — Claude API backend
+- `pip install -e ".[embeddings]"` — embedding-based skill retrieval (fastembed)
+- `pip install -e ".[dev,anthropic,embeddings]"` — everything
 
 ## Code Style
 
