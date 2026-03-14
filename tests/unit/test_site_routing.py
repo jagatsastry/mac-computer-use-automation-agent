@@ -654,6 +654,87 @@ class TestBuyOnTargetStepsCompile:
                         f"{word_count} words (max 8)"
                     )
 
+    def test_buy_on_target_uses_search_url(self):
+        """Step 1 should use search URL, not type_text."""
+        from automation_agent.skills.loader import load_skill_from_file
+
+        skill = load_skill_from_file(SKILL_LIBRARY_DIR / "buy_on_target.md")
+        assert "searchTerm={{product}}" in skill.steps_text
+        assert 'Type "{{product}}"' not in skill.steps_text
+
+    def test_buy_on_target_search_url_compiles_with_params(self):
+        """After param substitution, search URL with spaces compiles to open_url."""
+        agent = self._make_agent()
+        instruction = (
+            "Navigate to "
+            "https://www.target.com/s?searchTerm=queen-size bed sheet set"
+        )
+        compiled = agent._compile_skill_instruction(instruction, "results visible")
+        assert compiled is not None
+        assert len(compiled) == 1
+        step = compiled[0]
+        assert step.action == "open_url"
+        url = step.params["url"]
+        assert "target.com" in url
+        # Spaces must be URL-encoded
+        assert " " not in url
+        assert "queen-size" in url
+
+
+class TestTypeTextCompilerElementParam:
+    """Verify compiler adds element param to type_text steps."""
+
+    def _make_agent(self):
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        planner = AsyncMock()
+        skill_registry = MagicMock()
+        skill_registry.match = AsyncMock(return_value=None)
+        skill_registry.learn_from_run = AsyncMock(return_value=[])
+        skill_registry.promote_from_run = AsyncMock(return_value=None)
+        coordinator = AsyncMock()
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+        coordinator.capture_screenshot = AsyncMock(return_value="base64data")
+        actuator = MagicMock()
+        actuator.click = MagicMock(return_value={"success": True})
+        actuator.type_text = MagicMock(return_value={"success": True})
+        config = _make_config()
+        return AutomationAgent(planner, skill_registry, coordinator, actuator, config)
+
+    def test_type_and_enter_gets_default_element(self):
+        """'Type X and press Enter' should get a default element param."""
+        agent = self._make_agent()
+        compiled = agent._compile_skill_instruction(
+            'Type "bed sheets" and press Enter', "results visible"
+        )
+        assert compiled is not None
+        type_step = compiled[0]
+        assert type_step.action == "type_text"
+        assert "element" in type_step.params
+        assert type_step.params["element"]  # not empty
+
+    def test_type_in_field_uses_specified_element(self):
+        """'Type X in the search box and press Enter' uses 'search box'."""
+        agent = self._make_agent()
+        compiled = agent._compile_skill_instruction(
+            'Type "bed sheets" in the search box and press Enter',
+            "results visible",
+        )
+        assert compiled is not None
+        type_step = compiled[0]
+        assert type_step.params["element"] == "search box"
+
+    def test_type_text_still_includes_correct_text(self):
+        """The text param should still be correct."""
+        agent = self._make_agent()
+        compiled = agent._compile_skill_instruction(
+            'Type "queen-size sheets" and press Enter', "results visible"
+        )
+        type_step = compiled[0]
+        assert type_step.params["text"] == "queen-size sheets"
+        enter_step = compiled[1]
+        assert enter_step.action == "press_key"
+
 
 # ---------------------------------------------------------------------------
 # P2-1: Duplicate walmart files deleted

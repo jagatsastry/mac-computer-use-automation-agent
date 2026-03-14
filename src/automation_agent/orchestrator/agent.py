@@ -1745,7 +1745,20 @@ class AutomationAgent:
             destination = re.sub(r"(?i)\(if specified\)", "", destination).strip()
             if not destination:
                 return []
-            if re.match(r"^https?://\S+$", destination, flags=re.IGNORECASE):
+            # URL-encode spaces in URLs (from param substitution)
+            if re.match(r"^https?://", destination, flags=re.IGNORECASE):
+                from urllib.parse import quote, urlparse, urlunparse, parse_qs, urlencode
+                try:
+                    parsed = urlparse(destination)
+                    # Re-encode query params to handle spaces
+                    if parsed.query:
+                        params = parse_qs(parsed.query, keep_blank_values=True)
+                        encoded_query = urlencode(params, doseq=True)
+                        destination = urlunparse(parsed._replace(query=encoded_query))
+                    elif " " in destination:
+                        destination = destination.replace(" ", "%20")
+                except Exception:
+                    destination = destination.replace(" ", "%20")
                 return [
                     ActionStep(
                         action="open_url",
@@ -1863,16 +1876,23 @@ class AutomationAgent:
             return [self._make_click_step(click_match.group(1), verify)]
 
         type_match = re.match(
-            r'^Type\s+"?(.+?)"?\s+(?:in the .+?\s+)?(?:and|then)\s+press\s+Enter$',
+            r'^Type\s+"?(.+?)"?\s+(?:in the (.+?)\s+)?(?:and|then)\s+press\s+Enter$',
             text,
             flags=re.IGNORECASE,
         )
         if type_match:
             typed_text = type_match.group(1).strip()
+            element_desc = type_match.group(2)
+            type_params: dict[str, Any] = {"text": typed_text}
+            if element_desc:
+                type_params["element"] = element_desc.strip()
+            else:
+                # Default: ask find_element to locate a text input field
+                type_params["element"] = "search or text input field"
             return [
                 ActionStep(
                     action="type_text",
-                    params={"text": typed_text},
+                    params=type_params,
                     verify=f'The focused text field contains "{typed_text}"',
                     expected_observation=f'The focused text field contains "{typed_text}"',
                     on_fail="retry_different",

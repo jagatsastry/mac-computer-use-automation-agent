@@ -26,22 +26,19 @@ max-retries: 3
 ---
 
 ## Steps
-1. Use open_url to navigate to https://www.target.com
-   - verify: Target.com homepage or search page is visible
-   - on_fail: If login page appears, wait_for_user to log in
-2. Type "{{product}}" and press Enter
+1. Navigate to https://www.target.com/s?searchTerm={{product}}
    - verify: Target search results page is visible with product listings for {{product}}
-   - on_fail: If search bar not found, click on the search icon first
-3. Click on the "sort by" dropdown
+   - on_fail: If login page appears, wait_for_user to log in
+2. Click on the "sort by" dropdown
    - verify: Sort options are visible
    - on_fail: If sort/filter not found, scroll up to find sorting controls
-4. Click on a product listing
+3. Click on a product listing
    - verify: Product detail page is loaded with "Add to cart" button
    - on_fail: If no matching product visible, scroll down to find more options
-5. Click on the "Add to cart" button
+4. Click on the "Add to cart" button
    - verify: Cart confirmation appears or cart icon badge updates
    - on_fail: If "Add to cart" not visible, scroll down to find it
-6. Use done to confirm product added to cart. Checkout requires user confirmation.
+5. Use done to confirm product added to cart. Checkout requires user confirmation.
    - verify: Product has been added to cart successfully
 
 ## Error Recovery
