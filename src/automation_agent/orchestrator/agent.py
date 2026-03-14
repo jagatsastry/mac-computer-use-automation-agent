@@ -362,6 +362,15 @@ class AutomationAgent:
                     goal=goal,
                 )
 
+            # Safety net: when a skill is matched, the LLM planner sometimes
+            # sets on_fail=abort for click steps, which prevents any retry.
+            # Override to retry_different so the agent can refine the element
+            # query before giving up.
+            if skill_context:
+                for step in plan.steps:
+                    if step.action == "click" and step.on_fail == "abort":
+                        step.on_fail = "retry_different"
+
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             plan_data = {"step_count": len(plan.steps)}
             if plan.raw_llm_response:
@@ -1173,6 +1182,38 @@ class AutomationAgent:
             data=step_complete_data,
         )
 
+        # Save annotated verification screenshot with crosshair at action point
+        if (
+            step.action == "click"
+            and verification.screenshot_path
+            and actuator_result.get("success")
+        ):
+            ax = actuator_result.get(
+                "image_x", actuator_result.get("x", 0)
+            )
+            ay = actuator_result.get(
+                "image_y", actuator_result.get("y", 0)
+            )
+            if ax and ay:
+                try:
+                    with open(verification.screenshot_path, "rb") as f:
+                        verify_b64 = base64.b64encode(f.read()).decode()
+                    method = verification.verification_method or "unknown"
+                    label = (
+                        f"verify={step.verify[:30]} "
+                        f"via {method}"
+                    )
+                    self._save_annotated_screenshot(
+                        verify_b64,
+                        ax,
+                        ay,
+                        label,
+                        f"verify_step_{index:02d}_{step.action}",
+                        verification.success,
+                    )
+                except Exception:
+                    pass
+
         # Rec 4: record the successful click region for resolution-aware narrowing
         if step.action == "click" and verification.success:
             click_x = actuator_result.get("image_x", actuator_result.get("x", step.params.get("x", 0)))
@@ -1195,6 +1236,24 @@ class AutomationAgent:
                         f"step_{index:02d}_post_{step.action}",
                     )
                     verification.screenshot_path = path
+
+                    # Save annotated version in debug/ with crosshair at action point
+                    if step.action == "click" and actuator_result.get("success"):
+                        ax = actuator_result.get(
+                            "image_x", actuator_result.get("x", 0)
+                        )
+                        ay = actuator_result.get(
+                            "image_y", actuator_result.get("y", 0)
+                        )
+                        if ax and ay:
+                            self._save_annotated_screenshot(
+                                post_b64,
+                                ax,
+                                ay,
+                                f"click {step.params.get('element', '')[:40]}",
+                                f"post_step_{index:02d}_{step.action}",
+                                verification.success,
+                            )
             except Exception as exc:
                 slog.debug("Screenshot save failed", error=str(exc))
 
@@ -1921,6 +1980,24 @@ class AutomationAgent:
         if click_match:
             return [self._make_click_step(click_match.group(1), verify)]
 
+        scroll_match = re.match(
+            r"^Scroll\s+(down|up)(?:\s+.+)?$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if scroll_match:
+            direction = scroll_match.group(1).lower()
+            return [
+                ActionStep(
+                    action="scroll",
+                    params={"direction": direction, "amount": 3},
+                    verify=verify or "Page has scrolled",
+                    expected_observation=verify or f"The page scrolls {direction}",
+                    on_fail="retry_different",
+                    max_retries=1,
+                )
+            ]
+
         type_match = re.match(
             r'^Type\s+"?(.+?)"?\s+(?:in the (.+?)\s+)?(?:and|then)\s+press\s+Enter$',
             text,
@@ -2548,6 +2625,44 @@ class AutomationAgent:
                 slog.debug("Screenshot save failed", error=str(exc))
         return None
 
+    @staticmethod
+    def _draw_crosshair(
+        draw,
+        x: int,
+        y: int,
+        label: str,
+        color: tuple = (255, 0, 0),
+        r: int = 30,
+    ) -> None:
+        """Draw a crosshair with label on an ImageDraw canvas.
+
+        Args:
+            draw: PIL ImageDraw object.
+            x, y: Center point for crosshair.
+            label: Text label to display next to crosshair.
+            color: RGB tuple for crosshair color.
+            r: Crosshair radius in pixels.
+        """
+        outline = (0, 0, 0)
+        w = 5
+
+        # Black outline first, then color on top
+        for c, off in [(outline, 2), (color, 0)]:
+            draw.line([(x - r, y), (x + r, y)], fill=c, width=w + off)
+            draw.line([(x, y - r), (x, y + r)], fill=c, width=w + off)
+            draw.ellipse(
+                [(x - r, y - r), (x + r, y + r)], outline=c, width=w + off
+            )
+
+        # Label with background box
+        lx, ly = x + r + 6, y - 12
+        bbox = draw.textbbox((lx, ly), label)
+        draw.rectangle(
+            [bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2],
+            fill=(0, 0, 0),
+        )
+        draw.text((lx, ly), label, fill=(255, 255, 0))
+
     def _save_debug_image(
         self,
         screenshot_b64: str,
@@ -2555,7 +2670,11 @@ class AutomationAgent:
         description: str,
         image_point: Optional[Tuple[int, int]] = None,
     ) -> None:
-        """Save a debug screenshot with a crosshair at the predicted click point."""
+        """Save a debug screenshot with a crosshair at the predicted click point.
+
+        Annotates with: coordinates, element description, source model,
+        and confidence score.
+        """
         try:
             from PIL import Image, ImageDraw
 
@@ -2564,28 +2683,16 @@ class AutomationAgent:
 
             draw = ImageDraw.Draw(img)
             x, y = image_point or (location.x, location.y)
-            r = 30  # crosshair radius
-            color = (255, 0, 0)  # red
-            outline = (0, 0, 0)  # black outline for contrast
-            w = 5
 
-            # Black outline first, then red on top
-            for c, off in [(outline, 2), (color, 0)]:
-                draw.line([(x - r, y), (x + r, y)], fill=c, width=w + off)
-                draw.line([(x, y - r), (x, y + r)], fill=c, width=w + off)
-                draw.ellipse(
-                    [(x - r, y - r), (x + r, y + r)], outline=c, width=w + off
-                )
-
-            # Label with background box
-            label = f"({x},{y}) {description[:50]}"
-            lx, ly = x + r + 6, y - 12
-            bbox = draw.textbbox((lx, ly), label)
-            draw.rectangle(
-                [bbox[0] - 2, bbox[1] - 2, bbox[2] + 2, bbox[3] + 2],
-                fill=(0, 0, 0),
+            # Build label with source and confidence
+            source_tag = f" via {location.source}" if location.source else ""
+            conf_tag = (
+                f" conf={location.confidence:.2f}"
+                if location.confidence and location.confidence > 0
+                else ""
             )
-            draw.text((lx, ly), label, fill=(255, 255, 0))
+            label = f"({x},{y}) {description[:40]}{source_tag}{conf_tag}"
+            self._draw_crosshair(draw, x, y, label)
 
             debug_dir = self.logger.run_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
@@ -2596,6 +2703,42 @@ class AutomationAgent:
             slog.debug("Debug image saved", path=str(path))
         except Exception as exc:
             slog.warning("Debug image save failed", error=str(exc))
+
+    def _save_annotated_screenshot(
+        self,
+        screenshot_b64: str,
+        x: int,
+        y: int,
+        label: str,
+        name_slug: str,
+        success: bool = True,
+    ) -> None:
+        """Save a screenshot annotated with a crosshair at (x, y).
+
+        Uses green crosshair for success, red for failure.
+        Saved to the debug/ directory alongside find_ images.
+        """
+        try:
+            from PIL import Image, ImageDraw
+
+            img_bytes = base64.b64decode(screenshot_b64)
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            draw = ImageDraw.Draw(img)
+
+            color = (0, 200, 0) if success else (255, 0, 0)
+            status = "PASS" if success else "FAIL"
+            full_label = f"({x},{y}) [{status}] {label}"
+            self._draw_crosshair(draw, x, y, full_label, color=color)
+
+            debug_dir = self.logger.run_dir / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            ts = int(time.time() * 1000)
+            slug = re.sub(r"[^a-zA-Z0-9]+", "_", name_slug)[:60].strip("_")
+            path = debug_dir / f"annotated_{ts}_{slug}.jpg"
+            img.save(str(path), format="JPEG", quality=90)
+            slog.debug("Annotated screenshot saved", path=str(path))
+        except Exception as exc:
+            slog.debug("Annotated screenshot save failed", error=str(exc))
 
     async def _wait_for_user(self, step: ActionStep) -> StepResult:
         """Wait for the user to complete an action by polling for screen changes.
@@ -2780,9 +2923,13 @@ class AutomationAgent:
         Steps whose verify text contains critical-action keywords use a higher
         threshold of 0.9. All other steps use 0.5.
         """
-        verify_lower = step.verify.lower() if step.verify else ""
-        if any(kw in verify_lower for kw in self._CRITICAL_ACTION_KEYWORDS):
-            return self._CRITICAL_CONFIDENCE_THRESHOLD
+        texts = [
+            step.params.get("element", "") if step.params else "",
+            step.verify or "",
+        ]
+        for text in texts:
+            if any(pat.search(text) for pat in self._KEYWORD_PATTERNS.values()):
+                return self._CRITICAL_CONFIDENCE_THRESHOLD
         return self._DEFAULT_CONFIDENCE_THRESHOLD
 
     async def _apply_pre_delay(self, params: dict) -> None:

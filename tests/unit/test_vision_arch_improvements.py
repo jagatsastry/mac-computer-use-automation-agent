@@ -598,7 +598,7 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Submit"},
-            verify="Form is submitted",  # 'submit' in verify -> critical
+            verify="Form is submitted",  # 'Submit' in element -> critical
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
@@ -608,10 +608,8 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Pay"},
-            verify="Payment confirmed",  # 'pay' not directly, but keyword 'confirm' present? No.
-            # 'pay' in keyword set
+            verify="Payment confirmed",  # 'Pay' in element -> critical
         )
-        # "confirm" is also in keywords; ensure at least one triggers
         assert agent._get_confidence_threshold(step) == 0.9
 
     def test_critical_threshold_for_delete(self, agent):
@@ -620,7 +618,7 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Delete"},
-            verify="File deleted",  # 'delete' in verify
+            verify="File deleted",  # 'Delete' in element -> critical
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
@@ -629,21 +627,31 @@ class TestConfidenceGating:
 
         step = ActionStep(
             action="click",
-            params={"element": "Send button"},
-            # "send" must appear as substring — "sent" does NOT contain "send"
-            verify="Please send this email to recipient",
+            params={"element": "Send button"},  # 'Send' in element -> critical
+            verify="Email is sent to recipient",
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
-    def test_keyword_case_insensitive_in_verify(self, agent):
+    def test_keyword_case_insensitive_in_element(self, agent):
         from automation_agent.shared_models import ActionStep
 
         step = ActionStep(
             action="click",
-            params={"element": "OK"},
-            verify="Order was CONFIRMED successfully",
+            params={"element": "CONFIRM order"},
+            verify="Order was placed successfully",
         )
         assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_add_to_cart_uses_default_threshold(self, agent):
+        """Add to cart is NOT critical — easily reversible."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Add to cart button"},
+            verify="Cart confirmation appears or cart icon badge updates",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
 
     def test_empty_verify_uses_default_threshold(self, agent):
         from automation_agent.shared_models import ActionStep

@@ -57,14 +57,31 @@ class AppleScriptActuator:
             )
 
     def click(self, x: int, y: int) -> Dict[str, Any]:
-        # AppleScript can't easily do coordinate clicks; use cliclick if available
-        # Fallback to pyautogui
         try:
             import pyautogui
-            pyautogui.click(x, y)
+            import time
+            # Ensure the browser is frontmost before clicking — other apps
+            # (terminal, overlay) may have stolen focus between steps.
+            self._activate_browser()
+            # Move first, brief pause, then click — some web UIs need the hover
+            # state to register before the link becomes clickable.
+            pyautogui.moveTo(x, y)
+            time.sleep(0.15)
+            pyautogui.click()
             return ActuatorResult(success=True, output=f"Clicked ({x}, {y})").to_dict()
         except Exception as e:
             return ActuatorResult(success=False, error=str(e)).to_dict()
+
+    def _activate_browser(self) -> None:
+        """Bring the browser to the front before a click."""
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "Google Chrome" to activate'],
+                capture_output=True, timeout=2,
+            )
+        except Exception:
+            pass
 
     def type_text(self, text: str) -> Dict[str, Any]:
         escaped = self._escape_for_applescript(text)

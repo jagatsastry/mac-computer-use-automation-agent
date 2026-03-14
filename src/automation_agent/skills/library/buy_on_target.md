@@ -26,19 +26,22 @@ max-retries: 3
 ---
 
 ## Steps
-1. Navigate to https://www.target.com/s?searchTerm={{product}}
-   - verify: Target search results page is visible with product listings for {{product}}
-   - on_fail: If login page appears, wait_for_user to log in
-2. Click on the "sort by" dropdown
-   - verify: Sort options are visible
-   - on_fail: If sort/filter not found, scroll up to find sorting controls
-3. Click on a product listing
-   - verify: Product detail page is loaded with "Add to cart" button
-   - on_fail: If no matching product visible, scroll down to find more options
-4. Click on the "Add to cart" button
+1. Navigate to https://www.target.com/s?searchTerm={{product}}&sortBy=PriceLow
+   - verify: Target search results page is visible with product listings for {{product}} sorted by price
+   - on_fail: wait_for_user
+2. Scroll down past "Popular filters" to see full product listings
+   - verify: Product listings with prices are fully visible
+   - on_fail: scroll
+3. Click on the title of the first {{product}} result
+   - verify: Product detail page is loaded with product title and price visible
+   - on_fail: replan
+4. Scroll down to see the "Add to cart" button below the size and color selectors
+   - verify: "Add to cart" button is visible on screen
+   - on_fail: scroll
+5. Click on the "Add to cart" button
    - verify: Cart confirmation appears or cart icon badge updates
-   - on_fail: If "Add to cart" not visible, scroll down to find it
-5. Use done to confirm product added to cart. Checkout requires user confirmation.
+   - on_fail: replan
+6. Use done to confirm product added to cart. Checkout requires user confirmation.
    - verify: Product has been added to cart successfully
 
 ## Error Recovery
@@ -51,7 +54,10 @@ max-retries: 3
 
 ## Notes
 - Target uses "Add to cart" button (not "Buy now")
-- Target search URL format: target.com/s?searchTerm=<query>
-- Target sort by price: may need to click "Price: low to high" in sort dropdown
+- Target search URL format: target.com/s?searchTerm=<query>&sortBy=PriceLow
+- Sorting is done via URL parameter, not by clicking the sort UI
 - Size/color selection may be required before "Add to cart" is enabled
+- Click on product TITLE TEXT (not the image) — title links are more reliably clickable
+- Target search results show "Popular filters" above product listings — scroll down to see products
+- Product detail pages show size/color selectors above "Add to cart" — scroll down to see the button
 - This skill stops at add-to-cart; checkout is out of scope
