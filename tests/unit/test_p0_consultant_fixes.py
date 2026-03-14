@@ -500,6 +500,32 @@ class TestP1_5_MalformedPatchReturnsNone:
         assert result is not None
         assert result.add_landmarks == ["sidebar"]
 
+    def test_from_dict_revised_steps_none_returns_none(self):
+        """revised_steps=None must not produce string 'None'."""
+        result = ReplanPatch.from_dict({"revised_steps": None})
+        assert result is None
+
+    def test_from_dict_revised_steps_whitespace_returns_none(self):
+        """revised_steps with only whitespace must be treated as empty."""
+        result = ReplanPatch.from_dict({"revised_steps": "   \n  "})
+        assert result is None
+
+    def test_from_dict_revised_steps_int_returns_none(self):
+        """revised_steps as non-string (int) must not crash."""
+        result = ReplanPatch.from_dict({"revised_steps": 42})
+        assert result is None
+
+    def test_apply_patch_whitespace_revised_steps_no_overwrite(self):
+        """Whitespace-only revised_steps must not overwrite current_steps."""
+        session = DerivedSkillSession.seed(
+            "test-skill", "test goal",
+            "1. Open app\n2. Click button"
+        )
+        original = session.current_steps
+        patch = ReplanPatch(revised_steps="   ")
+        session.apply_patch(patch)
+        assert session.current_steps == original
+
 
 # ===========================================================================
 # Finding 2: E2E test for P0-1 — current_steps reaching planner prompt

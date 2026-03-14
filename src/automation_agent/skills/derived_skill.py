@@ -63,7 +63,7 @@ class DerivedSkillSession:
             self.successful_adaptations, patch.successful_adaptations
         )
 
-        if patch.revised_steps:
+        if patch.revised_steps and patch.revised_steps.strip():
             self.current_steps = patch.revised_steps
 
     @staticmethod

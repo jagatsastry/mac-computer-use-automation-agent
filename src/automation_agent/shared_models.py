@@ -224,6 +224,12 @@ class ReplanPatch:
             val = data.get(key, [])
             return val if isinstance(val, list) else []
 
+        def _safe_str(val: object) -> str:
+            """Convert to string, treating None/non-str as empty."""
+            if val is None or not isinstance(val, str):
+                return ""
+            return val.strip()
+
         patch = cls(
             replace_labels=[
                 r for r in _safe_list("replace_labels")
@@ -245,7 +251,7 @@ class ReplanPatch:
                 str(s) for s in _safe_list("successful_adaptations")
                 if isinstance(s, str)
             ],
-            revised_steps=str(data.get("revised_steps", "")),
+            revised_steps=_safe_str(data.get("revised_steps")),
         )
         return None if patch.is_empty() else patch
 
