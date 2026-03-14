@@ -26,8 +26,13 @@ class StatusSnapshot:
     goal: str = ""
 
 
-def format_status_event(event: Dict[str, Any]) -> Optional[StatusSnapshot]:
-    """Convert a raw JSONL event into a compact UI-friendly status message."""
+def format_status_event(
+    event: Dict[str, Any], verbose: bool = False
+) -> Optional[StatusSnapshot]:
+    """Convert a raw JSONL event into a UI-friendly status message.
+
+    When verbose=True, includes detailed LLM responses and reasoning.
+    """
     event_type = str(event.get("event_type", "")).strip()
     message = str(event.get("message", "")).strip()
     if not event_type or not message:
@@ -49,14 +54,78 @@ def format_status_event(event: Dict[str, Any]) -> Optional[StatusSnapshot]:
             step_label = str(action)
     goal = ""
     if event_type == "task_start":
-        goal = str((event.get("data") or {}).get("goal") or message.removeprefix("Goal: ").strip())
+        goal = str(
+            (event.get("data") or {}).get("goal")
+            or message.removeprefix("Goal: ").strip()
+        )
+
+    line = f"{prefix} {message}"
+    if verbose:
+        detail = _verbose_detail(event_type, event.get("data") or {})
+        if detail:
+            line = f"{line}\n{detail}"
+
     return StatusSnapshot(
         title=title,
-        line=f"{prefix} {message}",
+        line=line,
         terminal=event_type in TERMINAL_EVENT_TYPES,
         step_label=step_label,
         goal=goal,
     )
+
+
+def _verbose_detail(event_type: str, data: Dict[str, Any]) -> str:
+    """Build verbose detail lines from event data for the overlay."""
+    parts: list[str] = []
+
+    if event_type in ("plan_complete", "replan_complete"):
+        steps = data.get("steps_summary")
+        if steps:
+            parts.append("  Plan steps:")
+            for i, s in enumerate(steps):
+                parts.append(f"    {i}. {s}")
+        llm_resp = data.get("llm_response")
+        if llm_resp:
+            parts.append("  LLM response:")
+            for resp_line in str(llm_resp).splitlines():
+                parts.append(f"    {resp_line}")
+
+    elif event_type == "element_found":
+        for key in ("element", "confidence", "source", "vision_response"):
+            val = data.get(key)
+            if val is not None:
+                parts.append(f"  {key}: {val}")
+
+    elif event_type == "element_search":
+        for key in ("missing_target", "suggested_affordance", "reason", "vision_response"):
+            val = data.get(key)
+            if val:
+                parts.append(f"  {key}: {val}")
+
+    elif event_type == "step_complete":
+        for key in ("method", "evidence", "reflection_hint", "suggested_element", "reflection_observed"):
+            val = data.get(key)
+            if val:
+                parts.append(f"  {key}: {val}")
+
+    elif event_type in ("verify_pass", "verify_fail", "verify_escalate"):
+        parts.append(f"  detail: {data}") if data else None
+
+    elif event_type == "step_start":
+        params = data.get("params")
+        if params:
+            parts.append(f"  params: {params}")
+
+    elif event_type == "action_start":
+        pass  # message already contains full info
+
+    elif event_type in ("step_retry", "step_replan"):
+        for key in ("strategy", "reason"):
+            val = data.get(key)
+            if val:
+                parts.append(f"  {key}: {val}")
+
+    return "\n".join(parts)
 
 
 def build_status_overlay_command(
@@ -65,7 +134,7 @@ def build_status_overlay_command(
     config: AgentConfig,
 ) -> list[str]:
     """Build the subprocess command for the floating overlay."""
-    return [
+    cmd = [
         sys.executable,
         "-m",
         "automation_agent.status_overlay",
@@ -80,6 +149,9 @@ def build_status_overlay_command(
         "--linger-seconds",
         str(config.status_overlay_linger_seconds),
     ]
+    if config.verbose_overlay:
+        cmd.append("--verbose")
+    return cmd
 
 
 class StatusOverlayController:
@@ -164,10 +236,12 @@ def _title_for_event(event_type: str, message: str, event: Dict[str, Any]) -> st
     return message[:80]
 
 
-def load_status_snapshot(line: str) -> Optional[StatusSnapshot]:
+def load_status_snapshot(
+    line: str, verbose: bool = False
+) -> Optional[StatusSnapshot]:
     """Parse one JSONL event line into a status snapshot."""
     try:
         event = json.loads(line)
     except json.JSONDecodeError:
         return None
-    return format_status_event(event)
+    return format_status_event(event, verbose=verbose)

@@ -901,7 +901,7 @@ class TestBugFixes:
         mock_coordinator.find_element = AsyncMock(return_value=None)
         plan = _make_plan([step], goal="Return the most recent Tylenol order on Amazon")
 
-        result = await agent._execute_step(0, step, [], plan.goal, plan)
+        result, _tf = await agent._execute_step(0, step, [], plan.goal, plan)
 
         assert result.success is False
         assert result.error == "Element not found: Return or Replace Items button"
@@ -937,6 +937,293 @@ class TestBugFixes:
         assert strategy == "jump_to_page_top_and_retry_click"
         assert retry_step.action == "click"
         assert retry_step.params["_pre_keys"] == ["cmd", "up"]
+
+    # -----------------------------------------------------------------------
+    # _vary_strategy: non-click action retry strategies
+    # -----------------------------------------------------------------------
+
+    async def test_type_text_retry_clears_field_first(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """First type_text retry should select-all before retyping."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="type_text", params={"text": "hello"}, verify="Text visible",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="typing failed", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "select_all_then_type"
+        assert retry_step.action == "type_text"
+        assert retry_step.params.get("_clear_first") is True
+        assert retry_step.params.get("text") == "hello"
+
+    async def test_type_text_second_retry_uses_slow_type(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Second type_text retry should type character-by-character."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="type_text", params={"text": "hello"}, verify="Text visible",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="typing failed", retry_count=1)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "slow_type_retry"
+        assert retry_step.params.get("_slow_type") is True
+
+    async def test_type_text_reflection_refocus_clears_first(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Reflection hint 'refocus_text_field' should clear and retype."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="type_text", params={"text": "hello"}, verify="Text visible",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(
+            step=step, success=False, evidence="wrong field",
+            retry_count=0, reflection_hint="refocus_text_field",
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "reflection_refocus_then_type"
+        assert retry_step.params.get("_clear_first") is True
+
+    async def test_press_key_retry_adds_delay(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """First press_key retry should add a 0.5s delay."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="press_key", params={"keys": ["cmd", "c"]}, verify="Copied",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="key press failed", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "delayed_key_press"
+        assert retry_step.params.get("_pre_delay") == 0.5
+
+    async def test_press_key_second_retry_extends_delay(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Second press_key retry should use 2.0s delay (1.0 * attempt)."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="press_key", params={"keys": ["return"]}, verify="Submitted",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="failed", retry_count=1)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert "extended_delay" in strategy
+        assert retry_step.params.get("_pre_delay") == 2.0
+
+    async def test_press_key_keyboard_submit_reflection(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Reflection hint 'keyboard_submit' should retry with return key."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="press_key", params={"keys": ["tab"]}, verify="Submitted",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(
+            step=step, success=False, evidence="failed",
+            retry_count=0, reflection_hint="keyboard_submit",
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "reflection_keyboard_submit"
+        assert retry_step.params == {"keys": ["return"]}
+
+    async def test_open_url_retry_uses_address_bar_fallback(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """First open_url retry should use browser address bar fallback."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="open_url", params={"url": "https://example.com"}, verify="Page loaded",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="URL open failed", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "browser_address_bar_fallback"
+        assert retry_step.params.get("_address_bar_fallback") is True
+        assert retry_step.params.get("url") == "https://example.com"
+
+    async def test_open_url_second_retry_adds_delay(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Second open_url retry should add extended delay."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="open_url", params={"url": "https://example.com"}, verify="Page loaded",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="failed", retry_count=1)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert "extended_delay" in strategy
+        assert retry_step.params.get("_pre_delay") == 4.0
+
+    async def test_activate_app_retry_quits_first(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """First activate_app retry should quit and relaunch."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="activate_app", params={"app_name": "Safari"}, verify="Safari active",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="app not found", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "quit_and_relaunch"
+        assert retry_step.params.get("_quit_first") is True
+        assert retry_step.params.get("app_name") == "Safari"
+
+    async def test_activate_app_second_retry_uses_spotlight(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Second activate_app retry should use Spotlight."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="activate_app", params={"app_name": "Safari"}, verify="Safari active",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="still failed", retry_count=1)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "spotlight_launch"
+        assert retry_step.params.get("_spotlight") is True
+
+    async def test_quit_app_retry_adds_delay(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """First quit_app retry should add delay."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="quit_app", params={"app_name": "Finder"}, verify="Finder closed",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="quit failed", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "delayed_quit"
+        assert retry_step.params.get("_pre_delay") == 0.5
+
+    async def test_scroll_retry_uses_generic_fallback(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Scroll retry should use generic delay-based retry."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="scroll", params={"direction": "down", "amount": 3}, verify="Scrolled",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(step=step, success=False, evidence="scroll failed", retry_count=0)
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert "generic_retry" in strategy
+        assert retry_step.params.get("_pre_delay") == 0.5
+
+    async def test_missing_target_no_alternative_triggers_replan_on_attempt_2(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Missing target with no suggested element should replan after first refined attempt."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="click", params={"element": "Submit"}, verify="Submitted",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(
+            step=step, success=False, evidence="not found",
+            error="Element not found: Submit", retry_count=1,
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "replan_missing_target"
+        assert retry_step is None
+
+    async def test_dismiss_modal_reflection_hint(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Reflection hint 'dismiss_modal' should press Escape."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        step = ActionStep(
+            action="click", params={"element": "Save"}, verify="Saved",
+            on_fail="retry_different", max_retries=3,
+        )
+        prev = StepResult(
+            step=step, success=False, evidence="modal blocking",
+            retry_count=0, reflection_hint="dismiss_modal",
+        )
+
+        strategy, retry_step = agent._vary_strategy(step, prev)
+
+        assert strategy == "dismiss_modal_then_retry"
+        assert retry_step.action == "press_key"
+        assert retry_step.params == {"keys": ["escape"]}
 
     async def test_dispatch_press_key_accepts_legacy_key_param(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
@@ -1026,7 +1313,7 @@ class TestBugFixes:
         )
         plan = _make_plan([step])
 
-        result = await agent._execute_step(0, step, [], "Focus the search box", plan)
+        result, _tf = await agent._execute_step(0, step, [], "Focus the search box", plan)
 
         assert result.success is False
         assert result.reflection_hint == "scroll_to_top"

@@ -12,6 +12,21 @@ except ImportError:  # Python < 3.11
             return self.value
 from typing import Any, Dict, List, Optional
 
+# AC-1/AC-2: Canonical AX roles for text input fields.
+# Shared between verifier (Tier 0 click check) and orchestrator (type-and-check bypass).
+TEXT_INPUT_AX_ROLES: frozenset[str] = frozenset({
+    "AXTextField",
+    "AXTextArea",
+    "AXSearchField",
+    "AXComboBox",
+})
+
+# AC-1: Heuristic fallback for when AX is unavailable. English-only; expand for i18n.
+TEXT_INPUT_KEYWORDS: frozenset[str] = frozenset({
+    "search", "input", "text field", "text box",
+    "search bar", "address bar", "url bar",
+})
+
 # Common LLM misspellings → correct action name.
 # Used by ActionStep.from_dict() to auto-correct invalid action names.
 _ACTION_ALIASES: Dict[str, str] = {
@@ -30,6 +45,8 @@ _ACTION_ALIASES: Dict[str, str] = {
     "goto_url": "open_url",
     "go_to_url": "open_url",
     "find_element": "click",
+    "scroll_down": "scroll",
+    "scroll_up": "scroll",
     "wait": "wait_for_user",
     "finish": "done",
     "complete": "done",
@@ -70,7 +87,7 @@ class ActionStep:
     the expected screen state after the step executes.
     """
 
-    action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "observe", "wait_for_user", "done"
+    action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "scroll", "observe", "wait_for_user", "done"
     params: Dict[str, Any] = field(default_factory=dict)
     verify: str = ""  # MANDATORY — what must be true after this step
     expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
@@ -85,6 +102,7 @@ class ActionStep:
             "open_url",
             "activate_app",
             "quit_app",
+            "scroll",
             "observe",
             "wait_for_user",
             "done",
@@ -105,12 +123,20 @@ class ActionStep:
 
         Automatically corrects common LLM action name misspellings
         (e.g., 'key_press' → 'press_key').
+        Also infers scroll direction from aliases like 'scroll_down' → 'scroll'.
         """
         raw_action = data.get("action", "")
         action = _ACTION_ALIASES.get(raw_action, raw_action)
+        params = data.get("params", {})
+        # Inject direction for scroll aliases when not explicitly provided
+        if action == "scroll" and "direction" not in params:
+            if raw_action == "scroll_down":
+                params = {**params, "direction": "down"}
+            elif raw_action == "scroll_up":
+                params = {**params, "direction": "up"}
         return cls(
             action=action,
-            params=data.get("params", {}),
+            params=params,
             verify=data.get("verify", ""),
             expected_observation=data.get("expected_observation", ""),
             on_fail=data.get("on_fail", "retry_different"),
@@ -213,7 +239,7 @@ class StepResult:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
-        valid_methods = {"", "accessibility", "actuator_state", "vision", "both"}
+        valid_methods = {"", "accessibility", "actuator_state", "vision", "both", "type_and_check"}
         if self.verification_method not in valid_methods:
             raise ValueError(
                 f"Unknown verification_method '{self.verification_method}'. "

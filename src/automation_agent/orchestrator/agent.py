@@ -21,6 +21,8 @@ from automation_agent.shared_models import (
     FindElementResult,
     SkillMatchResult,
     StepResult,
+    TEXT_INPUT_AX_ROLES,
+    TEXT_INPUT_KEYWORDS,
 )
 from automation_agent.skills.derived_skill import DerivedSkillSession
 
@@ -75,10 +77,13 @@ class AutomationAgent:
         # Rec 4: tracks (left, top, right, bottom) of last successful click
         # in screenshot_resolution pixel space. Reset at start of each execute().
         self.last_successful_region: Optional[Tuple[int, int, int, int]] = None
+        # Current skill context for error recovery hint lookups
+        self._current_skill_context: Optional[str] = None
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
         self.last_successful_region = None  # Rec 4: reset for new task
+        self._current_skill_context = None  # Reset for new task
         start = time.monotonic()
         slog.info("🎯 Executing goal", goal=goal)
         self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
@@ -134,6 +139,9 @@ class AutomationAgent:
                 slog.info("🤔 No matching skill found")
                 self.logger.log_event(EventType.SKILL_NO_MATCH, "No matching skill found")
 
+            # Store skill context for error recovery hint lookups
+            self._current_skill_context = skill_context
+
             # 2. Get screen description for context
             screen_desc = ""
             desktop_context = ""
@@ -174,10 +182,16 @@ class AutomationAgent:
                     )
                     plan = fallback_plan
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
+            plan_data = {"step_count": len(plan.steps)}
+            if plan.raw_llm_response:
+                plan_data["llm_response"] = plan.raw_llm_response
+            plan_data["steps_summary"] = [
+                f"{s.action}({s.params})" for s in plan.steps
+            ]
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
                 f"Plan: {len(plan.steps)} steps",
-                data={"step_count": len(plan.steps)},
+                data=plan_data,
             )
 
             # BUG 5 FIX: Validate plan before execution — reject empty verify fields
@@ -200,7 +214,12 @@ class AutomationAgent:
                 )
 
             # 4. Execute steps
+            _skip_next = False
             for i, step in enumerate(plan.steps):
+                if _skip_next:
+                    _skip_next = False
+                    continue
+
                 if iterations >= self.config.max_iterations:
                     duration = int((time.monotonic() - start) * 1000)
                     self.logger.log_event(EventType.TASK_FAIL, "Max iterations reached")
@@ -218,9 +237,33 @@ class AutomationAgent:
                 if self.context_monitor:
                     self.context_monitor.update_cheap()
 
-                result = await self._execute_step(i, step, step_results, goal, plan)
-                step_results.append(result)
-                iterations += 1
+                result, text_field_focused = await self._execute_step(i, step, step_results, goal, plan)
+
+                # AC-1: Type-and-check bypass attempt
+                bypass = await self._try_type_and_check_bypass(
+                    i, step, result, text_field_focused, plan, step_results, goal,
+                )
+                if bypass is not None:
+                    click_result, next_result, _ = bypass
+                    step_results.append(click_result)
+                    step_results.append(next_result)
+                    iterations += 2
+                    _skip_next = True
+
+                    if click_result.success:
+                        # Bypass succeeded -- both steps passed, skip next in loop
+                        if self.context_monitor:
+                            self._record_context(step)
+                            self._record_context(next_result.step)
+                        if next_result.step.action == "done":
+                            break
+                        continue
+
+                    # Bypass attempted but both failed -- handle click failure
+                    result = click_result
+                else:
+                    step_results.append(result)
+                    iterations += 1
 
                 # Record context after actions
                 if self.context_monitor:
@@ -258,30 +301,55 @@ class AutomationAgent:
                         step_results.append(recovery_result)
                         iterations += 1
                         if not recovery_result.success:
-                            # Recovery also failed
+                            # Recovery also failed — stop executing
+                            duration = int((time.monotonic() - start) * 1000)
                             if step.on_fail == "abort":
-                                duration = int((time.monotonic() - start) * 1000)
                                 self.logger.log_event(
                                     EventType.TASK_FAIL, "Step failed with abort policy"
                                 )
-                                return ExecutionResult(
-                                    success=False,
-                                    message=f"Step {i} failed: {result.evidence}",
-                                    steps=step_results,
-                                    total_duration_ms=duration,
-                                    iterations=iterations,
-                                    goal=goal,
-                                    run_id=self.logger.run_id,
+                            else:
+                                self.logger.log_event(
+                                    EventType.TASK_FAIL,
+                                    f"Step {i} failed after recovery; stopping",
                                 )
+                            return ExecutionResult(
+                                success=False,
+                                message=f"Step {i} failed: {result.evidence}",
+                                steps=step_results,
+                                total_duration_ms=duration,
+                                iterations=iterations,
+                                goal=goal,
+                                run_id=self.logger.run_id,
+                            )
+
+            # AC-6: Check if last step was a done-with-abort
+            duration = int((time.monotonic() - start) * 1000)
+            last_result = step_results[-1] if step_results else None
+            if (
+                last_result
+                and last_result.step.action == "done"
+                and last_result.step.params.get("abort_reason")
+            ):
+                self.logger.log_event(EventType.TASK_FAIL, f"Task aborted: {last_result.error}")
+                self.logger.finalize(False, last_result.error)
+                return ExecutionResult(
+                    success=False,
+                    message=f"Task aborted: {last_result.error}",
+                    error=last_result.error,
+                    steps=step_results,
+                    total_duration_ms=duration,
+                    iterations=iterations,
+                    goal=goal,
+                    run_id=self.logger.run_id,
+                )
 
             # Success
-            duration = int((time.monotonic() - start) * 1000)
             slog.info(
                 "🏁 Task completed",
                 duration_s=round(duration / 1000, 1),
                 iterations=iterations,
             )
-            await self._maybe_learn_skill_run(
+            observations = await self._maybe_learn_skill_run(
                 goal=goal,
                 skill_name=skill_name,
                 skill_context=skill_context or "",
@@ -289,6 +357,16 @@ class AutomationAgent:
                 had_replan=False,
                 derived_session=derived_session,
                 expanded_steps_for_distiller=expanded_steps_for_distiller,
+            )
+            await self._maybe_promote_skill(
+                goal=goal,
+                skill_name=skill_name,
+                observations=observations,
+                derived_session=derived_session,
+                step_results=step_results,
+                run_id=self.logger.run_id,
+                had_replan=False,
+                success=True,
             )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
@@ -324,8 +402,13 @@ class AutomationAgent:
         history: list,
         goal: str,
         plan: ActionPlan,
-    ) -> StepResult:
-        """Execute a single step: find element if needed, act, verify."""
+    ) -> Tuple[StepResult, bool]:
+        """Execute a single step: find element if needed, act, verify.
+
+        Returns:
+            (StepResult, text_field_focused) where text_field_focused indicates
+            whether a text input field was focused after a click action (AC-1).
+        """
         slog.info("🎯 Executing step", step_index=index, action=step.action, params=step.params)
         self.logger.log_event(
             EventType.STEP_START,
@@ -335,15 +418,25 @@ class AutomationAgent:
         )
 
         if step.action == "done":
+            # AC-6: Graceful abort via done + abort_reason
+            abort_reason = step.params.get("abort_reason")
+            if abort_reason:
+                return StepResult(
+                    step=step,
+                    success=False,
+                    verification_method="",
+                    evidence=f"Task aborted: {abort_reason}",
+                    error=abort_reason,
+                ), False
             return StepResult(
                 step=step,
                 success=True,
                 verification_method="",
                 evidence="Task marked as done",
-            )
+            ), False
 
         if step.action == "wait_for_user":
-            return await self._wait_for_user(step)
+            return await self._wait_for_user(step), False
 
         if step.action == "observe":
             desc = await self.coordinator.describe_screen()
@@ -352,7 +445,7 @@ class AutomationAgent:
                 success=True,
                 verification_method="vision",
                 evidence=f"Screen: {desc}",
-            )
+            ), False
 
         # Capture screenshot before visually meaningful actions for diff-based verification.
         if self.screenshot_diff and step.action in ("click", "open_url"):
@@ -360,6 +453,13 @@ class AutomationAgent:
 
         # For element-based actions (click with element description), find the element first
         actuator_result = await self._dispatch_action(step)
+
+        # AC-1: Capture focused element AX role immediately after click dispatch,
+        # BEFORE the screenshot_diff gate can force failure.
+        _text_field_focused = False
+        if step.action == "click" and actuator_result.get("success", False):
+            _text_field_focused = self._check_text_field_focused()
+
         visible_effect = None
 
         # After click, quick diff check: if no visible effect, mark as failed for retry
@@ -414,7 +514,7 @@ class AutomationAgent:
                 step_index=index,
                 data={"success": False, "method": "actuator"},
             )
-            return result
+            return result, _text_field_focused
 
         # Brief delay after actions that need time to take effect (app launch, URL open)
         if step.action in ("activate_app", "open_url", "quit_app"):
@@ -432,14 +532,22 @@ class AutomationAgent:
         ):
             verification = await self._reflect_failed_action(step, actuator_result, verification)
 
+        step_complete_data = {
+            "success": verification.success,
+            "method": verification.verification_method,
+            "evidence": verification.evidence,
+        }
+        if verification.reflection_hint:
+            step_complete_data["reflection_hint"] = verification.reflection_hint
+        if verification.suggested_element:
+            step_complete_data["suggested_element"] = verification.suggested_element
+        if verification.reflection_observed:
+            step_complete_data["reflection_observed"] = verification.reflection_observed
         self.logger.log_event(
             EventType.STEP_COMPLETE,
             f"Step {index}: {'PASS' if verification.success else 'FAIL'} -- {verification.evidence}",
             step_index=index,
-            data={
-                "success": verification.success,
-                "method": verification.verification_method,
-            },
+            data=step_complete_data,
         )
 
         # Rec 4: record the successful click region for resolution-aware narrowing
@@ -454,7 +562,84 @@ class AutomationAgent:
                 click_y + half,
             )
 
-        return verification
+        return verification, _text_field_focused
+
+    def _check_text_field_focused(self) -> bool:
+        """Check if the currently focused element is a text input field.
+
+        Uses accessibility backend if available, returns False otherwise.
+        Skips async accessibility backends (same guard as verifier._get_accessibility_backend).
+        """
+        accessibility = getattr(self.coordinator, "accessibility", None)
+        if accessibility is None:
+            return False
+        method = getattr(accessibility, "get_focused_element", None)
+        if method is None:
+            return False
+        if inspect.iscoroutinefunction(method) or "AsyncMock" in type(method).__name__:
+            return False
+        try:
+            focused = method()
+        except Exception:
+            return False
+        if focused is None:
+            return False
+        role = getattr(focused, "role", None) or ""
+        return role in TEXT_INPUT_AX_ROLES
+
+    @staticmethod
+    def _is_text_field_by_keywords(step: ActionStep) -> bool:
+        """Keyword fallback for text field detection when AX is unavailable."""
+        element_desc = str(step.params.get("element", "")).lower()
+        return any(kw in element_desc for kw in TEXT_INPUT_KEYWORDS)
+
+    async def _try_type_and_check_bypass(
+        self,
+        i: int,
+        step: ActionStep,
+        result: StepResult,
+        text_field_focused: bool,
+        plan: ActionPlan,
+        step_results: list,
+        goal: str,
+    ) -> Optional[Tuple[StepResult, StepResult, bool]]:
+        """Attempt type-and-check bypass for a failed click on a text field.
+
+        Returns:
+            None if bypass is not applicable (caller should use normal failure path).
+            (click_result, next_result, next_text_field_focused) if bypass was attempted:
+              - click_result: replacement StepResult for the click (success=True if
+                next step passed, original failed result if next step also failed)
+              - next_result: StepResult for the next step
+              - next_text_field_focused: whether the next step also focused a text field
+        """
+        if not (
+            not result.success
+            and step.action == "click"
+            and (text_field_focused or self._is_text_field_by_keywords(step))
+            and i + 1 < len(plan.steps)
+            and plan.steps[i + 1].action in ("type_text", "press_key")
+        ):
+            return None  # Not eligible
+
+        next_step = plan.steps[i + 1]
+        next_result, next_tf = await self._execute_step(
+            i + 1, next_step, step_results, goal, plan
+        )
+
+        if next_result.success:
+            # Retroactively confirm the click
+            replacement = StepResult(
+                step=step,
+                success=True,
+                verification_method="type_and_check",
+                evidence="Verified by subsequent keystroke step success (type-and-check)",
+                duration_ms=result.duration_ms,
+            )
+            return replacement, next_result, next_tf
+        else:
+            # Both failed -- return original click failure + next failure
+            return result, next_result, next_tf
 
     @staticmethod
     def _is_trivial_done_plan(plan: ActionPlan) -> bool:
@@ -937,9 +1122,19 @@ class AutomationAgent:
                                 ),
                             }
 
+                    element_data = {
+                        "element": params["element"],
+                        "x": location.x,
+                        "y": location.y,
+                        "confidence": location.confidence,
+                        "source": location.source,
+                    }
+                    if location.raw_response:
+                        element_data["vision_response"] = location.raw_response
                     self.logger.log_event(
                         EventType.ELEMENT_FOUND,
-                        f"Found at image ({location.x}, {location.y}) / screen ({location.screen_x}, {location.screen_y})",
+                        f"Found '{params['element']}' at ({location.x}, {location.y}) conf={location.confidence:.2f} via {location.source}",
+                        data=element_data,
                     )
                     screen_x = location.screen_x if location.screen_x is not None else location.x
                     screen_y = location.screen_y if location.screen_y is not None else location.y
@@ -996,6 +1191,27 @@ class AutomationAgent:
                     result = self.actuator.open_url(params.get("url", ""))
             elif action == "quit_app":
                 result = self.actuator.quit_app(params.get("app_name", ""))
+            elif action == "scroll":
+                direction = params.get("direction", "down")
+                try:
+                    amount = abs(int(params.get("amount", 3)))
+                except (ValueError, TypeError):
+                    amount = 3
+                clicks = amount if direction == "up" else -amount
+                if direction in ("left", "right"):
+                    clicks = amount if direction == "right" else -amount
+                    result = self.actuator.scroll(
+                        clicks,
+                        x=params.get("x"),
+                        y=params.get("y"),
+                        horizontal=True,
+                    )
+                else:
+                    result = self.actuator.scroll(
+                        clicks,
+                        x=params.get("x"),
+                        y=params.get("y"),
+                    )
             else:
                 result = {"success": False, "error": f"Unknown action: {action}"}
 
@@ -1156,7 +1372,7 @@ class AutomationAgent:
                 condition_visible = await self.coordinator.verify_condition(wait_condition)
             except Exception:
                 condition_visible = True
-            if not condition_visible:
+            if condition_visible is False:
                 slog.info("Skipping wait_for_user; condition not present", condition=wait_condition)
                 return StepResult(
                     step=step,
@@ -1472,7 +1688,7 @@ class AutomationAgent:
         candidate_y: int,
         target_description: str,
         screenshot_b64: Optional[str] = None,
-    ) -> bool:
+    ) -> Optional[bool]:
         """Pre-click validation with detail and context crops around a candidate.
 
         If the coordinator explicitly supports multiscale validation, use a tight
@@ -1571,14 +1787,43 @@ class AutomationAgent:
         goal: str,
         result: StepResult,
     ) -> StepResult:
-        """Suggest a visible alternative control when a click target is absent."""
+        """Suggest a visible alternative control when a click target is absent.
+
+        Checks skill error recovery hints first; falls back to vision model.
+        """
+        missing_target = str(step.params.get("element", ""))
+
+        # Check skill error recovery hints first
+        if self._current_skill_context:
+            skill_hint = self._check_skill_error_recovery(
+                missing_target, self._current_skill_context
+            )
+            if skill_hint:
+                self.logger.log_event(
+                    EventType.ELEMENT_SEARCH,
+                    f"Skill hint alternative: '{skill_hint}' for missing '{missing_target}'",
+                    data={
+                        "missing_target": missing_target,
+                        "suggested_affordance": skill_hint,
+                        "source": "skill_error_recovery",
+                    },
+                )
+                result.reflection_hint = "use_alternative_affordance"
+                result.suggested_element = skill_hint
+                result.reflection_observed = "Skill error recovery hint"
+                result.evidence = (
+                    f"{result.evidence}. Suggested from skill hints: {skill_hint}"
+                )
+                return result
+
+        # Fall back to vision model
         if not self._has_explicit_method(self.coordinator, "suggest_alternative_affordance"):
             return result
 
         try:
             screenshot_b64 = await self._capture_screenshot()
             suggestion = await self.coordinator.suggest_alternative_affordance(
-                missing_target=str(step.params.get("element", "")),
+                missing_target=missing_target,
                 task_goal=goal,
                 expected_observation=step.expected_observation or step.verify,
                 screenshot_b64=screenshot_b64,
@@ -1593,9 +1838,19 @@ class AutomationAgent:
         affordance = str(suggestion.get("affordance", "")).strip()
         if not affordance:
             return result
-        if affordance.lower() == str(step.params.get("element", "")).strip().lower():
+        if affordance.lower() == missing_target.strip().lower():
             return result
 
+        self.logger.log_event(
+            EventType.ELEMENT_SEARCH,
+            f"Alternative affordance suggested: '{affordance}' for missing '{missing_target}'",
+            data={
+                "missing_target": missing_target,
+                "suggested_affordance": affordance,
+                "reason": str(suggestion.get("reason", "")),
+                "vision_response": str(suggestion.get("raw_response", "")),
+            },
+        )
         result.reflection_hint = "use_alternative_affordance"
         result.suggested_element = affordance
         result.reflection_observed = str(suggestion.get("reason", "")).strip()
@@ -1607,6 +1862,57 @@ class AutomationAgent:
                 f"{result.evidence}. Suggestion reason: {result.reflection_observed}"
             )
         return result
+
+    @staticmethod
+    def _check_skill_error_recovery(
+        missing_target: str, skill_context: str
+    ) -> Optional[str]:
+        """Extract a suggested alternative from skill error recovery hints.
+
+        Scans the Error Recovery / Recovery Heuristics section for lines that
+        mention the missing target and extracts the suggested action.
+
+        Returns the suggested alternative element, or None if not found.
+        """
+        if not skill_context or not missing_target:
+            return None
+
+        # Find the error recovery section (supports both header variants)
+        recovery_match = re.search(
+            r"##\s*(?:Error Recovery|Recovery Heuristics)\s*\n(.*?)(?=\n##|\Z)",
+            skill_context,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not recovery_match:
+            return None
+
+        recovery_text = recovery_match.group(1)
+        missing_lower = missing_target.lower()
+
+        for line in recovery_text.splitlines():
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            # Match lines like: - If "X" is absent: click "Y" ...
+            if missing_lower in line_stripped.lower():
+                # Extract quoted alternative after the colon
+                colon_idx = line_stripped.find(":")
+                if colon_idx < 0:
+                    continue
+                after_colon = line_stripped[colon_idx + 1:]
+                # Look for quoted text as the suggested element
+                quoted = re.findall(r'"([^"]+)"', after_colon)
+                if quoted:
+                    return quoted[0]
+                # Look for "click X" / "look for X" patterns
+                action_match = re.search(
+                    r"(?:click|look for|try|use)\s+(\S+(?:\s+\S+){0,3})",
+                    after_colon,
+                    re.IGNORECASE,
+                )
+                if action_match:
+                    return action_match.group(1).strip().rstrip(".")
+        return None
 
     def _maybe_crop_screenshot(
         self, screenshot_b64: str
@@ -1672,6 +1978,49 @@ class AutomationAgent:
         elif step.action == "open_url":
             self.context_monitor.record_navigation(step.params.get("url", ""))
 
+    @staticmethod
+    def _is_element_not_found(result: StepResult) -> bool:
+        """Check if a step result indicates element-not-found."""
+        return bool(result.error and result.error.startswith("Element not found:"))
+
+    def _is_element_absent(self, element_description: str) -> bool:
+        """Check whether an element is confirmed absent from the current page.
+
+        Uses the accessibility tree as structural confirmation when available.
+        When the AX backend is unavailable or errors, returns True (falls back
+        to count-only absence detection per AC-4). This fallback-to-True behavior
+        is intentional: the counter threshold (N>=2) has already been met before
+        this method is called, so AX is a bonus confirmation, not a gate.
+
+        Returns True if element is absent (or AX unavailable), False if AX finds a match.
+        """
+        accessibility = getattr(self.coordinator, "accessibility", None)
+        if accessibility is None:
+            return True  # No AX = fall back to count-only
+        get_elements = getattr(accessibility, "get_accessibility_elements", None)
+        if not callable(get_elements):
+            return True  # No usable AX method
+        # Skip async backends (same guard as _check_text_field_focused at line 568)
+        if inspect.iscoroutinefunction(get_elements) or "AsyncMock" in type(get_elements).__name__:
+            return True
+        try:
+            elements = get_elements()
+            # Guard: if the call somehow returns a non-list (e.g. coroutine), treat as unavailable
+            if not isinstance(elements, (list, tuple)):
+                return True
+        except Exception:
+            return True  # AX failure = fall back to count-only
+        if not elements:
+            return True  # Empty AX tree = confirmed absent
+        # Check if any AX element matches the description
+        desc_lower = element_description.lower()
+        for el in elements:
+            title = (getattr(el, "title", "") or "").lower()
+            description = (getattr(el, "description", "") or "").lower()
+            if desc_lower in title or desc_lower in description:
+                return False  # AX found a match -- NOT absent
+        return True  # AX tree searched, no match found
+
     async def _handle_failure(self, index, step, result, history, goal, plan, iterations):
         """Handle a step failure based on on_fail policy.
 
@@ -1681,9 +2030,20 @@ class AutomationAgent:
         """
         if step.on_fail == "retry_different":
             current_result = result
+            # AC-4: Track element-not-found count for absence detection.
+            # Keyed on the ORIGINAL element description, not _vary_strategy mutations.
+            original_element = step.params.get("element", "")
+            not_found_count = 1 if self._is_element_not_found(current_result) else 0
+
             while current_result.retry_count < step.max_retries:
                 strategy, retry_step = self._vary_strategy(step, current_result)
                 if retry_step is None:
+                    # About to escalate to replan -- check absence threshold
+                    if not_found_count >= 2 and original_element and self._is_element_absent(original_element):
+                        current_result.error = f"Element absent: {original_element}"
+                        # Ensure the modified result is in step_results for AC-5
+                        if current_result is not result:
+                            history.append(current_result)
                     self.logger.log_event(
                         EventType.STEP_REPLAN,
                         f"Retry strategy {strategy} escalated to replan for step {index}",
@@ -1703,15 +2063,24 @@ class AutomationAgent:
                     step_index=index,
                     data={"strategy": strategy, "attempt": current_result.retry_count + 1},
                 )
-                retry_result = await self._execute_step(index, retry_step, history, goal, plan)
+                retry_result, _ = await self._execute_step(index, retry_step, history, goal, plan)
                 retry_result.retry_count = current_result.retry_count + 1
                 retry_result.retry_strategies_used = current_result.retry_strategies_used + [strategy]
 
                 if retry_result.success:
                     return retry_result
+
+                # AC-4: Increment not-found counter
+                if self._is_element_not_found(retry_result):
+                    not_found_count += 1
                 current_result = retry_result
 
-            # Retries exhausted — escalate to replan
+            # Retries exhausted — check absence before replan escalation
+            if not_found_count >= 2 and original_element and self._is_element_absent(original_element):
+                current_result.error = f"Element absent: {original_element}"
+                # Ensure the modified result is in step_results for AC-5
+                if current_result is not result:
+                    history.append(current_result)
             self.logger.log_event(
                 EventType.STEP_REPLAN,
                 f"Retries exhausted for step {index}, escalating to replan",
@@ -1894,6 +2263,14 @@ class AutomationAgent:
                 + derived_session.serialize_for_context()
             )
 
+        # AC-5: Collect confirmed-absent elements for replan context
+        absent_elements = []
+        for sr in step_results:
+            if sr.error and sr.error.startswith("Element absent:"):
+                absent_desc = sr.error[len("Element absent:"):].strip()
+                if absent_desc and absent_desc not in absent_elements:
+                    absent_elements.append(absent_desc)
+
         self.logger.log_event(EventType.REPLAN_START, "Replanning...")
         new_plan = await self.planner.replan(
             goal,
@@ -1902,9 +2279,18 @@ class AutomationAgent:
             retry_strategies,
             desktop_context=desktop_context,
             skill_context=replan_ctx,
+            absent_elements=absent_elements,
         )
+        replan_data = {"step_count": len(new_plan.steps)}
+        if new_plan.raw_llm_response:
+            replan_data["llm_response"] = new_plan.raw_llm_response
+        replan_data["steps_summary"] = [
+            f"{s.action}({s.params})" for s in new_plan.steps
+        ]
         self.logger.log_event(
-            EventType.REPLAN_COMPLETE, f"New plan: {len(new_plan.steps)} steps"
+            EventType.REPLAN_COMPLETE,
+            f"New plan: {len(new_plan.steps)} steps",
+            data=replan_data,
         )
 
         # Apply replan patch to derived session if present
@@ -1922,12 +2308,37 @@ class AutomationAgent:
             )
 
         # Execute new plan with proper failure handling
+        _skip_next = False
         for i, step in enumerate(new_plan.steps):
+            if _skip_next:
+                _skip_next = False
+                continue
             if iterations >= self.config.max_iterations:
                 break
-            result = await self._execute_step(i, step, step_results, goal, new_plan)
-            step_results.append(result)
-            iterations += 1
+
+            result, text_field_focused = await self._execute_step(i, step, step_results, goal, new_plan)
+
+            # AC-1: Type-and-check bypass attempt
+            bypass = await self._try_type_and_check_bypass(
+                i, step, result, text_field_focused, new_plan, step_results, goal,
+            )
+            if bypass is not None:
+                click_result, next_result, _ = bypass
+                step_results.append(click_result)
+                step_results.append(next_result)
+                iterations += 2
+                _skip_next = True
+
+                if click_result.success:
+                    if next_result.step.action == "done":
+                        break
+                    continue
+
+                result = click_result
+            else:
+                step_results.append(result)
+                iterations += 1
+
             if step.action == "done":
                 break
             # BUG 3 FIX: Handle wait_for_user in replan loop (matching main execute loop)
@@ -1938,23 +2349,59 @@ class AutomationAgent:
                 )
                 continue
             if not result.success:
-                if step.on_fail == "abort":
-                    break
-                # Don't recurse into another replan — just record the failure
-                self.logger.log_event(
-                    EventType.STEP_RETRY,
-                    f"Replan step {i} failed: {result.evidence}",
-                    step_index=i,
+                # Use _handle_failure for retries, but do NOT recurse into
+                # another replan — one level of replanning is enough.
+                recovery_result = await self._handle_failure(
+                    i, step, result, step_results, goal, new_plan, iterations
                 )
+                if recovery_result is None:
+                    # _handle_failure wants to replan again, but we're already
+                    # in a replan. Log and stop rather than recurse.
+                    self.logger.log_event(
+                        EventType.STEP_REPLAN,
+                        f"Replan step {i} exhausted retries; stopping replan execution",
+                        step_index=i,
+                    )
+                    break  # Stop executing remaining steps
+                else:
+                    step_results.append(recovery_result)
+                    iterations += 1
+                    if not recovery_result.success:
+                        # Recovery failed — stop executing remaining steps
+                        # since they likely depend on this one succeeding.
+                        if step.on_fail == "abort":
+                            self.logger.log_event(
+                                EventType.TASK_FAIL,
+                                f"Replan step {i} failed with abort policy",
+                                step_index=i,
+                            )
+                        else:
+                            self.logger.log_event(
+                                EventType.STEP_REPLAN,
+                                f"Replan step {i} failed after recovery; stopping",
+                                step_index=i,
+                            )
+                        break
 
         duration = int((time.monotonic() - start_time) * 1000)
         # Check final state: success only if last step passed or was 'done'
         last_result = step_results[-1] if step_results else None
         success = last_result.success if last_result else False
+
+        # AC-6: Check if last step was a done-with-abort
+        abort_error = None
+        if (
+            last_result
+            and last_result.step.action == "done"
+            and last_result.step.params.get("abort_reason")
+        ):
+            success = False
+            abort_error = last_result.error
+
         # skill_context arg is ignored when derived_session is set;
         # _maybe_learn_skill_run rebuilds distiller context from
         # expanded_steps_for_distiller + derived_session.
-        await self._maybe_learn_skill_run(
+        observations = await self._maybe_learn_skill_run(
             goal=goal,
             skill_name=skill_name,
             skill_context=skill_context or "",
@@ -1963,7 +2410,28 @@ class AutomationAgent:
             derived_session=derived_session,
             expanded_steps_for_distiller=expanded_steps_for_distiller,
         )
+        await self._maybe_promote_skill(
+            goal=goal,
+            skill_name=skill_name,
+            observations=observations,
+            derived_session=derived_session,
+            step_results=step_results,
+            run_id=self.logger.run_id,
+            had_replan=True,
+            success=success,
+        )
         self.logger.finalize(success, f"Replanned: {goal}")
+        if abort_error:
+            return ExecutionResult(
+                success=False,
+                message=f"Task aborted: {abort_error}",
+                error=abort_error,
+                steps=step_results,
+                total_duration_ms=duration,
+                iterations=iterations,
+                goal=goal,
+                run_id=self.logger.run_id,
+            )
         return ExecutionResult(
             success=success,
             message="Completed after replan" if success else "Failed after replan",
@@ -1984,18 +2452,21 @@ class AutomationAgent:
         had_replan: bool,
         derived_session: Optional[DerivedSkillSession] = None,
         expanded_steps_for_distiller: Optional[str] = None,
-    ) -> None:
+    ) -> list:
         """Best-effort skill learning from execution traces.
 
         Builds a distiller-specific context containing only the primary
         skill's original steps plus the derived procedure. Does NOT pass
         the full multi-skill context to the distiller.
+
+        Returns list of SkillObservation distilled from this run (empty on
+        early exit or error).
         """
         if not skill_name or not step_results:
-            return
+            return []
         learn = getattr(self.skill_registry, "learn_from_run", None)
         if learn is None:
-            return
+            return []
 
         # Build distiller-specific context: primary skill + derived procedure
         distiller_ctx = skill_context
@@ -2016,10 +2487,53 @@ class AutomationAgent:
             )
         except Exception:
             slog.warning("skill_learning_failed", skill_name=skill_name, exc_info=True)
-            return
+            return []
         if observations:
             self.logger.log_event(
                 EventType.SKILL_EXPAND,
                 f"Learned {len(observations)} generalized skill observation(s)",
                 data={"skill_name": skill_name, "count": len(observations)},
             )
+        return observations if observations else []
+
+    async def _maybe_promote_skill(
+        self,
+        *,
+        goal: str,
+        skill_name: Optional[str],
+        observations: list,
+        derived_session=None,
+        step_results: list = None,
+        run_id: str = "",
+        had_replan: bool = False,
+        success: bool = True,
+    ) -> None:
+        """Best-effort skill promotion from accumulated observations.
+
+        Uses getattr to check for promote_from_run on the registry, consistent
+        with the learn_from_run pattern.
+        """
+        if not skill_name or not observations:
+            return
+        promote = getattr(self.skill_registry, "promote_from_run", None)
+        if promote is None:
+            return
+        try:
+            decision = await promote(
+                goal=goal,
+                skill_name=skill_name,
+                derived_session=derived_session,
+                observations=observations,
+                trace=step_results or [],
+                run_id=run_id,
+                had_replan=had_replan,
+                success=success,
+            )
+            if decision and getattr(decision, "promotion_type", None) != "observation_only":
+                slog.info(
+                    "skill_promotion_applied",
+                    skill_name=skill_name,
+                    promotion_type=getattr(decision, "promotion_type", "unknown"),
+                )
+        except Exception:
+            slog.warning("skill_promotion_failed", skill_name=skill_name, exc_info=True)

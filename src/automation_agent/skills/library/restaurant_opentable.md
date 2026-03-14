@@ -85,9 +85,11 @@ max-retries: 3
 
 ## Error Recovery
 
-- If step 3 fails (restaurant not found): Try searching with a shorter version of the restaurant name or check spelling, then repeat from step 2
-- If step 7 fails (no time slots shown): Try a different date or time and click "Find a Time" again
+- If OpenTable shows a login gate or cookie consent banner at any point: dismiss it or wait for user to sign in before continuing
+- If step 3 fails (restaurant not found): Try searching with a shorter version of the restaurant name or check spelling, then repeat from step 2. Verify the selected result matches the intended restaurant (not a similarly named one).
+- If step 7 fails (no time slots shown): Try a different date or time and click "Find a Time" again. The button may also be labeled "Find available times", "Search times", or "Check availability".
 - If step 10 fails (login required): The reservation requires an OpenTable account. If the user has an account, sign in first. If not, the flow cannot be completed without registration.
+- If the "Complete reservation" button is not visible: scroll down — it may be below the fold. Also look for "Book now", "Confirm reservation", or "Reserve" as alternative labels.
 - If the page is unresponsive: Reload opentable.com and start from step 1
 
 ## Notes

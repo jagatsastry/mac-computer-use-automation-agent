@@ -47,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-interval", type=float, default=0.25)
     parser.add_argument("--max-lines", type=int, default=200)
     parser.add_argument("--linger-seconds", type=float, default=4.0)
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Show detailed LLM responses and reasoning",
+    )
     return parser
 
 
@@ -78,8 +82,9 @@ def _make_menu_target(callback: Callable[[], None]):
 class StatusOverlayWindow:
     """Always-on-top, click-through status panel."""
 
-    def __init__(self, max_lines: int) -> None:
+    def __init__(self, max_lines: int, verbose: bool = False) -> None:
         self.max_lines = max_lines
+        self._verbose = verbose
         self._destroyed = False
         self._lines: list[str] = []
         self._panel = None
@@ -88,8 +93,8 @@ class StatusOverlayWindow:
         self._create_window()
 
     def _create_window(self) -> None:
-        width = 520
-        height = 320
+        width = 420 if self._verbose else 320
+        height = 300 if self._verbose else 200
         x = 40
         y = 40
         screen = NSScreen.mainScreen()
@@ -97,7 +102,7 @@ class StatusOverlayWindow:
             try:
                 frame = screen.visibleFrame()
                 x = int(frame.origin.x + frame.size.width - width - 24)
-                y = int(frame.origin.y + frame.size.height - height - 24)
+                y = int(frame.origin.y + 24)  # bottom-right to avoid covering browser UI
             except Exception:
                 pass
 
@@ -114,7 +119,8 @@ class StatusOverlayWindow:
             NSBackingStoreBuffered,
             False,
         )
-        panel.setTitle_("Automation Agent Status")
+        title = "Automation Agent Status (Verbose)" if self._verbose else "Automation Agent Status"
+        panel.setTitle_(title)
         panel.setLevel_(NSFloatingWindowLevel)
         panel.setHidesOnDeactivate_(False)
         panel.setIgnoresMouseEvents_(True)
@@ -125,6 +131,8 @@ class StatusOverlayWindow:
             | NSWindowCollectionBehaviorFullScreenAuxiliary
             | NSWindowCollectionBehaviorStationary
         )
+        # Exclude overlay from screencapture so the vision model never sees it
+        panel.setSharingType_(0)  # NSWindowSharingNone
 
         content = panel.contentView()
 
@@ -145,7 +153,8 @@ class StatusOverlayWindow:
         text_view = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, width - 24, height - 58))
         text_view.setEditable_(False)
         text_view.setSelectable_(False)
-        text_view.setFont_(NSFont.monospacedSystemFontOfSize_weight_(12, 0.0))
+        font_size = 10 if self._verbose else 12
+        text_view.setFont_(NSFont.monospacedSystemFontOfSize_weight_(font_size, 0.0))
         text_view.setTextColor_(NSColor.labelColor())
         text_view.setBackgroundColor_(NSColor.windowBackgroundColor())
         text_view.setAutoresizingMask_(18)
@@ -267,9 +276,9 @@ class StatusMenuBarItem:
 class StatusUI:
     """Owns both the floating overlay and the menu bar item."""
 
-    def __init__(self, max_lines: int) -> None:
+    def __init__(self, max_lines: int, verbose: bool = False) -> None:
         self._destroyed = False
-        self.window = StatusOverlayWindow(max_lines=max_lines)
+        self.window = StatusOverlayWindow(max_lines=max_lines, verbose=verbose)
         self.menu_bar = StatusMenuBarItem(on_quit=self.destroy)
 
     def apply_snapshot(self, snapshot: StatusSnapshot) -> None:
@@ -298,12 +307,14 @@ class StatusOverlayTailer:
         poll_interval: float,
         linger_seconds: float,
         ui: StatusUI,
+        verbose: bool = False,
     ) -> None:
         self.events_file = events_file
         self.parent_pid = parent_pid
         self.poll_interval = poll_interval
         self.linger_seconds = linger_seconds
         self.ui = ui
+        self.verbose = verbose
         self._offset = 0
         self._deadline: Optional[float] = None
         self._parent_exit_deadline: Optional[float] = None
@@ -356,7 +367,7 @@ class StatusOverlayTailer:
                 if not line:
                     break
                 self._offset = handle.tell()
-                snapshot = load_status_snapshot(line)
+                snapshot = load_status_snapshot(line, verbose=self.verbose)
                 if snapshot is None:
                     continue
                 self.ui.apply_snapshot(snapshot)
@@ -382,13 +393,14 @@ def main(argv: Optional[list[str]] = None) -> None:
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
-    ui = StatusUI(max_lines=args.max_lines)
+    ui = StatusUI(max_lines=args.max_lines, verbose=args.verbose)
     tailer = StatusOverlayTailer(
         events_file=args.events_file,
         parent_pid=args.parent_pid,
         poll_interval=args.poll_interval,
         linger_seconds=args.linger_seconds,
         ui=ui,
+        verbose=args.verbose,
     )
     tailer.start()
     AppHelper.runEventLoop()

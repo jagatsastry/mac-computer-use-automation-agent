@@ -27,7 +27,8 @@ max-retries: 3
    - verify: Amazon search results visible with price-sorted listings
 
 ## Error Recovery
-- If login page appears: wait for user to sign in
-- If CAPTCHA appears: wait for user to solve it
+- If login page appears: wait for user to sign in, then continue
+- If CAPTCHA appears: wait for user to solve it, then continue
 - If search bar not found: press Cmd+L, type amazon.com, try again
-- If sort dropdown not found: scroll up to find it
+- If sort dropdown not found: scroll up to find the sorting controls
+- If results page shows no listings: verify the search term is correct and try a broader query

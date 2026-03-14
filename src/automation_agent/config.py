@@ -66,6 +66,10 @@ class AgentConfig(BaseSettings):
         default="gemma2:9b",
         description="Text model for planning and reasoning",
     )
+    text_server_url: str = Field(
+        default="http://localhost:11434",
+        description="Server URL for text/planning model (any OpenAI-compatible endpoint, e.g. Ollama)",
+    )
     vision_server_timeout: int = Field(
         default=300,
         description="Timeout in seconds for vision server API calls",
@@ -158,6 +162,33 @@ class AgentConfig(BaseSettings):
     skill_learning_max_observations: int = Field(
         default=5,
         description="Maximum learned observations injected into skill context",
+        gt=0,
+    )
+
+    # Skill Librarian Configuration
+    skill_librarian_enabled: bool = Field(
+        default=False,
+        description="Promote high-confidence observations into canonical skills",
+    )
+    skill_librarian_min_confidence: float = Field(
+        default=0.7,
+        description="Minimum Bayesian score for promotion",
+        gt=0.0,
+        le=1.0,
+    )
+    skill_librarian_min_observations: int = Field(
+        default=5,
+        description="Minimum observation count before promotion",
+        gt=0,
+    )
+    skill_librarian_min_runs: int = Field(
+        default=3,
+        description="Minimum distinct run_ids before promotion",
+        gt=0,
+    )
+    skill_librarian_max_tips: int = Field(
+        default=10,
+        description="Maximum bullet entries in a skill's Learned Tips section",
         gt=0,
     )
 
@@ -258,6 +289,10 @@ class AgentConfig(BaseSettings):
         default=15.0,
         description="How long the status overlay stays visible after completion",
         ge=0.0,
+    )
+    verbose_overlay: bool = Field(
+        default=False,
+        description="Show detailed LLM responses and reasoning in the status overlay",
     )
 
     # Safety Configuration

@@ -700,6 +700,134 @@ class TestDistillerContext:
         assert "Parent skill(s):" in learn_ctx
 
 
+class TestMaybeLearnEdgeCases:
+    """Edge cases for _maybe_learn_skill_run not covered by TestDistillerContext."""
+
+    async def test_learn_skipped_when_no_skill_name(self):
+        """_maybe_learn_skill_run returns early when skill_name is None."""
+        agent = _make_agent()
+        registry = agent.skill_registry
+        registry.learn_from_run = AsyncMock(return_value=[])
+
+        await agent._maybe_learn_skill_run(
+            goal="test",
+            skill_name=None,
+            skill_context="context",
+            step_results=[StepResult(
+                step=ActionStep(action="click", params={}, verify="ok"),
+                success=True, evidence="ok",
+            )],
+            had_replan=False,
+        )
+
+        registry.learn_from_run.assert_not_awaited()
+
+    async def test_learn_skipped_when_empty_step_results(self):
+        """_maybe_learn_skill_run returns early when step_results is empty."""
+        agent = _make_agent()
+        registry = agent.skill_registry
+        registry.learn_from_run = AsyncMock(return_value=[])
+
+        await agent._maybe_learn_skill_run(
+            goal="test",
+            skill_name="test-skill",
+            skill_context="context",
+            step_results=[],
+            had_replan=False,
+        )
+
+        registry.learn_from_run.assert_not_awaited()
+
+    async def test_learn_skipped_when_registry_lacks_method(self):
+        """_maybe_learn_skill_run returns early when registry has no learn_from_run."""
+        agent = _make_agent()
+        # Remove learn_from_run from registry mock
+        if hasattr(agent.skill_registry, "learn_from_run"):
+            del agent.skill_registry.learn_from_run
+
+        # Should not raise — just returns early
+        await agent._maybe_learn_skill_run(
+            goal="test",
+            skill_name="test-skill",
+            skill_context="context",
+            step_results=[StepResult(
+                step=ActionStep(action="click", params={}, verify="ok"),
+                success=True, evidence="ok",
+            )],
+            had_replan=False,
+        )
+
+    async def test_learn_exception_does_not_propagate(self):
+        """_maybe_learn_skill_run swallows exceptions from learn_from_run."""
+        agent = _make_agent()
+        registry = agent.skill_registry
+        registry.learn_from_run = AsyncMock(side_effect=RuntimeError("LLM down"))
+
+        # Should not raise
+        await agent._maybe_learn_skill_run(
+            goal="test",
+            skill_name="test-skill",
+            skill_context="context",
+            step_results=[StepResult(
+                step=ActionStep(action="click", params={}, verify="ok"),
+                success=True, evidence="ok",
+            )],
+            had_replan=False,
+        )
+
+        registry.learn_from_run.assert_awaited_once()
+
+
+class TestRecordContext:
+    """Tests for _record_context method."""
+
+    @staticmethod
+    def _agent_with_context_monitor():
+        agent = _make_agent()
+        cm = MagicMock()
+        cm.record_click = MagicMock()
+        cm.record_type = MagicMock()
+        cm.record_navigation = MagicMock()
+        agent.context_monitor = cm
+        return agent
+
+    def test_record_click_context(self):
+        """_record_context records click actions with element name."""
+        agent = self._agent_with_context_monitor()
+        step = ActionStep(action="click", params={"element": "Submit"}, verify="ok")
+        agent._record_context(step)
+        agent.context_monitor.record_click.assert_called_once_with("Submit")
+
+    def test_record_type_context(self):
+        """_record_context records type_text actions with text and field."""
+        agent = self._agent_with_context_monitor()
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello", "field_name": "search"},
+            verify="ok",
+        )
+        agent._record_context(step)
+        agent.context_monitor.record_type.assert_called_once_with("hello", "search")
+
+    def test_record_open_url_context(self):
+        """_record_context records open_url actions with URL."""
+        agent = self._agent_with_context_monitor()
+        step = ActionStep(
+            action="open_url", params={"url": "https://example.com"}, verify="ok"
+        )
+        agent._record_context(step)
+        agent.context_monitor.record_navigation.assert_called_once_with("https://example.com")
+
+    def test_record_context_noop_for_other_actions(self):
+        """_record_context does nothing for scroll, press_key, etc."""
+        agent = self._agent_with_context_monitor()
+        step = ActionStep(action="scroll", params={"direction": "down"}, verify="ok")
+        agent._record_context(step)
+        agent.context_monitor.record_click.assert_not_called()
+        agent.context_monitor.record_type.assert_not_called()
+        agent.context_monitor.record_navigation.assert_not_called()
+
+
 class TestFallbackPlanIsolation:
     """Tests for _build_skill_fallback_plan with multi-skill context."""
 

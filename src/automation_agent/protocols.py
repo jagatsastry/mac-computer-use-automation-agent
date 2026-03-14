@@ -48,6 +48,7 @@ class ActionPlanner(Protocol):
         retry_strategies_used: List[str],
         desktop_context: str = "",
         skill_context: Optional[str] = None,
+        absent_elements: Optional[List[str]] = None,
     ) -> ActionPlan:
         """Generate a new plan given execution history and failures.
 
@@ -60,6 +61,7 @@ class ActionPlanner(Protocol):
             retry_strategies_used: Strategies already attempted.
             desktop_context: Structured desktop state from ContextMonitor.
             skill_context: Optional expanded skill template and learned observations.
+            absent_elements: Optional list of UI elements confirmed absent from page.
 
         Returns:
             ActionPlan with a different approach.
@@ -102,8 +104,11 @@ class ScreenCoordinator(Protocol):
 
     async def verify_condition(
         self, condition: str, screenshot_b64: Optional[str] = None
-    ) -> bool:
-        """Check if a visual condition is true on the current screen."""
+    ) -> Optional[bool]:
+        """Check if a visual condition is true on the current screen.
+
+        Returns True (confirmed), False (denied), or None (inconclusive).
+        """
         ...
 
     async def capture_screenshot(self) -> str:
@@ -141,6 +146,16 @@ class Actuator(Protocol):
 
     def quit_app(self, app_name: str) -> Dict[str, Any]:
         """Quit an application. Returns result dict."""
+        ...
+
+    def scroll(
+        self,
+        clicks: int,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        horizontal: bool = False,
+    ) -> Dict[str, Any]:
+        """Scroll the mouse wheel. Returns result dict."""
         ...
 
     def get_state(self) -> Dict[str, Any]:

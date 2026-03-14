@@ -1,5 +1,7 @@
 """Data models for the skill registry."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List
@@ -41,6 +43,8 @@ class Skill:
     skill_id: str = ""  # Optional: from frontmatter `skill-id`
     tags: List[str] = field(default_factory=list)  # Optional: from frontmatter `tags`
     summary: str = ""  # Optional: from frontmatter `summary`
+    parent_skill_id: str = ""  # Optional: from frontmatter `parent-skill-id`
+    learned_tips_text: str = ""  # Optional: from `## Learned Tips` section
 
 
 @dataclass
@@ -84,3 +88,24 @@ class SkillObservation:
     confidence: float = 0.0
     run_id: str = ""
     created_at: datetime = field(default_factory=datetime.utcnow)
+    promoted: bool = False
+
+
+@dataclass
+class PromotionDecision:
+    """Result of a skill librarian evaluation."""
+
+    skill_name: str
+    promotion_type: str  # "patch_parent" | "create_sibling" | "observation_only"
+    reason: str
+    confidence_score: float
+    observation_keys: List[List[str]]  # [[category, recommendation], ...]
+    run_id: str
+    timestamp: str  # ISO 8601
+    generated_tips: str = ""
+    new_skill_id: str = ""
+    new_skill_path: str = ""
+    parent_skill_id: str = ""
+    observation_count: int = 0
+    distinct_run_count: int = 0
+    pre_promotion_baseline: Dict = field(default_factory=dict)

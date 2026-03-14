@@ -86,10 +86,12 @@ max-retries: 3
 
 ## Error Recovery
 
-- If step 4 fails ("Reserve a table" button not visible): Scroll down the restaurant details panel — the button may be below the fold. If the button is completely absent, this restaurant does not support online reservations via Google Maps.
+- If Google shows a consent banner or login prompt: dismiss it or wait for user to sign in before searching
+- If step 4 fails ("Reserve a table" button not visible): Scroll down the restaurant details panel — the button may be below the fold. Also look for equivalent labels like "Book a table", "Make a reservation", or a calendar icon. If none are visible after scrolling, this restaurant does not support online reservations via Google Maps.
 - If step 8 fails (no available slots shown): The restaurant may be fully booked for this date/time. Try a different date or time and search again.
 - If the embedded widget requires an account login: The specific reservation provider (Resy, OpenTable, or Tock) requires a user account. The user must sign in or create an account to continue.
 - If the widget shows "Not available" for all times: Try adjusting the date using the date picker and searching again.
+- If time slot list requires scrolling: scroll down within the widget to reveal more available slots
 
 ## Notes
 

@@ -36,5 +36,7 @@ max-retries: 2
    - verify: Message appears in conversation
 
 ## Error Recovery
-- If recipient not found: try again with full name
-- If Messages not responding: force quit and reopen
+- If Messages app is not running: use activate_app to launch it, then wait for it to fully load before pressing Cmd+N
+- If recipient not found in autocomplete: try again with full contact name, phone number, or email address
+- If message shows "Not Delivered" or a red exclamation mark: check network connectivity, then try sending again
+- If Messages not responding: force quit (Cmd+Q or Activity Monitor) and reopen from step 1

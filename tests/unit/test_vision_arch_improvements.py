@@ -1361,6 +1361,51 @@ class TestFindElementCropIntegration:
         assert result.y == 150
 
     @pytest.mark.asyncio
+    async def test_find_element_crop_normalizes_metadata_correctly(self, tmp_path):
+        """After crop offset adjustment, normalization recomputes screen coords from full image."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        wide_b64 = _make_wide_jpeg_b64(2560, 1440)
+
+        coordinator = AsyncMock()
+        coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(
+                x=50, y=80, confidence=0.85, source="vision",
+                raw_response="found it",
+                screen_x=300, screen_y=400,  # these are in cropped space
+                image_width=512, image_height=512,
+            )
+        )
+        coordinator.capture_screenshot = AsyncMock(return_value=wide_b64)
+        coordinator.describe_screen = AsyncMock(return_value="screen")
+        coordinator.verify_condition = AsyncMock(return_value=True)
+
+        actuator = MagicMock()
+        actuator.get_state = MagicMock(return_value={"app_name": "X", "window_title": "Y"})
+
+        agent = _make_agent(log_dir, actuator=actuator, coordinator=coordinator)
+        agent.last_successful_region = (1280, 720, 1792, 1232)
+
+        result = await agent._find_element("some button")
+
+        assert result is not None
+        # x, y should be offset-adjusted to full image space
+        assert result.x == 50 + 1280
+        assert result.y == 80 + 720
+        # Normalization recomputes screen_x/screen_y from full-image x/y
+        # So they should NOT equal the original cropped-space values
+        assert result.screen_x is not None
+        assert result.screen_y is not None
+        # image_width/height should be full image dimensions (set by normalization)
+        assert result.image_width == 2560
+        assert result.image_height == 1440
+        # confidence, source, raw_response preserved through both transforms
+        assert result.confidence == 0.85
+        assert result.source == "vision"
+        assert result.raw_response == "found it"
+
+    @pytest.mark.asyncio
     async def test_last_successful_region_reset_on_new_execute(self, tmp_path):
         """execute() resets last_successful_region to None at the start."""
         log_dir = tmp_path / "logs"
@@ -1412,7 +1457,7 @@ class TestFindElementCropIntegration:
             )
         )
 
-        await agent._execute_step(0, step, [], "test goal", MagicMock())
+        await agent._execute_step(0, step, [], "test goal", MagicMock())  # returns tuple now
 
         assert agent.last_successful_region is not None
         left, top, right, bottom = agent.last_successful_region

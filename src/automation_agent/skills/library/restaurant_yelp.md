@@ -86,9 +86,12 @@ max-retries: 3
 
 ## Error Recovery
 
-- If step 4 fails ("Make a Reservation" not visible): Scroll down the restaurant page — the reservation widget may be lower on the page or appear as a sidebar widget
-- If step 8 fails (no time slots appear): Try a different date or time combination and click "Find a Table" again
+- If Yelp shows a login prompt or cookie consent banner: dismiss it or wait for user to sign in before continuing
+- If step 4 fails ("Make a Reservation" not visible): Scroll down the restaurant page — the reservation widget may be lower on the page or appear as a sidebar widget. Also look for "Reserve a table", "Book a table", or a calendar/reservation icon.
+- If step 8 fails (no time slots appear): Try a different date or time combination and click "Find a Table" again. The button may also be labeled "Search" or "Check availability".
+- If time slot results require scrolling: scroll down within the widget to reveal more available slots
 - If the booking redirects to Resy or another platform: Follow the Resy/OpenTable embedded widget prompts using the same party size, date, and time values
+- If the restaurant page shows "This business is closed" or an error: abort and notify the user
 - If the restaurant does not accept online reservations via Yelp: The page will show "Call to make a reservation" — this skill cannot complete the flow in that case
 
 ## Notes
