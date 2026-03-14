@@ -52,10 +52,13 @@ All components communicate through **Protocol classes** (`src/automation_agent/p
 
 ```
 User prompt → Orchestrator.execute()
-  → SkillRegistry.match()          # Three-stage: embedding → LLM re-rank → keyword fallback
+  → extract_site_entity()          # Deterministic site pre-filter (e.g., "on target" → site=target)
+  → SkillRegistry.match()          # Three-stage: embedding → LLM re-rank → keyword fallback (site-filtered)
   → ContextMonitor.update_cheap()  # Evolving world-state document
   → ScreenCoordinator.describe()   # Get current screen context
   → ActionPlanner.plan()           # Generate action steps via LLM
+  → _is_truncated_plan()           # Detect shallow plans; fall back to skill template if truncated
+  → _inject_domain_verification()  # Append "AND browser domain is X" to open_url verify fields
   → For each ActionStep:
       → Lookahead prediction       # Destructive steps only (opt-in via config)
       → Confirmation gate          # Destructive action user confirmation
@@ -72,18 +75,19 @@ User prompt → Orchestrator.execute()
 **Mandatory postconditions**: Every `ActionStep` must have a non-empty `verify` field. Plans fail validation without them.
 
 **3-tier verification** (`orchestrator/verifier.py`):
-1. Hammerspoon state query (~50ms) — fast check via actuator
-2. Vision screenshot verification (2-5s) — visual confirmation via coordinator
-3. Falls through tiers, returns first successful verification
+1. Tier 0: Accessibility API state — structured element checks
+2. Tier 1: Actuator state query (~50ms) — URL match, domain verification, scroll verification
+3. Tier 2: Vision screenshot verification (2-5s) — visual confirmation via coordinator
+Falls through tiers; returns first conclusive result.
 
 **Actuator fallback chain** (`actuator/__init__.py` → `create_actuator()`):
-Bridge HTTP (`localhost:27741`) → `hs` CLI → AppleScript (`osascript`)
+AppleScript (`osascript`) is the primary backend. Includes `get_scroll_position()` for JS-based scroll verification and `_escape_for_applescript()` for safe string embedding.
 
 **Coordinate space explicitness** (`vision/coordinator.py`): Each vision model maps to a known coordinate format (`molmo` → normalized 0-1, `qwen3-vl` → 0-1000, `claude-sonnet-*` → pixels). Unknown models raise `ValueError` — no guessing.
 
 **Action aliasing** (`shared_models.py`): `ActionStep.from_dict()` auto-corrects common LLM misspellings (e.g., `key_press` → `press_key`).
 
-**Skill file format** (`skills/library/*.md`): YAML frontmatter (name, trigger-keywords, parameters, OS requirements) + Markdown steps with `{{param}}` placeholders and `verify` conditions.
+**Skill file format** (`skills/library/*.md`): YAML frontmatter (name, trigger-keywords, parameters, OS requirements) + Markdown steps with `{{param}}` placeholders and `verify` conditions. Skills may include a `site` metadata field (e.g., `site: target`) for site-entity routing and a `required-keywords` field to gate keyword-fallback matching.
 
 **Capability-based protocol extension** (`protocols.py`): Optional coordinator methods (`find_element_dual`, `predict_action_outcome`) are advertised via `capabilities() -> FrozenSet[CoordinatorCapability]`. The orchestrator checks capabilities before calling optional methods using the `_has_explicit_method()` guard pattern.
 

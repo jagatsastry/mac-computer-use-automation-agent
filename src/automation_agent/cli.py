@@ -63,6 +63,20 @@ Examples:
         help="Anthropic model to use (default: claude-sonnet-4-20250514)",
     )
 
+    # Gemini settings
+    parser.add_argument(
+        "--gemini-api-key",
+        type=str,
+        metavar="KEY",
+        help="Google Gemini API key (or set GEMINI_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        type=str,
+        metavar="MODEL",
+        help="Gemini model to use (default: gemini-2.5-flash)",
+    )
+
     # OpenRouter settings (used by Molmo mode)
     parser.add_argument(
         "--openrouter-api-key",

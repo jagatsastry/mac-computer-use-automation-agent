@@ -790,7 +790,7 @@ class TestScrollThreeTierVerification:
 
         actuator_result = {
             "success": True,
-            "_scroll_y_before": 200,  # before scroll
+            "_scroll_before": {"axis": "y", "value": 200},  # before scroll
         }
 
         result = verifier._verify_tier1(step, actuator, actuator_result)
@@ -815,7 +815,7 @@ class TestScrollThreeTierVerification:
 
         actuator_result = {
             "success": True,
-            "_scroll_y_before": 200,  # same as after → delta=0
+            "_scroll_before": {"axis": "y", "value": 200},  # same as after → delta=0
         }
 
         # With no pixel diff data, S2 is skipped, falls to S3
@@ -890,7 +890,7 @@ class TestScrollThreeTierVerification:
         # Directly test _dispatch_action to verify metadata
         result = await agent._dispatch_action(scroll_step)
 
-        assert result.get("_scroll_y_before") == 100
+        assert result.get("_scroll_before") == {"axis": "y", "value": 100}
         actuator.get_scroll_position.assert_called()
 
 

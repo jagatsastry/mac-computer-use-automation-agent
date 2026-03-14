@@ -164,6 +164,23 @@ class AutomationAgent:
         for kw in _CRITICAL_ACTION_KEYWORDS
     }
 
+    # Safe-navigation phrases exempt from the critical confidence threshold.
+    # These contain critical keywords (e.g. "purchase") but are navigation
+    # actions, not destructive commits.
+    _SAFE_NAVIGATION_PHRASES: ClassVar[tuple[re.Pattern, ...]] = tuple(
+        re.compile(p, re.IGNORECASE)
+        for p in (
+            r"\bpurchase\s+history\b",
+            r"\border\s+history\b",
+            r"\bview\s+order\b",
+            r"\border\s+details\b",
+            r"\bremove\s+filter\b",
+            r"\bconfirm\s+address\b",
+            r"\bsend\s+back\b",
+            r"\breturn\s+purchase\b",
+        )
+    )
+
     # Hard-destructive keywords — never get confidence-based skip
     _HARD_DESTRUCTIVE_KEYWORDS = frozenset({
         "pay", "submit", "delete", "remove", "send",
@@ -1406,6 +1423,14 @@ class AutomationAgent:
                 str(step.params.get("element", "")).lower()
             ),
         ]
+
+        # Safe-navigation exemption: phrases like "Purchase History" or
+        # "Order History" contain critical keywords but are navigation
+        # actions, not destructive commits.
+        combined = " ".join(texts_to_check)
+        if any(pat.search(combined) for pat in self._SAFE_NAVIGATION_PHRASES):
+            return DestructiveClassification.NOT_DESTRUCTIVE
+
         for text in texts_to_check:
             for kw, pattern in self._KEYWORD_PATTERNS.items():
                 if pattern.search(text):
@@ -1682,10 +1707,16 @@ class AutomationAgent:
             # Apply on_fail metadata to the LAST compiled step
             if action_steps and on_fail:
                 last_step = action_steps[-1]
-                if "scroll" in on_fail.lower():
+                on_fail_lower = on_fail.lower().strip()
+                # Map recognised on_fail values to the compiled step
+                _VALID_ON_FAIL = {"replan", "abort", "retry_different"}
+                if on_fail_lower in _VALID_ON_FAIL:
+                    last_step.on_fail = on_fail_lower
+                if "scroll" in on_fail_lower:
                     last_step.params["_scroll_recovery"] = True
                     last_step.params["_max_scrolls"] = 3
-                if "wait_for_user" in on_fail.lower() or "log in" in on_fail.lower():
+                if "wait_for_user" in on_fail_lower or "log in" in on_fail_lower:
+                    last_step.on_fail = "wait_for_user"
                     wait_condition = self._extract_wait_condition(on_fail)
                     if wait_condition:
                         wait_step = ActionStep(
@@ -2921,12 +2952,21 @@ class AutomationAgent:
         """Return the confidence threshold for a step (Rec 2).
 
         Steps whose verify text contains critical-action keywords use a higher
-        threshold of 0.9. All other steps use 0.5.
+        threshold of 0.9 — unless the text matches a safe-navigation phrase
+        (e.g. "Purchase History", "Order History") that contains the keyword
+        in a non-destructive context.  All other steps use 0.5.
         """
         texts = [
             step.params.get("element", "") if step.params else "",
             step.verify or "",
         ]
+        combined = " ".join(texts)
+
+        # Safe-navigation exemption: if any safe phrase matches, skip the
+        # elevated threshold even though a critical keyword is present.
+        if any(pat.search(combined) for pat in self._SAFE_NAVIGATION_PHRASES):
+            return self._DEFAULT_CONFIDENCE_THRESHOLD
+
         for text in texts:
             if any(pat.search(text) for pat in self._KEYWORD_PATTERNS.values()):
                 return self._CRITICAL_CONFIDENCE_THRESHOLD

@@ -255,6 +255,8 @@ class TestThreeStagePipeline:
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
         registry._event_logger = None
+        registry._known_sites = frozenset()
+
 
         # Mock embedding index
         mock_index = MagicMock()
@@ -399,6 +401,9 @@ class TestThreeStagePipeline:
         registry._distiller = None
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
+        registry._event_logger = None
+        registry._known_sites = frozenset()
+
 
         # Keyword matching should work
         result = await registry.match("Return my Amazon order")
@@ -427,6 +432,9 @@ class TestThreeStagePipeline:
         registry._distiller = None
         registry._librarian = None
         registry._skill_dir = Path("/nonexistent")
+        registry._event_logger = None
+        registry._known_sites = frozenset()
+
 
         await registry.match("some prompt")
 

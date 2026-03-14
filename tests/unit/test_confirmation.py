@@ -230,6 +230,78 @@ class TestDestructiveClassification:
         assert result.is_destructive
         assert result.matched_keyword == "delete"
 
+    def test_safe_navigation_purchase_history_not_destructive(self):
+        """'Purchase History' contains 'purchase' but is a navigation link."""
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase History"},
+            verify="Purchase history page is visible",
+        )
+        result = agent._is_destructive_step(step)
+        assert not result.is_destructive
+
+    def test_safe_navigation_order_history_not_destructive(self):
+        """'Order History' contains no critical keyword but verify might."""
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Order History"},
+            verify="Order history page loaded",
+        )
+        result = agent._is_destructive_step(step)
+        assert not result.is_destructive
+
+    def test_safe_navigation_view_order_details_not_destructive(self):
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "View order details for Listerine"},
+            verify="Order detail page visible",
+        )
+        result = agent._is_destructive_step(step)
+        assert not result.is_destructive
+
+    def test_safe_navigation_send_back_not_destructive(self):
+        """'send back' is a return synonym, not 'send' a message."""
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Send back item"},
+            verify="Return flow initiated",
+        )
+        result = agent._is_destructive_step(step)
+        assert not result.is_destructive
+
+    def test_pure_purchase_still_destructive(self):
+        """Plain 'purchase' without safe context stays destructive."""
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase now"},
+            verify="Item purchased",
+        )
+        result = agent._is_destructive_step(step)
+        assert result.is_destructive
+        assert result.matched_keyword == "purchase"
+
+    def test_pure_delete_still_destructive(self):
+        agent = _make_agent()
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Delete email"},
+            verify="Email deleted",
+        )
+        result = agent._is_destructive_step(step)
+        assert result.is_destructive
+        assert result.matched_keyword == "delete"
+
 
 # ---------------------------------------------------------------------------
 # Confirmation phase tests (AC-7, AC-8)

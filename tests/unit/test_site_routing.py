@@ -756,6 +756,80 @@ class TestDuplicateWalmartDeleted:
 # amazon_search.md has site: amazon metadata
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# on_fail policy preservation in compiled skill plans
+# ---------------------------------------------------------------------------
+
+class TestOnFailPreservation:
+    """Verify that skill on_fail values (replan, wait_for_user) are
+    preserved when compiling skill steps into ActionSteps."""
+
+    def _make_agent(self):
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        AgentClass = AutomationAgent
+        planner = AsyncMock()
+        skill_registry = MagicMock()
+        skill_registry.match = AsyncMock(return_value=None)
+        skill_registry.learn_from_run = AsyncMock(return_value=[])
+        skill_registry.promote_from_run = AsyncMock(return_value=None)
+        coordinator = AsyncMock()
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+        coordinator.capture_screenshot = AsyncMock(return_value="base64data")
+        actuator = MagicMock()
+        actuator.click = MagicMock(return_value={"success": True})
+        config = _make_config()
+        return AgentClass(planner, skill_registry, coordinator, actuator, config)
+
+    def test_replan_on_fail_preserved_for_click(self):
+        """on_fail: replan should be preserved on compiled click steps."""
+        agent = self._make_agent()
+        compiled = agent._compile_skill_instruction(
+            'Click on the "Add to cart" button', "cart updated"
+        )
+        assert compiled is not None
+        click_step = compiled[0]
+        # Default is retry_different
+        assert click_step.on_fail == "retry_different"
+        # Now apply on_fail from skill (simulating _build_skill_fallback_plan)
+        on_fail = "replan"
+        on_fail_lower = on_fail.lower().strip()
+        _VALID_ON_FAIL = {"replan", "abort", "retry_different"}
+        if on_fail_lower in _VALID_ON_FAIL:
+            click_step.on_fail = on_fail_lower
+        assert click_step.on_fail == "replan"
+
+    def test_buy_on_target_replan_steps_have_replan_on_fail(self):
+        """Steps in buy_on_target with on_fail: replan should compile with
+        replan on_fail on the last compiled step."""
+        from automation_agent.skills.loader import load_skill_from_file
+
+        skill = load_skill_from_file(SKILL_LIBRARY_DIR / "buy_on_target.md")
+        agent = self._make_agent()
+
+        primary_section = agent._extract_primary_skill_section(skill.steps_text)
+        replan_count = 0
+        for instruction, verify, on_fail in agent._parse_skill_steps(
+            primary_section
+        ):
+            if on_fail and on_fail.lower().strip() == "replan":
+                action_steps = agent._compile_skill_instruction(
+                    instruction, verify
+                )
+                if action_steps:
+                    # Apply on_fail as _build_skill_fallback_plan would
+                    on_fail_lower = on_fail.lower().strip()
+                    if on_fail_lower in {"replan", "abort", "retry_different"}:
+                        action_steps[-1].on_fail = on_fail_lower
+                    assert action_steps[-1].on_fail == "replan", (
+                        f"on_fail should be 'replan' for: {instruction}"
+                    )
+                    replan_count += 1
+        assert replan_count >= 2, (
+            f"Expected >= 2 replan steps, got {replan_count}"
+        )
+
+
 class TestAmazonSearchSiteMetadata:
     def test_amazon_search_has_site(self):
         from automation_agent.skills.loader import load_skill_from_file

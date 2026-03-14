@@ -659,6 +659,81 @@ class TestConfidenceGating:
         step = ActionStep(action="click", params={"element": "OK"}, verify="")
         assert agent._get_confidence_threshold(step) == 0.5
 
+    # ---- safe-navigation exemptions ----
+
+    def test_purchase_history_exempt_from_critical(self, agent):
+        """'Purchase History' is navigation, not a destructive purchase."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase History"},
+            verify="Purchase history page is visible",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_order_history_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Order History"},
+            verify="Order history page loaded",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_view_order_details_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "View order details for Listerine"},
+            verify="Order detail page is loaded",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_remove_filter_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Remove filter"},
+            verify="Filters have been cleared",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_pure_purchase_still_critical(self, agent):
+        """Plain 'purchase' without safe-navigation context stays at 0.9."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase now"},
+            verify="Item purchased successfully",
+        )
+        assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_pure_delete_still_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Delete email"},
+            verify="Email deleted",
+        )
+        assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_send_back_exempt_from_critical(self, agent):
+        """'send back' is a return action, not sending a message."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Send back item"},
+            verify="Return initiated",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
     # ---- gating behaviour ----
 
     @pytest.mark.asyncio

@@ -35,6 +35,12 @@ def apply_cli_overrides(config: AgentConfig, args) -> None:
         config.anthropic_model = args.anthropic_model
         config.anthropic_vision_model = args.anthropic_model
 
+    # Gemini settings
+    if hasattr(args, 'gemini_api_key') and args.gemini_api_key:
+        config.gemini_api_key = args.gemini_api_key
+    if hasattr(args, 'gemini_model') and args.gemini_model:
+        config.gemini_model = args.gemini_model
+
     # OpenRouter settings (Molmo mode)
     if hasattr(args, "openrouter_api_key") and args.openrouter_api_key:
         config.openrouter_api_key = args.openrouter_api_key

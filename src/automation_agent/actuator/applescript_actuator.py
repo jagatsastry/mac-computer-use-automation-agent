@@ -73,13 +73,45 @@ class AppleScriptActuator:
             return ActuatorResult(success=False, error=str(e)).to_dict()
 
     def _activate_browser(self) -> None:
-        """Bring the browser to the front before a click."""
+        """Bring the frontmost browser to the front before a click.
+
+        Checks running processes for known browsers (Chrome, Safari, Firefox,
+        Arc, Edge) and activates whichever was most recently active — avoids
+        hard-coding a single browser.
+        """
+        _BROWSERS = ("Google Chrome", "Safari", "Firefox", "Arc", "Microsoft Edge")
         try:
-            subprocess.run(
+            # Ask System Events for the frontmost app
+            result = subprocess.run(
                 ["osascript", "-e",
-                 'tell application "Google Chrome" to activate'],
-                capture_output=True, timeout=2,
+                 'tell application "System Events" to get name '
+                 'of first application process whose frontmost is true'],
+                capture_output=True, text=True, timeout=2,
             )
+            frontmost = result.stdout.strip()
+            if frontmost in _BROWSERS:
+                # Already a browser — just re-activate to be safe
+                subprocess.run(
+                    ["osascript", "-e",
+                     f'tell application "{frontmost}" to activate'],
+                    capture_output=True, timeout=2,
+                )
+                return
+            # Frontmost app is not a browser — find and activate a running one
+            for browser in _BROWSERS:
+                chk = subprocess.run(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to '
+                     f'(name of processes) contains "{browser}"'],
+                    capture_output=True, text=True, timeout=2,
+                )
+                if chk.stdout.strip() == "true":
+                    subprocess.run(
+                        ["osascript", "-e",
+                         f'tell application "{browser}" to activate'],
+                        capture_output=True, timeout=2,
+                    )
+                    return
         except Exception:
             pass
 

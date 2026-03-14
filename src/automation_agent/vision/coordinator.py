@@ -169,6 +169,10 @@ class ScreenCoordinatorImpl:
     ) -> Tuple[int, int]:
         """Convert model-specific coordinates to pixel coordinates.
 
+        Includes out-of-range detection: if coordinates exceed the expected
+        range for the model's coordinate space, auto-escalates to the next
+        larger space (e.g., 0-100 → 0-1000) to avoid silent clamping bugs.
+
         Args:
             raw_x: Raw x coordinate from the model.
             raw_y: Raw y coordinate from the model.
@@ -183,6 +187,33 @@ class ScreenCoordinatorImpl:
             ValueError: If the model's coordinate space is unknown.
         """
         space = self._get_coordinate_space(model)
+
+        # Out-of-range detection: if any coordinate exceeds the declared
+        # range, the model likely outputted in a different coordinate space.
+        # Escalate to the next plausible space rather than silently clamping.
+        if space == "normalized_0_100" and (raw_x > 100 or raw_y > 100):
+            logger.warning(
+                "coordinate_range_exceeded",
+                raw_x=raw_x,
+                raw_y=raw_y,
+                declared_space=space,
+                escalated_to="normalized_0_1000",
+                model=model,
+            )
+            space = "normalized_0_1000"
+        elif space == "normalized_0_1" and (raw_x > 1 or raw_y > 1):
+            if raw_x <= 100 and raw_y <= 100:
+                space = "normalized_0_100"
+            else:
+                space = "normalized_0_1000"
+            logger.warning(
+                "coordinate_range_exceeded",
+                raw_x=raw_x,
+                raw_y=raw_y,
+                declared_space="normalized_0_1",
+                escalated_to=space,
+                model=model,
+            )
 
         if space == "normalized_0_1":
             x = min(int(raw_x * screen_width), screen_width - 1)
@@ -511,6 +542,26 @@ class ScreenCoordinatorImpl:
             if triplet:
                 return float(triplet.group(2)), float(triplet.group(3)), 0.0
 
+        # <points x1="N" y1="N" x2="N" y2="N"> — Molmo bounding-box format.
+        # Take the center of the bounding box as the click target.
+        points_xy_match = re.search(
+            r'<points\b[^>]*\bx1="([0-9]*\.?[0-9]+)"[^>]*\by1="([0-9]*\.?[0-9]+)"'
+            r'(?:[^>]*\bx2="([0-9]*\.?[0-9]+)"[^>]*\by2="([0-9]*\.?[0-9]+)")?',
+            response,
+            re.IGNORECASE,
+        )
+        if points_xy_match:
+            x1 = float(points_xy_match.group(1))
+            y1 = float(points_xy_match.group(2))
+            if points_xy_match.group(3) and points_xy_match.group(4):
+                x2 = float(points_xy_match.group(3))
+                y2 = float(points_xy_match.group(4))
+                cx = (x1 + x2) / 2.0
+                cy = (y1 + y2) / 2.0
+            else:
+                cx, cy = x1, y1
+            return cx, cy, 0.0
+
         json_match = re.search(r"\{.*\}", response, re.DOTALL)
         if json_match:
             try:
@@ -717,7 +768,15 @@ class ScreenCoordinatorImpl:
                         raw_coords[0], raw_coords[1], model, w, h
                     )
                     conf = raw_coords[2]
-                    logger.info("👁️ Element found via grounding model", description=description, x=x, y=y)
+                    logger.info(
+                        "👁️ Element found via grounding model",
+                        description=description,
+                        x=x,
+                        y=y,
+                        raw_x=raw_coords[0],
+                        raw_y=raw_coords[1],
+                        grounding_response=response[:200] if response else "(empty)",
+                    )
                     return FindElementResult(
                         x=x, y=y, confidence=conf, source="grounding", raw_response=response
                     )

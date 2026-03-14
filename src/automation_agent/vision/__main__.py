@@ -69,8 +69,15 @@ def main() -> None:
 
     elif args.command == "verify":
         result = asyncio.run(coordinator.verify_condition(args.condition))
-        print("YES" if result else "NO")
-        sys.exit(0 if result else 1)
+        if result is True:
+            print("YES")
+            sys.exit(0)
+        elif result is None:
+            print("UNCLEAR")
+            sys.exit(2)
+        else:
+            print("NO")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

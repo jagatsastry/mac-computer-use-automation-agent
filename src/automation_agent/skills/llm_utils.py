@@ -20,6 +20,8 @@ async def call_skill_llm(
     provider = getattr(config.model_provider, "value", config.model_provider)
     if provider == "anthropic":
         return await _call_anthropic(config, prompt, max_tokens, model, temperature)
+    if provider == "gemini":
+        return await _call_gemini(config, prompt, max_tokens, model, temperature)
     return await _call_local(config, prompt, max_tokens, model, temperature)
 
 
@@ -45,6 +47,30 @@ async def _call_local(
         response = await client.post(url, json=payload)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
+
+
+async def _call_gemini(
+    config: AgentConfig,
+    prompt: str,
+    max_tokens: int,
+    model: str,
+    temperature: float,
+) -> str:
+    import asyncio
+
+    from google import genai
+
+    client = genai.Client(api_key=config.gemini_api_key)
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model=model or config.gemini_model,
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            temperature=temperature,
+        ),
+    )
+    return response.text or ""
 
 
 async def _call_anthropic(

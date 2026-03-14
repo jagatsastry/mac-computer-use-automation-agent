@@ -1,17 +1,20 @@
 ---
 name: return-walmart-order
 skill-id: return-walmart-order
-description: Return an item on Walmart.com
-summary: Automates the Walmart return flow
-tags: [ecommerce, return]
-trigger-keywords: [return, walmart, refund]
+description: Return an item on Walmart.com by navigating to order history and initiating the return flow
+summary: Navigate to Walmart order history via direct URL, find the item, open order details, and start a return.
+tags: [ecommerce, return, walmart, refund, order]
+trigger-keywords: [return, walmart, refund, send back, money back]
+site: walmart
+required-keywords: [walmart, walmart.com]
 parameters:
   item:
     type: string
     required: true
-    description: What to return
+    description: Item to return (product name or description)
+    examples: ["Crest 3D Whitestrips", "dog food", "shoes"]
 requires:
-  apps: [Safari]
+  apps: [Safari, Google Chrome]
   os: darwin
 success-condition: Return confirmation or label page is visible
 max-retries: 3

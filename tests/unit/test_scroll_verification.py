@@ -139,7 +139,7 @@ class TestScrollVerification:
         result = verifier._verify_tier1(
             step,
             actuator,
-            actuator_result={"success": True, "_scroll_y_before": 0},
+            actuator_result={"success": True, "_scroll_before": {"axis": "y", "value": 0}},
         )
         assert result is not None
         assert result[0] is True
@@ -156,7 +156,7 @@ class TestScrollVerification:
         result = verifier._verify_tier1(
             step,
             actuator,
-            actuator_result={"success": True, "_scroll_y_before": 500},
+            actuator_result={"success": True, "_scroll_before": {"axis": "y", "value": 500}},
         )
         assert result is not None
         assert result[0] is True
@@ -174,7 +174,7 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": 0,
+                "_scroll_before": {"axis": "y", "value": 0},
                 "_scroll_pixel_changed": True,
             },
         )
@@ -195,7 +195,6 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": None,
                 "_scroll_pixel_changed": True,
             },
         )
@@ -215,7 +214,6 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": None,
                 "_scroll_pixel_changed": None,
             },
         )
@@ -236,8 +234,7 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": None,
-                # No _scroll_pixel_changed key at all
+                # No _scroll_before or _scroll_pixel_changed key at all
             },
         )
         assert result is not None
@@ -276,7 +273,7 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": 500,
+                "_scroll_before": {"axis": "y", "value": 500},
                 "_scroll_pixel_changed": True,
             },
         )
@@ -299,7 +296,7 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": 0,
+                "_scroll_before": {"axis": "y", "value": 0},
                 "_scroll_pixel_changed": True,
             },
         )
@@ -330,7 +327,7 @@ class TestScrollVerification:
             actuator,
             actuator_result={
                 "success": True,
-                "_scroll_y_before": 5000,
+                "_scroll_before": {"axis": "y", "value": 5000},
                 "_scroll_pixel_changed": False,
             },
         )
@@ -350,7 +347,7 @@ class TestScrollDataCapture:
 
     @pytest.mark.asyncio
     async def test_scroll_before_captured(self):
-        """Result contains _scroll_y_before from pre-scroll capture."""
+        """Result contains _scroll_before structured dict from pre-scroll capture."""
         from automation_agent.orchestrator.agent import AutomationAgent
 
         planner = AsyncMock()
@@ -380,7 +377,7 @@ class TestScrollDataCapture:
         )
 
         result = await agent._dispatch_action(step)
-        assert result.get("_scroll_y_before") == 100
+        assert result.get("_scroll_before") == {"axis": "y", "value": 100}
 
     @pytest.mark.asyncio
     async def test_scroll_pixel_diff_captured(self):

@@ -2,7 +2,7 @@
 name: buy-on-target
 skill-id: buy-on-target
 description: Search for a product on Target.com and add it to cart
-summary: Navigate to Target, search for a product, apply filters, select a product, and add to cart.
+summary: Navigate to Target, search for a product, sort by price, select a product, and add to cart.
 tags: [ecommerce, target, shopping, buy, cart]
 trigger-keywords: [target, buy, purchase, shop, add to cart, target.com]
 site: target
@@ -29,19 +29,19 @@ max-retries: 3
 1. Navigate to https://www.target.com/s?searchTerm={{product}}&sortBy=PriceLow
    - verify: Target search results page is visible with product listings for {{product}} sorted by price
    - on_fail: wait_for_user
-2. Scroll down past "Popular filters" to see full product listings
+2. Scroll down past "Popular filters" to see full product listings with prices
    - verify: Product listings with prices are fully visible
    - on_fail: scroll
 3. Click on the title of the first {{product}} result
    - verify: Product detail page is loaded with product title and price visible
    - on_fail: replan
-4. Scroll down to see the "Add to cart" button below the size and color selectors
+4. Scroll down to see the "Add to cart" button
    - verify: "Add to cart" button is visible on screen
    - on_fail: scroll
-5. Click on the "Add to cart" button
-   - verify: Cart confirmation appears or cart icon badge updates
+6. Click on the "Add to cart" button
+   - verify: Cart confirmation appears showing the product was added, or cart icon badge updates
    - on_fail: replan
-6. Use done to confirm product added to cart. Checkout requires user confirmation.
+7. Use done to confirm product added to cart. Checkout requires user confirmation.
    - verify: Product has been added to cart successfully
 
 ## Error Recovery
@@ -49,8 +49,9 @@ max-retries: 3
 - If CAPTCHA appears: wait for user to solve it, then continue
 - If search returns no results: try a broader search term
 - If product is out of stock: look for "Notify me" or select a different product
-- If price is above max_price: scroll to find cheaper options or sort by price
-- If "Add to cart" button is disabled: check if size/color selection is required first
+- If price is above max_price: scroll to find cheaper options
+- If "Add to cart" button is disabled: size/color selection is required — click on a size or color chip to select it, then click "Add to cart"
+- If product detail page shows "Sold out" or "Out of stock": go back and select the next product
 
 ## Notes
 - Target uses "Add to cart" button (not "Buy now")

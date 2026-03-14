@@ -12,6 +12,7 @@ Vision-guided desktop automation for macOS. Give the agent a natural-language go
 
 ```text
 user prompt
+  -> site-entity extraction (deterministic pre-filter for site-specific skills)
   -> optional skill match (embedding retrieval -> LLM re-rank -> keyword fallback)
   -> screen description (world-state document with cumulative context)
   -> plan generation
@@ -116,24 +117,29 @@ The skill system remains, but only as optional priors. The agent can plan withou
 Current bundled skill templates:
 
 - `amazon_search.md`
+- `buy_on_target.md`
 - `google_search.md`
-- `return_amazon_order.md`
-- `send_imessage.md`
 - `restaurant_google.md`
 - `restaurant_opentable.md`
 - `restaurant_yelp.md`
-- `return-walmart-order.md`
-- `return-walmart-order-2.md`
+- `return_amazon_order.md`
+- `return_target_order.md`
+- `return_walmart_order.md`
+- `send_imessage.md`
 
-The restaurant templates are still available as skill hints, but they are not backed by special-case runtime code anymore.
+Skills with a `site` metadata field (e.g., `site: target`) participate in site-entity routing: when the user prompt mentions a specific site ("on target", "from amazon"), only skills matching that site are considered. Skills without a `site` field are treated as generic and are not filtered.
 
 ## Verification
 
 Verification is layered and depends on what backends are enabled:
 
-1. Accessibility state checks when the Accessibility bridge is available
-2. Actuator state checks via `get_state()`
-3. Vision verification using the current vision backend
+1. **Tier 0**: Accessibility state checks when the Accessibility bridge is available
+2. **Tier 1**: Actuator state checks via `get_state()` — includes URL domain verification and scroll verification
+3. **Tier 2**: Vision verification using the current vision backend
+
+Scroll actions use a dedicated tiered chain: JS `scrollY` delta (Tier S1) > screenshot pixel-diff (Tier S2) > actuator success fallback (Tier S3).
+
+Domain verification: when a skill specifies a `site` field, `open_url` steps have a domain constraint injected into their verify text (e.g., "AND browser domain is target.com"). The verifier checks that the browser URL domain matches via suffix comparison.
 
 Every non-terminal action step is expected to carry a postcondition.
 
