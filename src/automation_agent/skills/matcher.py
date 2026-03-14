@@ -6,6 +6,7 @@ is unavailable.  ``match_skill`` returns the best keyword-scored skill with
 an **empty** params dict (no regex extraction) and the keyword hit count.
 """
 
+import re
 from typing import Dict, List, Optional, Tuple
 
 from automation_agent.skills.models import Skill
@@ -41,7 +42,10 @@ def match_skill(
         required_kws = skill.metadata.get("required-keywords")
         if required_kws:
             req_set = {k.lower() for k in required_kws}
-            if not any(rk in prompt_lower for rk in req_set):
+            if not any(
+                re.search(r"\b" + re.escape(rk) + r"\b", prompt_lower)
+                for rk in req_set
+            ):
                 continue
 
         score = 0

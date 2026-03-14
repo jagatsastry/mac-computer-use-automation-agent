@@ -726,3 +726,34 @@ class TestInjectDomainVerification:
         agent._inject_domain_verification(plan, "target.com")
         assert "['target'].com" not in step.verify
         assert "target.com" in step.verify
+
+    def test_inject_domain_skips_non_matching_url(self):
+        """PB7: open_url to a different domain should NOT get domain constraint."""
+        agent = self._make_agent()
+        target_step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com"},
+            verify="Target homepage visible",
+        )
+        other_step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.google.com/search?q=target"},
+            verify="Google results visible",
+        )
+        plan = ActionPlan(steps=[target_step, other_step])
+        agent._inject_domain_verification(plan, "target.com")
+        assert "browser domain is target.com" in target_step.verify
+        assert "browser domain is" not in other_step.verify
+
+    def test_inject_domain_no_url_param_still_injects(self):
+        """open_url with no url param (empty) should still get domain constraint."""
+        agent = self._make_agent()
+        step = ActionStep(
+            action="open_url",
+            params={},
+            verify="Page visible",
+        )
+        plan = ActionPlan(steps=[step])
+        agent._inject_domain_verification(plan, "target.com")
+        # Empty URL = no mismatch info, so we still inject
+        assert "browser domain is target.com" in step.verify

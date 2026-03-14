@@ -1520,10 +1520,18 @@ class AutomationAgent:
     def _inject_domain_verification(
         self, plan: ActionPlan, expected_domain: str
     ) -> None:
-        """P2-3: Append domain constraint to open_url verify fields."""
+        """P2-3: Append domain constraint to open_url verify fields.
+
+        Only injects when the step's URL matches the expected domain,
+        preventing poisoning of non-target open_url steps in multi-domain plans.
+        """
         marker = "browser domain is"
         for step in plan.steps:
             if step.action == "open_url" and step.verify:
+                # PB7: Only inject when step URL matches expected domain
+                step_url = step.params.get("url", "")
+                if step_url and expected_domain not in step_url:
+                    continue
                 if marker not in step.verify:
                     step.verify = (
                         f"{step.verify} AND browser domain is"
@@ -1536,6 +1544,7 @@ class AutomationAgent:
                         expected_domain=expected_domain,
                         source_entity=source_entity,
                         step_action=step.action,
+                        step_url=step_url,
                     )
 
     async def _plan_already_satisfied(self, plan: ActionPlan) -> bool:
