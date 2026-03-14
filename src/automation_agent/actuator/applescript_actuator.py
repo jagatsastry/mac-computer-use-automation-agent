@@ -7,8 +7,12 @@ Works without any additional setup on macOS.
 import subprocess
 from typing import Any, Dict, List, Optional
 
+import structlog
+
 from automation_agent.actuator.models import ActuatorResult
 from automation_agent.config import AgentConfig
+
+slog = structlog.get_logger(__name__)
 
 
 class AppleScriptActuator:
@@ -308,29 +312,35 @@ function run(argv) {
             .replace("\t", " ")
         )
 
-    def get_scroll_position(self) -> Optional[int]:
-        """Get the current scrollY from the frontmost browser tab.
+    def get_scroll_position(self, axis: str = "y") -> Optional[int]:
+        """Get scrollX or scrollY from the frontmost browser tab.
+
+        Args:
+            axis: "x" for horizontal (scrollX), "y" for vertical (scrollY).
 
         Returns:
             Integer scroll position, or None if not in a browser or on error.
+
+        Raises:
+            ValueError: If axis is not "x" or "y".
         """
-        # SECURITY: This method uses hardcoded JavaScript ("window.scrollY")
-        # and hardcoded AppleScript. No user input is interpolated.
-        # If extending this to accept dynamic JS, MUST sanitize input.
+        if axis not in ("x", "y"):
+            raise ValueError(f"axis must be 'x' or 'y', got {axis!r}")
+        js_prop = "window.scrollX" if axis == "x" else "window.scrollY"
         state = self.get_state()
         app_name = state.get("app_name", "")
         lower = app_name.lower()
 
         if "safari" in lower:
             script = (
-                'tell application "Safari" to do JavaScript '
-                '"window.scrollY" in current tab of front window'
+                f'tell application "Safari" to do JavaScript '
+                f'"{js_prop}" in current tab of front window'
             )
         elif "chrome" in lower:
             script = (
-                'tell application "Google Chrome" to execute '
-                "front window's active tab javascript "
-                '"window.scrollY"'
+                f'tell application "Google Chrome" to execute '
+                f"front window's active tab javascript "
+                f'"{js_prop}"'
             )
         else:
             return None
@@ -344,8 +354,8 @@ function run(argv) {
             )
             if result.returncode == 0 and result.stdout.strip():
                 return int(float(result.stdout.strip()))
-        except (subprocess.TimeoutExpired, ValueError, TypeError):
-            pass
+        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+            slog.debug("get_scroll_position_error", axis=axis, error=str(exc))
         return None
 
     def _get_browser_url(self, app_name: str) -> str:

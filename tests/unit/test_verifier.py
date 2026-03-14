@@ -745,8 +745,8 @@ class TestInjectDomainVerification:
         assert "browser domain is target.com" in target_step.verify
         assert "browser domain is" not in other_step.verify
 
-    def test_inject_domain_no_url_param_still_injects(self):
-        """open_url with no url param (empty) should still get domain constraint."""
+    def test_inject_domain_no_url_param_skips_injection(self):
+        """open_url with no url param (empty) should skip domain injection."""
         agent = self._make_agent()
         step = ActionStep(
             action="open_url",
@@ -755,5 +755,5 @@ class TestInjectDomainVerification:
         )
         plan = ActionPlan(steps=[step])
         agent._inject_domain_verification(plan, "target.com")
-        # Empty URL = no mismatch info, so we still inject
-        assert "browser domain is target.com" in step.verify
+        # Empty URL = no domain to verify, skip injection
+        assert "browser domain is target.com" not in step.verify

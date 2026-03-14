@@ -31,6 +31,9 @@ class StepVerifier:
     Tier 2: Vision screenshot verification via coordinator.verify_condition() (~2-5s)
     """
 
+    _SCROLL_DIRS_INCREASING = frozenset({"right", "down"})
+    _SCROLL_DIRS_DECREASING = frozenset({"left", "up"})
+
     def __init__(
         self,
         actuator=None,
@@ -472,30 +475,59 @@ class StepVerifier:
                     f"Actuator state {key} is '{actual_value}', expected '{expected_text}'",
                 )
 
-        # P1-3: Scroll verification via tiered signals
+        # P1-3 + AC-6: Scroll verification via tiered signals (axis-parametric)
         if step.action == "scroll":
             direction = step.params.get("direction", "down")
-            scroll_before = actuator_result.get("_scroll_y_before")
+            scroll_meta = actuator_result.get("_scroll_before")
 
-            # Tier S1: JS scrollY delta
-            get_scroll = getattr(actuator, "get_scroll_position", None)
-            if get_scroll is not None and scroll_before is not None:
-                scroll_after = get_scroll()
-                if scroll_after is not None:
-                    delta = scroll_after - scroll_before
-                    if direction == "down" and delta > 0:
-                        return (
-                            True,
-                            f"Scroll confirmed via scrollY delta "
-                            f"({scroll_before} -> {scroll_after})",
+            # Tier S1: JS scroll delta (axis-parametric)
+            if scroll_meta is not None and isinstance(scroll_meta, dict):
+                axis = scroll_meta.get("axis")
+                scroll_before_val = scroll_meta.get("value")
+                get_fn = getattr(actuator, "get_scroll_position", None)
+                if axis and get_fn is not None and scroll_before_val is not None:
+                    scroll_after = get_fn(axis=axis)
+                    if scroll_after is None:
+                        slog.debug(
+                            "scroll_s1_after_unavailable",
+                            axis=axis, direction=direction,
+                            before=scroll_before_val,
+                            reason="get_scroll_position_returned_none",
                         )
-                    if direction == "up" and delta < 0:
-                        return (
-                            True,
-                            f"Scroll confirmed via scrollY delta "
-                            f"({scroll_before} -> {scroll_after})",
+                    if scroll_after is not None:
+                        delta = scroll_after - scroll_before_val
+                        axis_label = f"scroll{axis.upper()}"
+                        if direction in self._SCROLL_DIRS_INCREASING and delta > 0:
+                            slog.debug(
+                                "scroll_s1_confirmed",
+                                axis=axis, direction=direction,
+                                before=scroll_before_val, after=scroll_after,
+                                delta=delta, verdict="confirmed",
+                            )
+                            return (
+                                True,
+                                f"Scroll confirmed via {axis_label} delta "
+                                f"({scroll_before_val} -> {scroll_after})",
+                            )
+                        if direction in self._SCROLL_DIRS_DECREASING and delta < 0:
+                            slog.debug(
+                                "scroll_s1_confirmed",
+                                axis=axis, direction=direction,
+                                before=scroll_before_val, after=scroll_after,
+                                delta=delta, verdict="confirmed",
+                            )
+                            return (
+                                True,
+                                f"Scroll confirmed via {axis_label} delta "
+                                f"({scroll_before_val} -> {scroll_after})",
+                            )
+                        # delta == 0 falls through to S2
+                        slog.debug(
+                            "scroll_s1_inconclusive",
+                            axis=axis, direction=direction,
+                            before=scroll_before_val, after=scroll_after,
+                            delta=delta, verdict="inconclusive_fallthrough",
                         )
-                    # delta == 0 falls through to S2
 
             # Tier S2: Screenshot pixel-diff
             pixel_changed = actuator_result.get("_scroll_pixel_changed")

@@ -1530,7 +1530,36 @@ class AutomationAgent:
             if step.action == "open_url" and step.verify:
                 # PB7: Only inject when step URL matches expected domain
                 step_url = step.params.get("url", "")
-                if step_url and expected_domain not in step_url:
+                if not step_url:
+                    # Empty/missing URL — skip injection (no domain to verify)
+                    slog.debug(
+                        "domain_injection_skipped",
+                        step_url=step_url,
+                        expected_domain=expected_domain,
+                        reason="empty_url",
+                    )
+                    continue
+                step_host = urllib.parse.urlparse(step_url).hostname
+                if step_host is None:
+                    # Scheme-less URL (e.g., "target.com/page") — urlparse returns
+                    # hostname=None. Skip injection with debug log. (R1-2)
+                    slog.debug(
+                        "domain_injection_skipped",
+                        step_url=step_url,
+                        expected_domain=expected_domain,
+                        reason="no_hostname_parsed",
+                    )
+                    continue
+                if step_host != expected_domain and not step_host.endswith(
+                    f".{expected_domain}"
+                ):
+                    slog.debug(
+                        "domain_injection_skipped",
+                        step_url=step_url,
+                        step_host=step_host,
+                        expected_domain=expected_domain,
+                        reason="domain_mismatch",
+                    )
                     continue
                 if marker not in step.verify:
                     step.verify = (
@@ -1747,18 +1776,35 @@ class AutomationAgent:
                 return []
             # URL-encode spaces in URLs (from param substitution)
             if re.match(r"^https?://", destination, flags=re.IGNORECASE):
-                from urllib.parse import quote, urlparse, urlunparse, parse_qs, urlencode
-                try:
-                    parsed = urlparse(destination)
-                    # Re-encode query params to handle spaces
-                    if parsed.query:
-                        params = parse_qs(parsed.query, keep_blank_values=True)
-                        encoded_query = urlencode(params, doseq=True)
-                        destination = urlunparse(parsed._replace(query=encoded_query))
-                    elif " " in destination:
-                        destination = destination.replace(" ", "%20")
-                except Exception:
-                    destination = destination.replace(" ", "%20")
+                raw_destination = destination  # capture for debug logging
+                parsed = urllib.parse.urlparse(destination)
+                # Always encode path spaces if present (component-based)
+                if " " in (parsed.path or ""):
+                    encoded_path = urllib.parse.quote(
+                        urllib.parse.unquote(parsed.path), safe='/'
+                    )
+                    parsed = parsed._replace(path=encoded_path)
+                # Re-encode query params to handle spaces
+                if parsed.query:
+                    params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                    encoded_query = urllib.parse.urlencode(params, doseq=True)
+                    parsed = parsed._replace(query=encoded_query)
+                destination = urllib.parse.urlunparse(parsed)
+                if destination != raw_destination:
+                    slog.debug("url_encoded", before=raw_destination, after=destination)
+                # Log which compiler branch matched and extracted params (OB PB-4)
+                enc_parts = []
+                if " " in (urllib.parse.urlparse(raw_destination).path or ""):
+                    enc_parts.append("component_path")
+                if urllib.parse.urlparse(raw_destination).query:
+                    enc_parts.append("query_param")
+                enc_method = "+".join(enc_parts) if enc_parts else "none"
+                slog.debug(
+                    "compiler_branch_matched",
+                    branch="navigate_url",
+                    destination=destination,
+                    encoding_method=enc_method,
+                )
                 return [
                     ActionStep(
                         action="open_url",
@@ -2280,17 +2326,24 @@ class AutomationAgent:
                 except (ValueError, TypeError):
                     amount = 3
 
-                # P1-3: Capture scrollY before scroll for verification
-                scroll_before = None
+                # AC-6: Capture scroll position before scroll for verification
+                axis = "x" if direction in ("left", "right") else "y"
+                scroll_before_val = None
                 get_scroll = getattr(self.actuator, "get_scroll_position", None)
                 if get_scroll is not None:
-                    scroll_before = get_scroll()
+                    scroll_before_val = get_scroll(axis=axis)
+                    if scroll_before_val is None:
+                        slog.debug(
+                            "scroll_before_position_unavailable",
+                            axis=axis, direction=direction,
+                            reason="get_scroll_position_returned_none",
+                        )
 
                 if self.screenshot_diff:
                     self.screenshot_diff.capture_before()
 
-                clicks = amount if direction == "up" else -amount
                 if direction in ("left", "right"):
+                    # pyautogui.hscroll: positive = right on macOS (inverted on Linux)
                     clicks = amount if direction == "right" else -amount
                     result = self.actuator.scroll(
                         clicks,
@@ -2299,15 +2352,19 @@ class AutomationAgent:
                         horizontal=True,
                     )
                 else:
+                    # pyautogui.scroll: positive = up on all platforms
+                    clicks = amount if direction == "up" else -amount
                     result = self.actuator.scroll(
                         clicks,
                         x=params.get("x"),
                         y=params.get("y"),
                     )
 
-                # P1-3: Store scroll verification metadata
-                if scroll_before is not None:
-                    result["_scroll_y_before"] = scroll_before
+                # AC-6: Store structured scroll verification metadata
+                if scroll_before_val is not None:
+                    result["_scroll_before"] = {
+                        "axis": axis, "value": scroll_before_val
+                    }
                 if self.screenshot_diff:
                     await asyncio.sleep(0.5)
                     result["_scroll_pixel_changed"] = (
