@@ -219,6 +219,8 @@ class AutomationAgent:
         self._current_skill_context: Optional[str] = None
         # Gap 5: Set by _execute_step, read by execute() for frustration tracking
         self._last_step_pixel_changed: Optional[bool] = None
+        # P2-3: Expected domain for domain verification
+        self._expected_domain: Optional[str] = None
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
@@ -341,6 +343,24 @@ class AutomationAgent:
             # (target already satisfied — no need to re-navigate).
             if skill_context and fallback_plan and not self._is_trivial_done_plan(plan):
                 plan = AutomationAgent._ensure_skill_navigation(plan, fallback_plan)
+
+            # P2-3: Inject domain verification for single-site goals
+            self._expected_domain = None
+            try:
+                from automation_agent.skills.router import extract_site_entity
+                site_entities = extract_site_entity(goal)
+                if site_entities and len(site_entities) == 1:
+                    self._expected_domain = f"{site_entities[0]}.com"
+                    self._inject_domain_verification(plan, self._expected_domain)
+            except ImportError:
+                pass  # extract_site_entity not yet available (Slice 1)
+            except Exception as exc:
+                # Don't crash plan generation for domain extraction bugs
+                slog.warning(
+                    "domain_extraction_failed",
+                    error=str(exc),
+                    goal=goal,
+                )
 
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             plan_data = {"step_count": len(plan.steps)}
@@ -1075,10 +1095,18 @@ class AutomationAgent:
             self._last_step_pixel_changed = bool(visible_effect)
 
             if not visible_effect:
-                actuator_result["success"] = False
-                actuator_result["error"] = (
-                    f"{step.action} had no visible effect (screenshot unchanged)"
-                )
+                if step.action == "open_url":
+                    actuator_result["_no_visible_change"] = True
+                    slog.info(
+                        "open_url had no visible effect, deferring to verification",
+                        url=step.params.get("url", ""),
+                    )
+                else:
+                    actuator_result["success"] = False
+                    actuator_result["error"] = (
+                        f"{step.action} had no visible effect"
+                        " (screenshot unchanged)"
+                    )
 
         # BUG 1 FIX: If the actuator action failed (e.g. element not found), skip
         # verification and return failure immediately. Vision verification must not
@@ -1465,15 +1493,50 @@ class AutomationAgent:
     def _is_truncated_plan(plan: ActionPlan, fallback: Optional[ActionPlan]) -> bool:
         """Return True when the LLM plan is suspiciously shorter than the skill template.
 
-        A plan with only navigation steps (open_url, activate_app) but no interaction
-        steps (click, type_text) is likely truncated when the skill has interaction steps.
+        Uses interaction step *counts* (not just presence) to catch plans that
+        have a single click but miss the full add-to-cart workflow.
+
+        NOTE: Fixed threshold of 3 is calibrated for current skills (max 4
+        interactions). For skills with 6+ interaction steps, consider
+        ratio-based: plan < fallback // 2.
         """
         if fallback is None:
             return False
         interaction_actions = {"click", "type_text", "scroll"}
-        plan_has_interaction = any(s.action in interaction_actions for s in plan.steps)
-        fallback_has_interaction = any(s.action in interaction_actions for s in fallback.steps)
-        return fallback_has_interaction and not plan_has_interaction
+        plan_interactions = sum(
+            1 for s in plan.steps if s.action in interaction_actions
+        )
+        fallback_interactions = sum(
+            1 for s in fallback.steps if s.action in interaction_actions
+        )
+        # No interactions at all but fallback has some -> truncated
+        if fallback_interactions > 0 and plan_interactions == 0:
+            return True
+        # Fallback has 3+ interactions but plan has fewer than 3 -> truncated
+        if fallback_interactions >= 3 and plan_interactions < 3:
+            return True
+        return False
+
+    def _inject_domain_verification(
+        self, plan: ActionPlan, expected_domain: str
+    ) -> None:
+        """P2-3: Append domain constraint to open_url verify fields."""
+        marker = "browser domain is"
+        for step in plan.steps:
+            if step.action == "open_url" and step.verify:
+                if marker not in step.verify:
+                    step.verify = (
+                        f"{step.verify} AND browser domain is"
+                        f" {expected_domain}"
+                    )
+                    # Source entity = domain minus .com suffix
+                    source_entity = expected_domain.replace(".com", "")
+                    slog.debug(
+                        "domain_verification_injected",
+                        expected_domain=expected_domain,
+                        source_entity=source_entity,
+                        step_action=step.action,
+                    )
 
     async def _plan_already_satisfied(self, plan: ActionPlan) -> bool:
         """Check whether the final actionable step in a fallback plan is already satisfied."""
@@ -1514,7 +1577,11 @@ class AutomationAgent:
         for instruction, verify, on_fail in self._parse_skill_steps(primary_section):
             action_steps = self._compile_skill_instruction(instruction, verify)
             if action_steps is None:
-                return None
+                slog.warning(
+                    "skill_fallback_unrecognized_step",
+                    step_text=instruction[:80],
+                )
+                continue
             # Apply on_fail metadata to the LAST compiled step
             if action_steps and on_fail:
                 last_step = action_steps[-1]
@@ -2107,23 +2174,46 @@ class AutomationAgent:
                 element_desc = params.pop("element", None)
                 if element_desc and not params.pop("_skip_focus", False):
                     try:
+                        # P1-1: capture screenshot (was NameError: screenshot_b64)
+                        focus_screenshot = await self.coordinator.capture_screenshot()
                         location = await self.coordinator.find_element(
-                            element_desc, screenshot_b64=screenshot_b64
+                            element_desc, screenshot_b64=focus_screenshot
                         )
-                        if location and hasattr(location, "x") and location.x is not None:
-                            sx = location.screen_x if location.screen_x is not None else location.x
-                            sy = location.screen_y if location.screen_y is not None else location.y
+                        if (
+                            location
+                            and hasattr(location, "x")
+                            and location.x is not None
+                        ):
+                            # No confidence gating for click-to-focus: clicking
+                            # the wrong element is recoverable (verification
+                            # catches it), but not clicking is worse — text
+                            # goes to whatever has focus.
+                            sx = (
+                                location.screen_x
+                                if location.screen_x is not None
+                                else location.x
+                            )
+                            sy = (
+                                location.screen_y
+                                if location.screen_y is not None
+                                else location.y
+                            )
                             self.actuator.click(sx, sy)
-                            await asyncio.sleep(max(self.config.action_delay, 0.3))
+                            await asyncio.sleep(
+                                max(self.config.action_delay, 0.3)
+                            )
                         else:
-                            slog.debug(
-                                "type_text element not found, typing to current focus",
+                            slog.warning(
+                                "type_text element not found,"
+                                " typing to current focus",
                                 element=element_desc,
                             )
-                    except Exception:
-                        slog.debug(
-                            "type_text click-to-focus failed, typing to current focus",
+                    except Exception as exc:
+                        slog.warning(
+                            "type_text click-to-focus failed,"
+                            " typing to current focus",
                             element=element_desc,
+                            error=str(exc),
                         )
                 if params.pop("_clear_first", False):
                     clear_result = self.actuator.press_key(["cmd", "a"])
@@ -2160,6 +2250,16 @@ class AutomationAgent:
                     amount = abs(int(params.get("amount", 3)))
                 except (ValueError, TypeError):
                     amount = 3
+
+                # P1-3: Capture scrollY before scroll for verification
+                scroll_before = None
+                get_scroll = getattr(self.actuator, "get_scroll_position", None)
+                if get_scroll is not None:
+                    scroll_before = get_scroll()
+
+                if self.screenshot_diff:
+                    self.screenshot_diff.capture_before()
+
                 clicks = amount if direction == "up" else -amount
                 if direction in ("left", "right"):
                     clicks = amount if direction == "right" else -amount
@@ -2174,6 +2274,15 @@ class AutomationAgent:
                         clicks,
                         x=params.get("x"),
                         y=params.get("y"),
+                    )
+
+                # P1-3: Store scroll verification metadata
+                if scroll_before is not None:
+                    result["_scroll_y_before"] = scroll_before
+                if self.screenshot_diff:
+                    await asyncio.sleep(0.5)
+                    result["_scroll_pixel_changed"] = (
+                        self.screenshot_diff.screen_changed()
                     )
             else:
                 result = {"success": False, "error": f"Unknown action: {action}"}
@@ -3462,6 +3571,10 @@ class AutomationAgent:
             slog.info(
                 "No replan patch in LLM response, derived procedure unchanged"
             )
+
+        # P2-3: Re-inject domain verification for replans
+        if self._expected_domain:
+            self._inject_domain_verification(new_plan, self._expected_domain)
 
         # Execute new plan with proper failure handling
         _skip_next = False

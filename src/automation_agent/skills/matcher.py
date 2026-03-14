@@ -36,6 +36,14 @@ def match_skill(
     best_score = 0
 
     for skill in skills:
+        # AC-7: required-keywords gate — skip if none of the required
+        # keywords appear in the prompt.
+        required_kws = skill.metadata.get("required-keywords")
+        if required_kws:
+            req_set = {k.lower() for k in required_kws}
+            if not any(rk in prompt_lower for rk in req_set):
+                continue
+
         score = 0
         for keyword in skill.trigger_keywords:
             if keyword.lower() in prompt_lower:

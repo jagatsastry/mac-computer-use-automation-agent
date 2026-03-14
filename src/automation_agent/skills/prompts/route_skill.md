@@ -37,3 +37,7 @@ Rules:
 - confidence is 0.0 to 1.0.
 - Only include params for the highest-confidence match.
 - If a skill is structurally similar but for a different site, label it "analogical".
+- CRITICAL: If the user specifies a website or store name (e.g., "on Target",
+  "from Amazon", "target.com"), you MUST only match skills for that specific site
+  as "direct". A skill for a DIFFERENT site must be labeled "analogical" with
+  confidence below 0.3. Prefer returning no match over matching the wrong site.

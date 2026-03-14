@@ -195,22 +195,22 @@ class AgentConfig(BaseSettings):
 
     # Skill Librarian Configuration
     skill_librarian_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Promote high-confidence observations into canonical skills",
     )
     skill_librarian_min_confidence: float = Field(
-        default=0.7,
+        default=0.5,
         description="Minimum Bayesian score for promotion",
         gt=0.0,
         le=1.0,
     )
     skill_librarian_min_observations: int = Field(
-        default=5,
+        default=2,
         description="Minimum observation count before promotion",
         gt=0,
     )
     skill_librarian_min_runs: int = Field(
-        default=3,
+        default=1,
         description="Minimum distinct run_ids before promotion",
         gt=0,
     )

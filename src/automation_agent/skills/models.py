@@ -45,6 +45,7 @@ class Skill:
     summary: str = ""  # Optional: from frontmatter `summary`
     parent_skill_id: str = ""  # Optional: from frontmatter `parent-skill-id`
     learned_tips_text: str = ""  # Optional: from `## Learned Tips` section
+    metadata: Dict = field(default_factory=dict)  # Catch-all for extra frontmatter
 
 
 @dataclass

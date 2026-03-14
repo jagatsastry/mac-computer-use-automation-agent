@@ -63,7 +63,7 @@ class AppleScriptActuator:
             return ActuatorResult(success=False, error=str(e)).to_dict()
 
     def type_text(self, text: str) -> Dict[str, Any]:
-        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        escaped = self._escape_for_applescript(text)
         script = f'tell application "System Events" to keystroke "{escaped}"'
         return self._run_osascript(script).to_dict()
 
@@ -102,7 +102,7 @@ class AppleScriptActuator:
             code = key_codes[key.lower()]
             script = f'tell application "System Events" to key code {code}{using_clause}'
         else:
-            escaped_key = key.replace('"', '\\"')
+            escaped_key = self._escape_for_applescript(key)
             script = f'tell application "System Events" to keystroke "{escaped_key}"{using_clause}'
 
         return self._run_osascript(script).to_dict()
@@ -134,8 +134,9 @@ class AppleScriptActuator:
         # open behind other windows.  The old approach got "the frontmost app"
         # which was still the terminal — we now iterate visible processes and
         # activate the first non-terminal app that has windows (the browser).
+        escaped_url = self._escape_for_applescript(url)
         script = (
-            f'open location "{url}"\n'
+            f'open location "{escaped_url}"\n'
             'delay 1.0\n'
             'tell application "System Events"\n'
             '  set _procs to every application process '
@@ -157,7 +158,8 @@ class AppleScriptActuator:
         return self._run_osascript(script).to_dict()
 
     def quit_app(self, app_name: str) -> Dict[str, Any]:
-        script = f'tell application "{app_name}" to quit'
+        escaped_name = self._escape_for_applescript(app_name)
+        script = f'tell application "{escaped_name}" to quit'
         return self._run_osascript(script).to_dict()
 
     def scroll(
@@ -289,6 +291,62 @@ function run(argv) {
             return []
         except Exception:
             return []
+
+    @staticmethod
+    def _escape_for_applescript(text: str) -> str:
+        """Sanitize text for safe embedding in AppleScript strings.
+
+        Escapes backslashes and double quotes. Strips control characters
+        (newline, carriage return, tab) because AppleScript does not
+        interpret \\n as an escape — it would type literal backslash-n.
+        """
+        return (
+            text.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "")
+            .replace("\r", "")
+            .replace("\t", " ")
+        )
+
+    def get_scroll_position(self) -> Optional[int]:
+        """Get the current scrollY from the frontmost browser tab.
+
+        Returns:
+            Integer scroll position, or None if not in a browser or on error.
+        """
+        # SECURITY: This method uses hardcoded JavaScript ("window.scrollY")
+        # and hardcoded AppleScript. No user input is interpolated.
+        # If extending this to accept dynamic JS, MUST sanitize input.
+        state = self.get_state()
+        app_name = state.get("app_name", "")
+        lower = app_name.lower()
+
+        if "safari" in lower:
+            script = (
+                'tell application "Safari" to do JavaScript '
+                '"window.scrollY" in current tab of front window'
+            )
+        elif "chrome" in lower:
+            script = (
+                'tell application "Google Chrome" to execute '
+                "front window's active tab javascript "
+                '"window.scrollY"'
+            )
+        else:
+            return None
+
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return int(float(result.stdout.strip()))
+        except (subprocess.TimeoutExpired, ValueError, TypeError):
+            pass
+        return None
 
     def _get_browser_url(self, app_name: str) -> str:
         """Get the current URL from a browser's frontmost tab."""

@@ -5,6 +5,7 @@ description: Return an item on Target.com
 summary: Automates the Target return flow
 tags: [ecommerce, return]
 trigger-keywords: [return, target, refund]
+site: target
 parameters:
   item:
     type: string

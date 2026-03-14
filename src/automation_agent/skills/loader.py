@@ -97,6 +97,14 @@ def parse_skill_file(content: str) -> Skill:
     # Extract Learned Tips section
     learned_tips_text = _extract_section(body, "Learned Tips")
 
+    # Collect extra frontmatter keys into metadata dict
+    _known_keys = {
+        "name", "description", "trigger-keywords", "parameters", "requires",
+        "success-condition", "max-retries", "skill-id", "tags", "summary",
+        "parent-skill-id",
+    }
+    metadata = {k: v for k, v in meta.items() if k not in _known_keys}
+
     return Skill(
         name=name,
         description=description,
@@ -114,6 +122,7 @@ def parse_skill_file(content: str) -> Skill:
         summary=summary,
         parent_skill_id=parent_skill_id,
         learned_tips_text=learned_tips_text,
+        metadata=metadata,
     )
 
 

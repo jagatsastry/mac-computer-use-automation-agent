@@ -9,6 +9,7 @@ Three-tier verification strategy:
 import base64
 import inspect
 import io
+import re
 import time
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, Tuple
@@ -102,7 +103,7 @@ class StepVerifier:
 
         # Tier 1: Actuator state query (fast)
         if act:
-            tier1_result = self._verify_tier1(step, act)
+            tier1_result = self._verify_tier1(step, act, actuator_result)
             if tier1_result is not None:  # Conclusive (pass or fail)
                 duration = int((time.monotonic() - start) * 1000)
                 emoji = "✅" if tier1_result[0] else "❌"
@@ -241,6 +242,13 @@ class StepVerifier:
         # Filter out short/generic path segments
         return [token for token in host_parts + path_parts if token and len(token) > 2]
 
+    @staticmethod
+    def _extract_base_domain(url: str) -> str:
+        """Extract the base domain from a URL, stripping www. prefix."""
+        parsed = urlparse(url)
+        host = (parsed.netloc or parsed.path).lower().replace("www.", "")
+        return host
+
     def _build_url_condition(self, url: str) -> Optional[str]:
         """Build an action-specific vision condition for navigation checks."""
         tokens = self._url_tokens(url)
@@ -323,12 +331,17 @@ class StepVerifier:
         return None
 
     def _verify_tier1(
-        self, step: ActionStep, actuator
+        self,
+        step: ActionStep,
+        actuator,
+        actuator_result: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[bool, str]]:
         """Tier 1: Fast verification via actuator state.
 
         Returns (success, evidence) if conclusive, None if inconclusive.
         """
+        if actuator_result is None:
+            actuator_result = {}
         state = actuator.get_state()
         verify_lower = step.verify.lower()
 
@@ -378,6 +391,27 @@ class StepVerifier:
                 )
             if not actual_app and not window_title and not browser_url:
                 return None
+
+            # P2-3: Domain constraint check from verify text.
+            # Runs BEFORE URL token matching (fail-fast): if the browser is on
+            # the wrong domain, there's no point checking URL tokens.
+            _domain_match = re.search(
+                r"browser domain is (\S+)", step.verify, re.IGNORECASE
+            )
+            if _domain_match and browser_url:
+                _expected_domain = _domain_match.group(1).lower().replace(
+                    "www.", ""
+                )
+                _actual_domain = self._extract_base_domain(browser_url)
+                if not (
+                    _actual_domain == _expected_domain
+                    or _actual_domain.endswith(f".{_expected_domain}")
+                ):
+                    return (
+                        False,
+                        f"Browser domain '{_actual_domain}' does not match"
+                        f" expected domain '{_expected_domain}'",
+                    )
 
             expected_url = step.params["url"]
             tokens = self._url_tokens(expected_url)
@@ -436,6 +470,46 @@ class StepVerifier:
                 return (
                     False,
                     f"Actuator state {key} is '{actual_value}', expected '{expected_text}'",
+                )
+
+        # P1-3: Scroll verification via tiered signals
+        if step.action == "scroll":
+            direction = step.params.get("direction", "down")
+            scroll_before = actuator_result.get("_scroll_y_before")
+
+            # Tier S1: JS scrollY delta
+            get_scroll = getattr(actuator, "get_scroll_position", None)
+            if get_scroll is not None and scroll_before is not None:
+                scroll_after = get_scroll()
+                if scroll_after is not None:
+                    delta = scroll_after - scroll_before
+                    if direction == "down" and delta > 0:
+                        return (
+                            True,
+                            f"Scroll confirmed via scrollY delta "
+                            f"({scroll_before} -> {scroll_after})",
+                        )
+                    if direction == "up" and delta < 0:
+                        return (
+                            True,
+                            f"Scroll confirmed via scrollY delta "
+                            f"({scroll_before} -> {scroll_after})",
+                        )
+                    # delta == 0 falls through to S2
+
+            # Tier S2: Screenshot pixel-diff
+            pixel_changed = actuator_result.get("_scroll_pixel_changed")
+            if pixel_changed is True:
+                return (
+                    True,
+                    "Scroll confirmed via screenshot pixel diff",
+                )
+
+            # Tier S3: Actuator success fallback
+            if actuator_result.get("success", False):
+                return (
+                    True,
+                    "Scroll accepted via actuator success (no JS or pixel signal)",
                 )
 
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2

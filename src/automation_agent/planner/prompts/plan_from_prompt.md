@@ -54,6 +54,14 @@ making a payment), set `"destructive": true` on the step. This triggers user con
 7. Use `wait_for_user` when user authentication or input is required.
 8. When interactive elements are listed in the Desktop State, reference them by exact name in your action steps.
 9. Check form progress to avoid re-filling already completed fields.
+10. **E-commerce goal completion**: For "buy", "purchase", "shop", or "add to cart" goals:
+    - Opening a URL is NOT completion. Showing search results is NOT completion.
+    - The plan MUST include steps through add-to-cart at minimum.
+    - A complete buy plan includes: navigate → search → select product → add to cart → done.
+    - Do NOT end the plan after opening a search URL.
+11. **Plan depth**: When a skill template is provided as a prior, your plan MUST cover
+    all phases in the skill template. Do not generate a plan shorter than the skill's
+    step count unless the current screen state shows the task is partially complete.
 
 ## Response Format
 Respond with ONLY valid JSON (no markdown, no explanation):

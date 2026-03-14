@@ -12,7 +12,7 @@ import pytest
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
 from automation_agent.orchestrator.verifier import StepVerifier
-from automation_agent.shared_models import ActionStep, StepResult
+from automation_agent.shared_models import ActionPlan, ActionStep, StepResult
 
 
 # ---------------------------------------------------------------------------
@@ -507,3 +507,222 @@ class TestTier1ImprovedAppDetection:
 
         # Should escalate to Tier 2 (not falsely deny)
         assert result.verification_method == "vision"
+
+
+# ---------------------------------------------------------------------------
+# P2-3: Domain verification tests
+# ---------------------------------------------------------------------------
+
+
+class TestDomainVerification:
+    """Tests for domain constraint checking in Tier 1 verification."""
+
+    def test_extract_base_domain_simple(self):
+        """Basic URL -> base domain extraction."""
+        result = StepVerifier._extract_base_domain(
+            "https://www.target.com/s?searchTerm=sheets"
+        )
+        assert result == "target.com"
+
+    def test_extract_base_domain_no_www(self):
+        """URL without www prefix."""
+        result = StepVerifier._extract_base_domain("https://target.com/path")
+        assert result == "target.com"
+
+    def test_extract_base_domain_subdomain(self):
+        """URL with subdomain."""
+        result = StepVerifier._extract_base_domain(
+            "https://shop.target.com/cart"
+        )
+        assert result == "shop.target.com"
+
+    @pytest.mark.asyncio
+    async def test_domain_match_target(self, mock_act, mock_coord, logger):
+        """Verify text has domain constraint, browser URL matches -> pass."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/s?searchTerm=sheets",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify="Target search results visible AND browser domain is target.com",
+        )
+        verifier = StepVerifier(
+            actuator=mock_act, coordinator=mock_coord, logger=logger
+        )
+        result = verifier._verify_tier1(step, mock_act)
+        # Should pass (URL matches + domain matches)
+        assert result is not None
+        assert result[0] is True
+
+    @pytest.mark.asyncio
+    async def test_domain_mismatch_amazon(self, mock_act, mock_coord, logger):
+        """Verify text says target.com, browser URL is amazon.com -> fail."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Amazon",
+            "browser_url": "https://www.amazon.com/s?k=sheets",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify=(
+                "Target search results visible"
+                " AND browser domain is target.com"
+            ),
+        )
+        verifier = StepVerifier(
+            actuator=mock_act, coordinator=mock_coord, logger=logger
+        )
+        result = verifier._verify_tier1(step, mock_act)
+        # Should fail because domain mismatch
+        assert result is not None
+        assert result[0] is False
+        assert "target.com" in result[1]
+
+    @pytest.mark.asyncio
+    async def test_domain_subdomain_match(self, mock_act, mock_coord, logger):
+        """shop.target.com should match domain constraint target.com."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://shop.target.com/cart",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify="Target page AND browser domain is target.com",
+        )
+        verifier = StepVerifier(
+            actuator=mock_act, coordinator=mock_coord, logger=logger
+        )
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+
+    @pytest.mark.asyncio
+    async def test_domain_nottarget_rejected(
+        self, mock_act, mock_coord, logger
+    ):
+        """nottarget.com should NOT match target.com."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "NotTarget",
+            "browser_url": "https://www.nottarget.com/page",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify="page visible AND browser domain is target.com",
+        )
+        verifier = StepVerifier(
+            actuator=mock_act, coordinator=mock_coord, logger=logger
+        )
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is False
+
+    @pytest.mark.asyncio
+    async def test_domain_no_constraint(self, mock_act, mock_coord, logger):
+        """No 'browser domain is' in verify -> no domain check at all."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/s?searchTerm=sheets",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify="Target search results visible",
+        )
+        verifier = StepVerifier(
+            actuator=mock_act, coordinator=mock_coord, logger=logger
+        )
+        result = verifier._verify_tier1(step, mock_act)
+        # Should pass via normal URL token match, no domain-specific check
+        assert result is not None
+        assert result[0] is True
+
+
+class TestInjectDomainVerification:
+    """Tests for _inject_domain_verification on the agent."""
+
+    def _make_agent(self):
+        from automation_agent.orchestrator.agent import AutomationAgent
+        from automation_agent.config import AgentConfig
+
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+            grounding_model="",
+            grounding_server_url="",
+        )
+        planner = AsyncMock()
+        skill_registry = MagicMock()
+        skill_registry.match = AsyncMock(return_value=None)
+        skill_registry.learn_from_run = AsyncMock(return_value=[])
+        skill_registry.promote_from_run = AsyncMock(return_value=None)
+        coordinator = AsyncMock()
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+        coordinator.capture_screenshot = AsyncMock(return_value="base64data")
+        actuator = MagicMock()
+        actuator.get_state = MagicMock(return_value={})
+        return AutomationAgent(
+            planner, skill_registry, coordinator, actuator, config
+        )
+
+    def test_inject_domain_verification(self):
+        """open_url step gets domain constraint appended to verify."""
+        agent = self._make_agent()
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?q=sheets"},
+            verify="Target search page visible",
+        )
+        plan = ActionPlan(steps=[step])
+        agent._inject_domain_verification(plan, "target.com")
+        assert "browser domain is target.com" in step.verify
+
+    def test_inject_domain_idempotent(self):
+        """Calling twice should not add duplicate domain clauses."""
+        agent = self._make_agent()
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?q=sheets"},
+            verify="Target search page visible",
+        )
+        plan = ActionPlan(steps=[step])
+        agent._inject_domain_verification(plan, "target.com")
+        agent._inject_domain_verification(plan, "target.com")
+        # Count occurrences
+        count = step.verify.count("browser domain is target.com")
+        assert count == 1
+
+    def test_inject_domain_skips_non_open_url(self):
+        """Non-open_url steps should not get domain verification."""
+        agent = self._make_agent()
+        step = ActionStep(
+            action="click",
+            params={"element": "search button"},
+            verify="Results visible",
+        )
+        plan = ActionPlan(steps=[step])
+        agent._inject_domain_verification(plan, "target.com")
+        assert "browser domain is" not in step.verify
+
+    def test_inject_domain_type_safety(self):
+        """Domain should be a string like 'target.com', not list repr."""
+        agent = self._make_agent()
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?q=sheets"},
+            verify="Target search page visible",
+        )
+        plan = ActionPlan(steps=[step])
+        # Ensure we pass a proper string, not list
+        agent._inject_domain_verification(plan, "target.com")
+        assert "['target'].com" not in step.verify
+        assert "target.com" in step.verify

@@ -102,6 +102,8 @@ def _make_config(tmp_path: Path, **overrides) -> AgentConfig:
         model_provider="local",
         skill_learning_dir=tmp_path / "learning",
         skill_librarian_enabled=True,
+        grounding_model="",
+        grounding_server_url="",
     )
     defaults.update(overrides)
     return AgentConfig(**defaults)
@@ -253,16 +255,21 @@ class TestDataModels:
 
 
 class TestConfig:
-    def test_librarian_defaults(self):
+    def test_librarian_defaults(self, monkeypatch):
+        # Ensure .env values don't leak into defaults test
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_ENABLED", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_CONFIDENCE", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_OBSERVATIONS", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_RUNS", raising=False)
         config = AgentConfig(
             _env_file=None,
             anthropic_api_key="test-key-not-real",
             model_provider="local",
         )
-        assert config.skill_librarian_enabled is False
-        assert config.skill_librarian_min_confidence == 0.7
-        assert config.skill_librarian_min_observations == 5
-        assert config.skill_librarian_min_runs == 3
+        assert config.skill_librarian_enabled is True
+        assert config.skill_librarian_min_confidence == 0.5
+        assert config.skill_librarian_min_observations == 2
+        assert config.skill_librarian_min_runs == 1
         assert config.skill_librarian_max_tips == 10
 
     def test_librarian_env_override(self, tmp_path, monkeypatch):
@@ -867,6 +874,8 @@ class TestCommitSequence:
         librarian._generate_content = AsyncMock(
             return_value={"learned_tips": "- Tip"}
         )
+        # Explicitly reset any prior return_value, then set side_effect
+        mock_registry.load_from_string.reset_mock()
         mock_registry.load_from_string.side_effect = Exception("Router rebuild failed")
 
         decision = await librarian.evaluate_run(
@@ -961,7 +970,7 @@ class TestEvaluateRunFlow:
     @pytest.mark.asyncio
     async def test_no_qualifying_groups(self, librarian, experience_store):
         """With insufficient observations, should return None."""
-        obs = _make_observations(2, confidence=0.9, run_ids=["r1", "r2"])
+        obs = _make_observations(1, confidence=0.9, run_ids=["r1"])
         experience_store.append("return-amazon-order", obs)
 
         decision = await librarian.evaluate_run(
@@ -1274,3 +1283,96 @@ class TestPrePromotionBaseline:
         baseline = librarian._compute_baseline(obs)
         assert "friction_runs" in baseline
         assert baseline["friction_runs"] == 2
+
+
+# ===========================================================================
+# P2-2: New Default Threshold Tests
+# ===========================================================================
+
+
+class TestLibrarianNewDefaults:
+    """Tests that new librarian defaults are correct."""
+
+    def test_librarian_enabled_by_default(self, monkeypatch):
+        """AgentConfig().skill_librarian_enabled is True by default."""
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_ENABLED", raising=False)
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        assert config.skill_librarian_enabled is True
+
+    def test_librarian_lower_thresholds(self, monkeypatch):
+        """min_observations=2, min_runs=1 by default."""
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_OBSERVATIONS", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_RUNS", raising=False)
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        assert config.skill_librarian_min_observations == 2
+        assert config.skill_librarian_min_runs == 1
+
+    def test_librarian_min_confidence_lowered(self, monkeypatch):
+        """min_confidence=0.5 by default (below replan 0.6 cap)."""
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_CONFIDENCE", raising=False)
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        assert config.skill_librarian_min_confidence == 0.5
+
+    def test_replan_obs_above_threshold(self, monkeypatch):
+        """Replan-capped observation (conf=0.6) passes 0.5 gate."""
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_CONFIDENCE", raising=False)
+        config = AgentConfig(
+            _env_file=None,
+            anthropic_api_key="test-key-not-real",
+            model_provider="local",
+        )
+        replan_capped_confidence = 0.6
+        assert replan_capped_confidence >= config.skill_librarian_min_confidence
+
+    def test_dead_zone_fixed(self, monkeypatch, tmp_path):
+        """Replan-capped obs (conf=0.6) score passes default min_confidence=0.5.
+
+        Previously min_confidence=0.7 blocked all replan observations
+        because learn_from_run caps had_replan obs at 0.6. This created
+        a dead zone where observations were generated but never promoted.
+        With min_confidence=0.5, the dead zone is eliminated.
+        """
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_CONFIDENCE", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_OBSERVATIONS", raising=False)
+        monkeypatch.delenv("AGENT_SKILL_LIBRARIAN_MIN_RUNS", raising=False)
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry.get_skill = MagicMock(return_value=_make_skill())
+        librarian = SkillLibrarian(
+            config=config, experience_store=store, registry=registry
+        )
+
+        # Simulate the dead zone: a single replan-capped observation at 0.6.
+        # With only 1 observation, Bayesian score = (1+1)/(1+0+2) = 0.667.
+        # Old threshold 0.7 blocked this (0.667 < 0.7 = dead zone).
+        # New threshold 0.5 allows it (0.667 >= 0.5 = promoted).
+        obs = _make_observations(
+            1, confidence=0.6, run_ids=["r1"]
+        )
+        score = librarian._compute_score(obs)
+        # Score must exceed the NEW default threshold (0.5)
+        assert score >= config.skill_librarian_min_confidence, (
+            f"Dead zone NOT fixed: score {score:.3f} "
+            f"< {config.skill_librarian_min_confidence} threshold"
+        )
+        # Score must NOT have exceeded the OLD threshold (0.7) — proves dead zone existed
+        assert score < 0.7, (
+            f"Score {score:.3f} exceeds old 0.7 threshold — "
+            f"dead zone scenario requires fewer observations"
+        )
