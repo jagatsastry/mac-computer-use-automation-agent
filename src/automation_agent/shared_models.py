@@ -200,17 +200,31 @@ class ReplanPatch:
     successful_adaptations: List[str] = field(default_factory=list)
     revised_steps: str = ""
 
+    def is_empty(self) -> bool:
+        """Return True if this patch has no usable content."""
+        return (
+            not self.replace_labels
+            and not self.add_landmarks
+            and not self.verify_improvements
+            and not self.failed_assumptions
+            and not self.successful_adaptations
+            and not self.revised_steps
+        )
+
     @classmethod
-    def from_dict(cls, data: dict) -> "ReplanPatch":
-        """Parse a patch from LLM response dict. Tolerant of missing/malformed fields."""
+    def from_dict(cls, data: dict) -> Optional["ReplanPatch"]:
+        """Parse a patch from LLM response dict. Tolerant of missing/malformed fields.
+
+        Returns None for non-dict input or patches with no usable content.
+        """
         if not isinstance(data, dict):
-            return cls()
+            return None
 
         def _safe_list(key: str) -> list:
             val = data.get(key, [])
             return val if isinstance(val, list) else []
 
-        return cls(
+        patch = cls(
             replace_labels=[
                 r for r in _safe_list("replace_labels")
                 if isinstance(r, dict) and "old" in r and "new" in r
@@ -233,6 +247,7 @@ class ReplanPatch:
             ],
             revised_steps=str(data.get("revised_steps", "")),
         )
+        return None if patch.is_empty() else patch
 
 
 @dataclass

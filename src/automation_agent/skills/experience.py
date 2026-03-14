@@ -19,8 +19,9 @@ _WHITESPACE_RE = re.compile(r"\s+")
 def _normalize_key(text: str) -> str:
     """Normalize text for matching: lowercase, strip punctuation, collapse whitespace.
 
-    Must match SkillLibrarian._normalize_key() to ensure mark_promoted() keys
-    align with the librarian's grouping keys.
+    Single source of truth — imported by both ``SkillExperienceStore`` and
+    ``SkillLibrarian`` to ensure mark_promoted() keys align with the
+    librarian's grouping keys.
     """
     text = text.strip().lower()
     text = _NORMALIZE_RE.sub("", text)
