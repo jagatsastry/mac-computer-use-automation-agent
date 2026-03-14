@@ -4,7 +4,8 @@ Each protocol defines the contract a component must satisfy.
 Components depend on protocols, not concrete implementations.
 """
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from enum import Enum
+from typing import Any, Dict, FrozenSet, List, Optional, Protocol, runtime_checkable
 
 from automation_agent.shared_models import (
     ActionPlan,
@@ -14,6 +15,14 @@ from automation_agent.shared_models import (
     SkillMatchResult,
     StepResult,
 )
+
+
+class CoordinatorCapability(str, Enum):
+    """Known optional capabilities for ScreenCoordinator."""
+
+    DUAL_RESOLUTION = "dual_resolution"
+    LOOKAHEAD = "lookahead"
+    SOM = "som"
 
 
 @runtime_checkable
@@ -68,6 +77,26 @@ class ActionPlanner(Protocol):
         """
         ...
 
+    async def check_infeasibility(
+        self,
+        goal: str,
+        absent_elements: list[str],
+        failure_history: list[str],
+        frustration_summary: dict,
+    ) -> dict:
+        """Ask whether the task is still achievable.
+
+        Default: hard-abort (return infeasible). LLM-backed planners
+        override to query the model for an advisory assessment.
+
+        Returns:
+            {"infeasible": bool, "reason": str}
+        """
+        return {
+            "infeasible": True,
+            "reason": "Planner does not support infeasibility assessment",
+        }
+
 
 @runtime_checkable
 class ScreenCoordinator(Protocol):
@@ -114,6 +143,40 @@ class ScreenCoordinator(Protocol):
     async def capture_screenshot(self) -> str:
         """Capture and return a base64-encoded screenshot."""
         ...
+
+    def capabilities(self) -> FrozenSet["CoordinatorCapability"]:
+        """Return set of optional capabilities this coordinator supports.
+
+        Default: empty set (no optional capabilities).
+        Implementations override to advertise what they support.
+        """
+        return frozenset()
+
+    async def find_element_dual(
+        self,
+        description: str,
+        screenshot_b64: str,
+        context_b64: str,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[FindElementResult]:
+        """Find element using dual-resolution images. Default: returns None."""
+        return None
+
+    async def predict_action_outcome(
+        self,
+        action: str,
+        params: Dict[str, Any],
+        expected_observation: str,
+        screenshot_b64: str,
+        is_hard_destructive: bool = False,
+    ) -> Dict[str, Any]:
+        """Predict action outcome. Default: optimistic pass-through."""
+        return {
+            "likely_success": True,
+            "predicted_state": "",
+            "risk": "",
+            "mismatch_reason": "",
+        }
 
 
 @runtime_checkable
@@ -209,5 +272,17 @@ class Verifier(Protocol):
         Tier 2: Vision screenshot verification (~2-5s)
 
         Returns StepResult with verification_method and evidence.
+        """
+        ...
+
+
+@runtime_checkable
+class ConfirmationHandler(Protocol):
+    """Handles user confirmation for destructive actions."""
+
+    async def confirm(self, step: ActionStep) -> bool:
+        """Present the action to the user and return True if approved.
+
+        Implementations must be non-blocking (async-safe).
         """
         ...

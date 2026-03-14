@@ -53,6 +53,39 @@ class EventType(str, Enum):
     USER_WAIT = "user_wait"
     USER_RESUME = "user_resume"
 
+    # Gap 5: Infeasibility
+    INFEASIBILITY_CHECK = "infeasibility_check"
+    INFEASIBILITY_ABORT = "infeasibility_abort"
+
+    # Gap 6: Confirmation
+    DESTRUCTIVE_CONFIRM = "destructive_confirm"
+    DESTRUCTIVE_CONFIRM_ERROR = "destructive_confirm_error"
+
+    # SoM events (Gap 1)
+    SOM_ANNOTATE = "som_annotate"
+    SOM_PARSE = "som_parse"
+    SOM_ERROR = "som_error"
+
+    # Dual-resolution grounding events (Gap 7)
+    DUAL_RES_GROUNDING = "dual_res_grounding"
+
+    # Embedding events (Gap 3)
+    EMBEDDING_BUILD = "embedding_build"
+    EMBEDDING_QUERY = "embedding_query"
+    EMBEDDING_RERANK_SKIP = "embedding_rerank_skip"
+    EMBEDDING_ERROR = "embedding_error"
+
+    # Lookahead events (Gap 4)
+    LOOKAHEAD_PREDICT = "lookahead_predict"
+    LOOKAHEAD_BLOCK = "lookahead_block"
+    LOOKAHEAD_ERROR = "lookahead_error"
+
+    # World state events (Gap 2)
+    STATE_DIFF = "state_diff"
+
+    # Aggregate
+    TASK_SUMMARY = "task_summary"
+
 
 @dataclass
 class Event:

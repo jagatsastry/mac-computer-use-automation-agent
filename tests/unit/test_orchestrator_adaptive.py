@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
+from automation_agent.logging.models import EventType
+from automation_agent.orchestrator.context_monitor import StateDiff
 from automation_agent.orchestrator.agent import AutomationAgent
 from automation_agent.shared_models import (
     ActionPlan,
@@ -384,9 +386,15 @@ class TestReplanPatchIntegration:
 
         agent = _make_agent(planner=planner, skill_registry=registry)
 
-        # Make the first step fail so replan is triggered
+        # Make the first step fail so replan is triggered.
+        # Include an open_url step so _ensure_skill_navigation doesn't prepend nav.
         fail_plan = ActionPlan(
             steps=[
+                ActionStep(
+                    action="open_url",
+                    params={"url": "https://amazon.com"},
+                    verify="Amazon page visible",
+                ),
                 ActionStep(
                     action="click",
                     params={"x": 100, "y": 100},
@@ -399,10 +407,16 @@ class TestReplanPatchIntegration:
         planner.plan = AsyncMock(return_value=fail_plan)
 
         with patch.object(agent.verifier, "verify", new_callable=AsyncMock) as mock_verify:
-            # First step fails, then replan steps pass
+            # First step (open_url) passes, second (click) fails, then replan steps pass
             mock_verify.side_effect = [
                 StepResult(
                     step=fail_plan.steps[0],
+                    success=True,
+                    verification_method="actuator_state",
+                    evidence="Amazon page visible",
+                ),
+                StepResult(
+                    step=fail_plan.steps[1],
                     success=False,
                     verification_method="vision",
                     evidence="Button not found",
@@ -456,6 +470,11 @@ class TestReplanPatchIntegration:
         fail_plan = ActionPlan(
             steps=[
                 ActionStep(
+                    action="open_url",
+                    params={"url": "https://amazon.com"},
+                    verify="Amazon page visible",
+                ),
+                ActionStep(
                     action="click",
                     params={"x": 100, "y": 100},
                     verify="Button clicked",
@@ -475,6 +494,12 @@ class TestReplanPatchIntegration:
             mock_verify.side_effect = [
                 StepResult(
                     step=fail_plan.steps[0],
+                    success=True,
+                    verification_method="actuator_state",
+                    evidence="Amazon page visible",
+                ),
+                StepResult(
+                    step=fail_plan.steps[1],
                     success=False,
                     verification_method="vision",
                     evidence="Failed",
@@ -826,6 +851,57 @@ class TestRecordContext:
         agent.context_monitor.record_click.assert_not_called()
         agent.context_monitor.record_type.assert_not_called()
         agent.context_monitor.record_navigation.assert_not_called()
+
+    def test_record_context_emits_state_diff_event(self):
+        """STATE_DIFF event is emitted when format_state_diff returns a diff."""
+        agent = self._agent_with_context_monitor()
+        agent.logger = MagicMock()
+
+        diff = StateDiff(
+            changes=["App changed: Safari -> Chrome"],
+            new_elements=["Confirm"],
+            removed_elements=["Submit"],
+        )
+        agent.context_monitor.format_state_diff = MagicMock(return_value=diff)
+
+        step = ActionStep(action="click", params={"element": "Submit"}, verify="ok")
+        result = StepResult(step=step, success=True, error=None, evidence="clicked")
+        agent._record_context(step, result)
+
+        agent.logger.log_event.assert_called_once_with(
+            EventType.STATE_DIFF,
+            "State changed: 1 changes",
+            data={
+                "changes": ["App changed: Safari -> Chrome"],
+                "new_elements": ["Confirm"],
+                "removed_elements": ["Submit"],
+                "step_action": "click",
+            },
+        )
+
+    def test_record_context_no_state_diff_when_none(self):
+        """STATE_DIFF event NOT emitted when format_state_diff returns None."""
+        agent = self._agent_with_context_monitor()
+        agent.logger = MagicMock()
+
+        agent.context_monitor.format_state_diff = MagicMock(return_value=None)
+
+        step = ActionStep(action="click", params={"element": "Submit"}, verify="ok")
+        result = StepResult(step=step, success=True, error=None, evidence="clicked")
+        agent._record_context(step, result)
+
+        agent.logger.log_event.assert_not_called()
+
+    def test_record_context_no_state_diff_without_result(self):
+        """STATE_DIFF event NOT emitted when no result is passed."""
+        agent = self._agent_with_context_monitor()
+        agent.logger = MagicMock()
+        agent.context_monitor.format_state_diff = MagicMock()
+
+        step = ActionStep(action="click", params={"element": "Submit"}, verify="ok")
+        agent._record_context(step)  # No result
+
+        agent.context_monitor.format_state_diff.assert_not_called()
 
 
 class TestFallbackPlanIsolation:

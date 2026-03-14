@@ -2,7 +2,6 @@
 
 import json
 import shutil
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -20,7 +19,7 @@ class EventLogger:
     """
 
     def __init__(self, log_dir: Path, run_id: Optional[str] = None) -> None:
-        self.run_id = run_id or uuid.uuid4().hex[:12]
+        self.run_id = run_id or datetime.now().strftime("%y%m%d_%H%M%S")
         self.log_dir = log_dir
         self.run_dir = log_dir / self.run_id
         self.events_file = self.run_dir / "events.jsonl"

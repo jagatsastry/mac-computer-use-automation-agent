@@ -39,6 +39,8 @@ def _make_config(**overrides) -> AgentConfig:
         "vision_model": "molmo",
         "log_dir": "/tmp/test_agent_logs",
         "model_provider": "local",  # Pin to local to avoid .env leakage (AGENT_MODEL_PROVIDER=anthropic)
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)

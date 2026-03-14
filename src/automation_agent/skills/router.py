@@ -1,9 +1,10 @@
 """LLM-driven skill router: picks top-k skills and extracts params via an LLM call."""
 
 import json
+import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import structlog
 
@@ -20,6 +21,58 @@ logger = structlog.get_logger(__name__)
 _PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "route_skill.md"
 
 MIN_USEFUL_CONFIDENCE = 0.5
+
+# Seed list of known e-commerce sites. Supplemented at runtime by sites
+# from loaded skill metadata (see _build_known_sites).
+_SEED_SITES: frozenset = frozenset({
+    "amazon", "target", "walmart", "bestbuy", "ebay",
+    "costco", "etsy", "newegg",
+})
+
+
+def _build_known_sites(skills: Dict[str, "Skill"]) -> frozenset:
+    """Derive known sites from skill metadata + seed list."""
+    sites: set = set(_SEED_SITES)
+    for skill in skills.values():
+        skill_site = (skill.metadata.get("site") or "").lower().strip()
+        if skill_site:
+            sites.add(skill_site)
+    return frozenset(sites)
+
+
+def _build_site_patterns(known_sites: frozenset) -> list:
+    """Build preposition-anchored and .com regex patterns from known sites."""
+    sites_alt = "|".join(re.escape(s) for s in sorted(known_sites))
+    return [
+        re.compile(
+            r"\b(?:on|from|at)\s+(" + sites_alt + r")(?:'s)?\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(" + sites_alt + r")\.com\b",
+            re.IGNORECASE,
+        ),
+    ]
+
+
+def extract_site_entity(
+    prompt: str,
+    known_sites: Optional[frozenset] = None,
+) -> Optional[List[str]]:
+    """Extract explicit site/store entities from the user prompt.
+
+    Returns a sorted list of lowercase site names if explicit site references
+    are found, or None if no site is specified. Only matches
+    preposition-anchored patterns ("on target", "from amazon") or domain
+    patterns ("target.com") to avoid false positives.
+    """
+    sites = known_sites or _SEED_SITES
+    patterns = _build_site_patterns(sites)
+    found: set = set()
+    for pattern in patterns:
+        for match in pattern.finditer(prompt):
+            found.add(match.group(1).lower())
+    return sorted(found) if found else None
 
 
 class SkillRouter:
@@ -102,9 +155,12 @@ class SkillRouter:
         return prompt
 
     async def _call_llm(self, prompt: str) -> str:
-        """Call local (Qwen) or Anthropic (Claude) based on config.model_provider."""
-        if self.config.model_provider.value == "anthropic":
+        """Call local, Anthropic, or Gemini based on config.model_provider."""
+        provider = self.config.model_provider.value
+        if provider == "anthropic":
             return await self._call_anthropic(prompt)
+        elif provider == "gemini":
+            return await self._call_gemini(prompt)
         else:
             return await self._call_local(prompt)
 
@@ -116,7 +172,7 @@ class SkillRouter:
         payload = {
             "model": self.config.vision_model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 512,
+            "max_tokens": 2048,
             "temperature": 0.0,
             "stream": False,
         }
@@ -128,6 +184,26 @@ class SkillRouter:
             logger.debug("Local LLM response", tokens=len(content.split()))
             return content
 
+    async def _call_gemini(self, prompt: str) -> str:
+        """Call Google Gemini API for skill routing."""
+        import asyncio
+
+        from google import genai
+
+        client = genai.Client(api_key=self.config.gemini_api_key)
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=self.config.gemini_model,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                max_output_tokens=2048,
+                temperature=0.0,
+            ),
+        )
+        content = response.text or ""
+        logger.debug("Gemini LLM response", tokens=len(content.split()))
+        return content
+
     async def _call_anthropic(self, prompt: str) -> str:
         """Call Anthropic Claude API for skill routing."""
         import anthropic
@@ -135,7 +211,7 @@ class SkillRouter:
         client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
         message = await client.messages.create(
             model=self.config.anthropic_model,
-            max_tokens=512,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
         content = message.content[0].text

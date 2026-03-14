@@ -33,6 +33,12 @@ _GENERATE_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "librarian_generat
 
 _NORMALIZE_RE = re.compile(r"[^\w\s]")
 _WHITESPACE_RE = re.compile(r"\s+")
+_STOP_WORDS = frozenset(
+    "a an the is are was were be been being do does did will would shall should "
+    "can could may might must have has had having for of to in on at by with from "
+    "and or not no nor but if then else that this these those it its they them their "
+    "he she his her we our you your all any each every some into also".split()
+)
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -279,13 +285,32 @@ class SkillLibrarian:
         text = _WHITESPACE_RE.sub(" ", text).strip()
         return text
 
+    @staticmethod
+    def _extract_topic(text: str, n_words: int = 4) -> str:
+        """Extract first N content words (skipping stop words) as a topic key.
+
+        This produces coarser grouping than full-text normalization, allowing
+        semantically similar observations to cluster together.
+        """
+        text = text.strip().lower()
+        text = _NORMALIZE_RE.sub("", text)
+        words = _WHITESPACE_RE.split(text)
+        content = [w for w in words if w and w not in _STOP_WORDS]
+        return " ".join(content[:n_words])
+
     def _group_observations(
         self, observations: list[SkillObservation]
     ) -> Dict[Tuple[str, str], list[SkillObservation]]:
+        """Group observations by (category, topic).
+
+        Uses category-level grouping so the LLM can synthesize across
+        multiple semantically similar observations from different runs.
+        The topic is set to the category name itself to keep keys as tuples.
+        """
         groups: dict[tuple[str, str], list[SkillObservation]] = defaultdict(list)
         for obs in observations:
-            key = (self._normalize_key(obs.category), self._normalize_key(obs.recommendation))
-            groups[key].append(obs)
+            cat = self._normalize_key(obs.category)
+            groups[(cat, cat)].append(obs)
         return dict(groups)
 
     def _compute_score(self, group: list[SkillObservation]) -> float:
@@ -578,6 +603,12 @@ class SkillLibrarian:
             skill_name = new_name
 
         skill_id = skill_name
+
+        # Security: auto-promoted skills default to untrusted for embedding index.
+        # Requires human review to set trusted: true.
+        if "trusted:" not in md_content:
+            md_content = md_content.replace("---\n", "---\ntrusted: false\n", 1)
+
         # Determine write path
         skill_dir = Path(__file__).parent / "library"
         file_path = skill_dir / f"{skill_name.replace('/', '_')}.md"

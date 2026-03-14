@@ -9,6 +9,7 @@ Three-tier verification strategy:
 import base64
 import inspect
 import io
+import re
 import time
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, Tuple
@@ -29,6 +30,9 @@ class StepVerifier:
     Tier 1: Actuator state query via actuator.get_state() (~50ms)
     Tier 2: Vision screenshot verification via coordinator.verify_condition() (~2-5s)
     """
+
+    _SCROLL_DIRS_INCREASING = frozenset({"right", "down"})
+    _SCROLL_DIRS_DECREASING = frozenset({"left", "up"})
 
     def __init__(
         self,
@@ -102,7 +106,7 @@ class StepVerifier:
 
         # Tier 1: Actuator state query (fast)
         if act:
-            tier1_result = self._verify_tier1(step, act)
+            tier1_result = self._verify_tier1(step, act, actuator_result)
             if tier1_result is not None:  # Conclusive (pass or fail)
                 duration = int((time.monotonic() - start) * 1000)
                 emoji = "✅" if tier1_result[0] else "❌"
@@ -236,9 +240,17 @@ class StepVerifier:
         path_tokens = [token for token in parsed.path.lower().split("/") if token]
         host_parts = [part for part in host.replace(".", " ").split() if part not in {"com", "org", "net"}]
         path_parts = []
-        for token in path_tokens[:2]:
+        for token in path_tokens[:4]:
             path_parts.extend(part for part in token.replace("-", " ").replace("_", " ").split() if part)
-        return [token for token in host_parts + path_parts if token]
+        # Filter out short/generic path segments
+        return [token for token in host_parts + path_parts if token and len(token) > 2]
+
+    @staticmethod
+    def _extract_base_domain(url: str) -> str:
+        """Extract the base domain from a URL, stripping www. prefix."""
+        parsed = urlparse(url)
+        host = (parsed.netloc or parsed.path).lower().replace("www.", "")
+        return host
 
     def _build_url_condition(self, url: str) -> Optional[str]:
         """Build an action-specific vision condition for navigation checks."""
@@ -322,12 +334,17 @@ class StepVerifier:
         return None
 
     def _verify_tier1(
-        self, step: ActionStep, actuator
+        self,
+        step: ActionStep,
+        actuator,
+        actuator_result: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[bool, str]]:
         """Tier 1: Fast verification via actuator state.
 
         Returns (success, evidence) if conclusive, None if inconclusive.
         """
+        if actuator_result is None:
+            actuator_result = {}
         state = actuator.get_state()
         verify_lower = step.verify.lower()
 
@@ -369,15 +386,71 @@ class StepVerifier:
         if step.action == "open_url" and step.params.get("url"):
             actual_app = state.get("app_name", "")
             window_title = state.get("window_title", "")
+            browser_url = state.get("browser_url", "")
             if actual_app and not self._is_browser_app(actual_app):
                 return (
                     False,
                     f"Navigation opened '{actual_app}' instead of a browser",
                 )
-            if not actual_app and not window_title:
+            if not actual_app and not window_title and not browser_url:
                 return None
 
-            tokens = self._url_tokens(step.params["url"])
+            # P2-3: Domain constraint check from verify text.
+            # Runs BEFORE URL token matching (fail-fast): if the browser is on
+            # the wrong domain, there's no point checking URL tokens.
+            _domain_match = re.search(
+                r"browser domain is (\S+)", step.verify, re.IGNORECASE
+            )
+            if _domain_match and browser_url:
+                _expected_domain = _domain_match.group(1).lower().replace(
+                    "www.", ""
+                )
+                _actual_domain = self._extract_base_domain(browser_url)
+                if not (
+                    _actual_domain == _expected_domain
+                    or _actual_domain.endswith(f".{_expected_domain}")
+                ):
+                    return (
+                        False,
+                        f"Browser domain '{_actual_domain}' does not match"
+                        f" expected domain '{_expected_domain}'",
+                    )
+
+            expected_url = step.params["url"]
+            tokens = self._url_tokens(expected_url)
+
+            # Direct URL match (most reliable)
+            if browser_url:
+                expected_lower = expected_url.lower().rstrip("/")
+                actual_lower = browser_url.lower().rstrip("/")
+
+                # Login redirect detection: if the actual URL contains login/signin
+                # paths but the expected URL does not, this is a redirect — not a match
+                _login_segments = ("/login", "/signin", "/sign-in", "/auth", "/sso", "/ap/signin")
+                redirected_to_login = (
+                    any(seg in actual_lower for seg in _login_segments)
+                    and not any(seg in expected_lower for seg in _login_segments)
+                )
+                if redirected_to_login:
+                    return (
+                        False,
+                        f"Browser URL '{browser_url}' was redirected to login page "
+                        f"(expected '{expected_url}')",
+                    )
+
+                if expected_lower in actual_lower or actual_lower in expected_lower:
+                    return (
+                        True,
+                        f"Browser URL '{browser_url}' matches destination",
+                    )
+                # Token match against actual URL
+                if tokens and any(token in actual_lower for token in tokens):
+                    return (
+                        True,
+                        f"Browser URL '{browser_url}' contains destination tokens",
+                    )
+
+            # Fallback: window title match
             title_lower = window_title.lower()
             if tokens and title_lower and any(token in title_lower for token in tokens):
                 return (
@@ -400,6 +473,75 @@ class StepVerifier:
                 return (
                     False,
                     f"Actuator state {key} is '{actual_value}', expected '{expected_text}'",
+                )
+
+        # P1-3 + AC-6: Scroll verification via tiered signals (axis-parametric)
+        if step.action == "scroll":
+            direction = step.params.get("direction", "down")
+            scroll_meta = actuator_result.get("_scroll_before")
+
+            # Tier S1: JS scroll delta (axis-parametric)
+            if scroll_meta is not None and isinstance(scroll_meta, dict):
+                axis = scroll_meta.get("axis")
+                scroll_before_val = scroll_meta.get("value")
+                get_fn = getattr(actuator, "get_scroll_position", None)
+                if axis and get_fn is not None and scroll_before_val is not None:
+                    scroll_after = get_fn(axis=axis)
+                    if scroll_after is None:
+                        slog.debug(
+                            "scroll_s1_after_unavailable",
+                            axis=axis, direction=direction,
+                            before=scroll_before_val,
+                            reason="get_scroll_position_returned_none",
+                        )
+                    if scroll_after is not None:
+                        delta = scroll_after - scroll_before_val
+                        axis_label = f"scroll{axis.upper()}"
+                        if direction in self._SCROLL_DIRS_INCREASING and delta > 0:
+                            slog.debug(
+                                "scroll_s1_confirmed",
+                                axis=axis, direction=direction,
+                                before=scroll_before_val, after=scroll_after,
+                                delta=delta, verdict="confirmed",
+                            )
+                            return (
+                                True,
+                                f"Scroll confirmed via {axis_label} delta "
+                                f"({scroll_before_val} -> {scroll_after})",
+                            )
+                        if direction in self._SCROLL_DIRS_DECREASING and delta < 0:
+                            slog.debug(
+                                "scroll_s1_confirmed",
+                                axis=axis, direction=direction,
+                                before=scroll_before_val, after=scroll_after,
+                                delta=delta, verdict="confirmed",
+                            )
+                            return (
+                                True,
+                                f"Scroll confirmed via {axis_label} delta "
+                                f"({scroll_before_val} -> {scroll_after})",
+                            )
+                        # delta == 0 falls through to S2
+                        slog.debug(
+                            "scroll_s1_inconclusive",
+                            axis=axis, direction=direction,
+                            before=scroll_before_val, after=scroll_after,
+                            delta=delta, verdict="inconclusive_fallthrough",
+                        )
+
+            # Tier S2: Screenshot pixel-diff
+            pixel_changed = actuator_result.get("_scroll_pixel_changed")
+            if pixel_changed is True:
+                return (
+                    True,
+                    "Scroll confirmed via screenshot pixel diff",
+                )
+
+            # Tier S3: Actuator success fallback
+            if actuator_result.get("success", False):
+                return (
+                    True,
+                    "Scroll accepted via actuator success (no JS or pixel signal)",
                 )
 
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2

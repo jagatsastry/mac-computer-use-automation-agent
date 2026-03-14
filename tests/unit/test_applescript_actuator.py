@@ -274,7 +274,8 @@ class TestClick:
         with patch.dict("sys.modules", {"pyautogui": mock_pyautogui}):
             result = actuator.click(100, 200)
 
-        mock_pyautogui.click.assert_called_once_with(100, 200)
+        mock_pyautogui.moveTo.assert_called_once_with(100, 200)
+        mock_pyautogui.click.assert_called_once_with()
         assert result["success"] is True
 
     def test_click_failure_when_pyautogui_unavailable(self, actuator):

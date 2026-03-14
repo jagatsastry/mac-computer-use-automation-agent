@@ -21,6 +21,14 @@ class ModelProvider(str, Enum):
     """Supported LLM providers."""
     LOCAL = "local"
     ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
+
+
+class ConfirmMode(str, Enum):
+    """Confirmation mode for destructive actions."""
+    ALWAYS = "always"
+    SMART = "smart"
+    NEVER = "never"
 
 
 class StatusUIMode(str, Enum):
@@ -119,6 +127,26 @@ class AgentConfig(BaseSettings):
         description="Anthropic model to use for vision tasks",
     )
 
+    # Gemini (Google) Configuration
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        description="Google Gemini API key (required if model_provider is gemini). Also checks GEMINI_API_KEY env var.",
+    )
+
+    @field_validator("gemini_api_key", mode="before")
+    @classmethod
+    def get_gemini_key(cls, v: Optional[str]) -> Optional[str]:
+        """Check multiple env vars for Gemini API key."""
+        import os
+        if v:
+            return v
+        return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+    gemini_model: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model to use for text and vision tasks",
+    )
+
     # Molmo/OpenRouter configuration
     openrouter_api_key: Optional[str] = Field(
         default=None,
@@ -167,22 +195,22 @@ class AgentConfig(BaseSettings):
 
     # Skill Librarian Configuration
     skill_librarian_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Promote high-confidence observations into canonical skills",
     )
     skill_librarian_min_confidence: float = Field(
-        default=0.7,
+        default=0.5,
         description="Minimum Bayesian score for promotion",
         gt=0.0,
         le=1.0,
     )
     skill_librarian_min_observations: int = Field(
-        default=5,
+        default=2,
         description="Minimum observation count before promotion",
         gt=0,
     )
     skill_librarian_min_runs: int = Field(
-        default=3,
+        default=1,
         description="Minimum distinct run_ids before promotion",
         gt=0,
     )
@@ -204,6 +232,69 @@ class AgentConfig(BaseSettings):
         description="Maximum number of iterations (steps + retries) before aborting",
         gt=0,
     )
+
+    # --- Gap 5: Infeasibility Detection ---
+    infeasibility_same_state_limit: int = Field(
+        default=3,
+        description="Consecutive same-state steps before triggering infeasibility check",
+        gt=0,
+    )
+    infeasibility_replan_limit: int = Field(
+        default=2,
+        description="Total replans before triggering infeasibility check",
+        gt=0,
+    )
+    infeasibility_max_advisory_checks: int = Field(
+        default=2,
+        description="Max 'still achievable' responses before hard abort",
+        gt=0,
+    )
+    infeasibility_timeout_s: float = Field(
+        default=30.0,
+        description="Timeout in seconds for infeasibility LLM call",
+        gt=0.0,
+    )
+    infeasibility_same_state_threshold: float = Field(
+        default=0.05,
+        description="Fraction of differing pixels below which a screen is 'same state'",
+        gt=0.0,
+        lt=1.0,
+    )
+
+    # --- Gap 6: User Confirmation ---
+    confirm_destructive: ConfirmMode = Field(
+        default=ConfirmMode.SMART,
+        description="Confirmation mode for destructive actions: always, smart, never",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If True, skip actual destructive confirmations and log instead",
+    )
+
+    @field_validator("confirm_destructive", mode="after")
+    @classmethod
+    def _validate_confirm_mode(cls, v: ConfirmMode) -> ConfirmMode:
+        """NEVER mode requires AGENT_CONFIRM_DESTRUCTIVE=never env var.
+
+        Falls back to SMART with a warning if the env var is missing or
+        has a different value — so the agent still runs.
+        """
+        import os
+        import warnings
+
+        if v == ConfirmMode.NEVER:
+            env_val = (
+                os.environ.get("AGENT_CONFIRM_DESTRUCTIVE", "").lower()
+            )
+            if env_val != "never":
+                warnings.warn(
+                    "confirm_destructive=never requires AGENT_CONFIRM_DESTRUCTIVE"
+                    " env var set to 'never'. Falling back to SMART mode.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                return ConfirmMode.SMART
+        return v
 
     @field_validator("openrouter_api_key", mode="before")
     @classmethod
@@ -295,6 +386,67 @@ class AgentConfig(BaseSettings):
         description="Show detailed LLM responses and reasoning in the status overlay",
     )
 
+    # Gap 1: Set-of-Mark
+    som_enabled: bool = Field(
+        default=False,
+        description="Enable Set-of-Mark numbered label overlay on screenshots",
+    )
+
+    # Gap 7: Dual-Resolution Grounding
+    dual_resolution_grounding: bool = Field(
+        default=False,
+        description="Enable dual-resolution grounding (full + crop to VLM)",
+    )
+    dual_res_threshold: int = Field(
+        default=1440,
+        description="Screenshot width threshold (px) for dual-res activation",
+        gt=0,
+    )
+    dual_res_timeout_s: float = Field(
+        default=30.0,
+        description="Timeout in seconds for dual-resolution VLM call. "
+                    "Falls back to single-image find_element() on timeout.",
+        gt=0.0,
+    )
+
+    # Gap 3: Embedding-Based Skill Retrieval
+    skill_embedding_enabled: bool = Field(
+        default=False,
+        description="Enable embedding-based skill retrieval",
+    )
+    skill_embedding_model: str = Field(
+        default="BAAI/bge-small-en-v1.5",
+        description="Embedding model for skill retrieval (fastembed model name)",
+    )
+    skill_embedding_rerank_threshold: float = Field(
+        default=0.92,
+        description="Skip LLM re-rank when top embedding similarity exceeds this",
+        gt=0.0,
+        le=1.0,
+    )
+    skill_embedding_min_gap: float = Field(
+        default=0.15,
+        description="Minimum gap between top-1 and top-2 embedding similarity "
+                    "required to skip LLM re-rank",
+        gt=0.0,
+        le=1.0,
+    )
+
+    # Gap 4: Lookahead/Simulation
+    lookahead_enabled: bool = Field(
+        default=False,
+        description="Enable pre-action lookahead for destructive steps",
+    )
+    lookahead_skip_when_confirmed: bool = Field(
+        default=True,
+        description="Skip lookahead when user confirmation is already active",
+    )
+    lookahead_timeout_s: float = Field(
+        default=15.0,
+        description="Timeout in seconds for lookahead VLM call",
+        gt=0.0,
+    )
+
     # Safety Configuration
     require_confirmation: bool = Field(
         default=False,
@@ -303,6 +455,12 @@ class AgentConfig(BaseSettings):
     blocked_apps: List[str] = Field(
         default_factory=lambda: ["System Preferences", "System Settings"],
         description="List of blocked application names",
+    )
+
+    # AC-6: Screenshot persistence
+    save_step_screenshots: bool = Field(
+        default=True,
+        description="Save screenshots at each step (observe, NOT_FOUND, post-action)",
     )
 
     @field_validator("log_dir")

@@ -51,7 +51,7 @@ async def run_self_test() -> bool:
     print("[3/3] Verifying 'Desktop is visible'...")
     try:
         result = await coordinator.verify_condition("Desktop is visible", screenshot_b64)
-        status = "YES" if result else "NO"
+        status = "YES" if result is True else ("UNCLEAR" if result is None else "NO")
         print(f"  Result: {status}\n")
     except Exception as e:
         print(f"  FAIL: Verification failed: {e}\n")

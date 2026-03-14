@@ -40,6 +40,13 @@ def _make_plan(steps, goal="Test goal"):
     return ActionPlan(steps=steps, goal=goal)
 
 
+class _AutoApproveHandler:
+    """Auto-approve all destructive confirmations in tests."""
+
+    async def confirm(self, step):
+        return True
+
+
 def _make_agent(
     planner,
     skill_registry,
@@ -58,6 +65,7 @@ def _make_agent(
         actuator=actuator,
         config=config,
         logger=logger,
+        confirmation_handler=_AutoApproveHandler(),
     )
 
 
@@ -1180,10 +1188,14 @@ class TestBugFixes:
         assert "generic_retry" in strategy
         assert retry_step.params.get("_pre_delay") == 0.5
 
-    async def test_missing_target_no_alternative_triggers_replan_on_attempt_2(
+    async def test_missing_target_no_alternative_triggers_replan_on_attempt_3(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
     ):
-        """Missing target with no suggested element should replan after first refined attempt."""
+        """Missing target with no suggested element should replan after scroll + refine attempts.
+
+        Strategy order: attempt 1 = scroll_down_and_retry, attempt 2 = refine_missing_target_query,
+        attempt 3+ = replan_missing_target.
+        """
         logger = EventLogger(tmp_log_dir)
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
@@ -1194,7 +1206,7 @@ class TestBugFixes:
         )
         prev = StepResult(
             step=step, success=False, evidence="not found",
-            error="Element not found: Submit", retry_count=1,
+            error="Element not found: Submit", retry_count=2,
         )
 
         strategy, retry_step = agent._vary_strategy(step, prev)

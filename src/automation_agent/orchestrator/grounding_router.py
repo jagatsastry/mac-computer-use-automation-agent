@@ -233,7 +233,7 @@ class GroundingRouter:
         accessibility_summary: str,
     ) -> Optional[GroundingStrategy]:
         """Ask a reasoning model whether AX or vision should be trusted first."""
-        if not self.config or not self.config.anthropic_api_key:
+        if not self.config:
             return None
 
         prompt = (
@@ -246,19 +246,36 @@ class GroundingRouter:
             "Respond with ONLY one word: ACCESSIBILITY or VISION."
         )
 
-        try:
-            import anthropic
-        except ImportError:
-            return None
+        provider = getattr(self.config.model_provider, "value", self.config.model_provider)
 
         try:
-            client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
-            message = await client.messages.create(
-                model=self.config.anthropic_model,
-                max_tokens=16,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = message.content[0].text.strip().upper()
+            if provider == "gemini":
+                if not self.config.gemini_api_key:
+                    return None
+                import asyncio
+                from google import genai
+                client = genai.Client(api_key=self.config.gemini_api_key)
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=self.config.gemini_model,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(max_output_tokens=16, temperature=0.0),
+                )
+                text = (response.text or "").strip().upper()
+            else:
+                if not self.config.anthropic_api_key:
+                    return None
+                try:
+                    import anthropic
+                except ImportError:
+                    return None
+                client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
+                message = await client.messages.create(
+                    model=self.config.anthropic_model,
+                    max_tokens=16,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                text = message.content[0].text.strip().upper()
         except Exception:
             logger.debug("LLM grounding classification failed", exc_info=True)
             return None

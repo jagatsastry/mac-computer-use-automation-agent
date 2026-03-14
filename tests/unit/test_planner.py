@@ -544,7 +544,11 @@ class TestResilientParsing:
     """Tests for graceful handling of invalid LLM-generated actions."""
 
     async def test_invalid_steps_skipped_valid_kept(self, planner):
-        """Plan with mix of valid and invalid steps keeps valid ones."""
+        """Plan with mix of valid and invalid steps keeps valid ones.
+
+        With smart fallback (Fix 2), unknown actions like hover_over map to
+        click. Only wait/scroll/delay/sleep/pause actions are truly skipped.
+        """
         steps_data = [
             {
                 "action": "activate_app",
@@ -552,7 +556,7 @@ class TestResilientParsing:
                 "verify": "Safari open",
             },
             {
-                "action": "hover_over",  # invalid, not aliased
+                "action": "hover_over",  # unknown -> smart fallback to click
                 "params": {"element": "link"},
                 "verify": "Link highlighted",
             },
@@ -561,23 +565,29 @@ class TestResilientParsing:
         planner._call_llm = AsyncMock(return_value=_make_llm_response(steps_data))
 
         plan = await planner.plan("Open Safari")
-        # hover_over should have been skipped
-        assert len(plan.steps) == 2
+        # hover_over maps to click via smart fallback
+        assert len(plan.steps) == 3
         assert plan.steps[0].action == "activate_app"
-        assert plan.steps[1].action == "done"
+        assert plan.steps[1].action == "click"  # smart fallback
+        assert plan.steps[2].action == "done"
 
     async def test_all_invalid_steps_raises(self, planner):
-        """Plan with only invalid steps raises ValueError."""
+        """Plan with only truly unskippable invalid steps still gets fallback.
+
+        With smart fallback (Fix 2), unknown actions map to click/type_text.
+        Only wait/scroll/delay/sleep/pause keywords cause true skips. Use those
+        to test the 'all invalid' path.
+        """
         steps_data = [
             {
-                "action": "hover_over",
+                "action": "wait_for_animation",
                 "params": {},
-                "verify": "Hovering",
+                "verify": "Animation done",
             },
             {
-                "action": "drag_and_drop",
+                "action": "scroll_to_element",
                 "params": {},
-                "verify": "Dropped",
+                "verify": "Scrolled",
             },
         ]
         planner._call_llm = AsyncMock(return_value=_make_llm_response(steps_data))
@@ -652,6 +662,11 @@ class TestAbsentElementsReplan:
 
 class TestAPIRetry:
     """Tests for API retry with exponential backoff."""
+
+    @pytest.fixture(autouse=True)
+    def _force_anthropic(self, planner):
+        """Retry tests exercise the Anthropic path."""
+        planner.config.model_provider = "anthropic"
 
     async def test_retry_on_529_overloaded(self, planner):
         """_call_llm retries on 529 (overloaded) errors."""
@@ -750,3 +765,73 @@ class TestAPIRetry:
                 await planner._call_llm("test prompt")
 
         assert call_count == 5  # 1 initial + 4 retries
+
+
+# ---------------------------------------------------------------------------
+# P0-3: _is_truncated_plan() interaction-count tests
+# ---------------------------------------------------------------------------
+
+
+class TestIsTruncatedPlan:
+    """Test the enhanced _is_truncated_plan with interaction counting."""
+
+    @staticmethod
+    def _make_plan(actions: list[str]) -> ActionPlan:
+        steps = [
+            ActionStep(action=a, params={}, verify=f"{a} done")
+            for a in actions
+        ]
+        return ActionPlan(steps=steps)
+
+    def test_truncated_plan_no_interactions(self):
+        """Plan has 0 interactions, fallback has 3 -> truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(["open_url", "activate_app", "done"])
+        fallback = self._make_plan(["open_url", "click", "type_text", "click", "done"])
+        assert AutomationAgent._is_truncated_plan(plan, fallback) is True
+
+    def test_truncated_plan_shallow(self):
+        """Plan has 1 interaction, fallback has 3+ -> truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(["open_url", "click", "done"])
+        fallback = self._make_plan(
+            ["open_url", "click", "type_text", "click", "scroll", "done"]
+        )
+        assert AutomationAgent._is_truncated_plan(plan, fallback) is True
+
+    def test_not_truncated_plan_sufficient(self):
+        """Plan has 3 interactions, fallback has 3 -> not truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(["open_url", "click", "type_text", "click", "done"])
+        fallback = self._make_plan(
+            ["open_url", "click", "type_text", "click", "done"]
+        )
+        assert AutomationAgent._is_truncated_plan(plan, fallback) is False
+
+    def test_not_truncated_no_fallback(self):
+        """No fallback -> never truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(["open_url", "done"])
+        assert AutomationAgent._is_truncated_plan(plan, None) is False
+
+    def test_not_truncated_fallback_also_shallow(self):
+        """Both plan and fallback have few interactions -> not truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(["open_url", "click", "done"])
+        fallback = self._make_plan(["open_url", "click", "done"])
+        assert AutomationAgent._is_truncated_plan(plan, fallback) is False
+
+    def test_plan_more_interactions_than_fallback(self):
+        """Plan has more interactions than fallback -> not truncated."""
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        plan = self._make_plan(
+            ["open_url", "click", "type_text", "click", "scroll", "done"]
+        )
+        fallback = self._make_plan(["open_url", "click", "done"])
+        assert AutomationAgent._is_truncated_plan(plan, fallback) is False

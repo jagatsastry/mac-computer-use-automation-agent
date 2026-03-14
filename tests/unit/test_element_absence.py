@@ -34,6 +34,8 @@ def _make_config(**overrides) -> AgentConfig:
         "_env_file": None,
         "anthropic_api_key": "test-key-not-real",
         "model_provider": "local",
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)
@@ -41,6 +43,13 @@ def _make_config(**overrides) -> AgentConfig:
 
 def _make_plan(steps, goal="Test goal"):
     return ActionPlan(steps=steps, goal=goal)
+
+
+class _AutoApproveHandler:
+    """Auto-approve all destructive confirmations in tests."""
+
+    async def confirm(self, step):
+        return True
 
 
 def _make_agent(planner, skill_registry, coordinator, actuator, logger, config=None):
@@ -53,6 +62,7 @@ def _make_agent(planner, skill_registry, coordinator, actuator, logger, config=N
         actuator=actuator,
         config=config,
         logger=logger,
+        confirmation_handler=_AutoApproveHandler(),
     )
 
 
@@ -66,6 +76,52 @@ def _element_not_found_result(step, element="Return or Replace Items", retry_cou
         error=f"Element not found: {element}",
         retry_count=retry_count,
     )
+
+
+def _bypass_scroll_recovery(agent):
+    """Patch scroll recovery and scroll-first retry to return failure immediately.
+
+    Tests that focus on absence detection/replan behavior need the NOT_FOUND
+    path to reach _handle_failure without being intercepted by the scroll
+    recovery loop or scroll-down-and-retry strategy (which are tested
+    separately in test_execution_recovery.py).
+    """
+    async def _quick_scroll_fail(step, result, history, goal, max_scrolls=3):
+        return StepResult(
+            step=step,
+            success=False,
+            error=f"Element not found after {max_scrolls} scrolls: "
+                  f"{step.params.get('element', '')}",
+            evidence="Scroll recovery exhausted (bypassed in test)",
+        )
+    agent._scroll_recovery = _quick_scroll_fail
+
+    # Also bypass the scroll_down_and_retry in _vary_strategy by wrapping it
+    # to skip that particular strategy and fall through to the old behavior.
+    original_vary = agent._vary_strategy
+
+    def _vary_no_scroll(step, prev_result):
+        strategy_name, retry_step = original_vary(step, prev_result)
+        if strategy_name == "scroll_down_and_retry":
+            # Simulate attempt 2 behavior (refine query) instead of scrolling
+            params = dict(step.params)
+            params["element"] = (
+                f"{params['element']} (visible on the same relevant card/section only)"
+            )
+            return (
+                "refine_missing_target_query",
+                ActionStep(
+                    action="click",
+                    params=params,
+                    verify=step.verify,
+                    expected_observation=step.expected_observation,
+                    on_fail=step.on_fail,
+                    max_retries=step.max_retries,
+                ),
+            )
+        return strategy_name, retry_step
+
+    agent._vary_strategy = _vary_no_scroll
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +160,8 @@ class TestAbsenceCounter:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my headphones on Amazon")
 
@@ -199,6 +257,7 @@ class TestAbsenceCounter:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my headphones")
 
@@ -252,6 +311,7 @@ class TestAbsenceCounter:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my headphones")
 
@@ -299,6 +359,7 @@ class TestAbsenceCounter:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my headphones")
 
@@ -343,6 +404,7 @@ class TestAbsenceCounter:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my headphones")
 
@@ -391,6 +453,7 @@ class TestReplanAbsenceContext:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         await agent.execute("Return my headphones")
 
@@ -529,6 +592,7 @@ class TestDoneAbortReason:
         agent = _make_agent(
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
+        _bypass_scroll_recovery(agent)
 
         result = await agent.execute("Return my subscription item")
 

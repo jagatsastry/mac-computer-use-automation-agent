@@ -50,7 +50,10 @@ def _make_config(**overrides):
 
     defaults = {
         "vision_model": "molmo",
+        "model_provider": "local",
         "log_dir": "/tmp/test_arch_improvement_logs",
+        "grounding_model": "",
+        "grounding_server_url": "",
     }
     defaults.update(overrides)
     return AgentConfig(**defaults)
@@ -595,7 +598,7 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Submit"},
-            verify="Form is submitted",  # 'submit' in verify -> critical
+            verify="Form is submitted",  # 'Submit' in element -> critical
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
@@ -605,10 +608,8 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Pay"},
-            verify="Payment confirmed",  # 'pay' not directly, but keyword 'confirm' present? No.
-            # 'pay' in keyword set
+            verify="Payment confirmed",  # 'Pay' in element -> critical
         )
-        # "confirm" is also in keywords; ensure at least one triggers
         assert agent._get_confidence_threshold(step) == 0.9
 
     def test_critical_threshold_for_delete(self, agent):
@@ -617,7 +618,7 @@ class TestConfidenceGating:
         step = ActionStep(
             action="click",
             params={"element": "Delete"},
-            verify="File deleted",  # 'delete' in verify
+            verify="File deleted",  # 'Delete' in element -> critical
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
@@ -626,26 +627,111 @@ class TestConfidenceGating:
 
         step = ActionStep(
             action="click",
-            params={"element": "Send button"},
-            # "send" must appear as substring — "sent" does NOT contain "send"
-            verify="Please send this email to recipient",
+            params={"element": "Send button"},  # 'Send' in element -> critical
+            verify="Email is sent to recipient",
         )
         assert agent._get_confidence_threshold(step) == 0.9
 
-    def test_keyword_case_insensitive_in_verify(self, agent):
+    def test_keyword_case_insensitive_in_element(self, agent):
         from automation_agent.shared_models import ActionStep
 
         step = ActionStep(
             action="click",
-            params={"element": "OK"},
-            verify="Order was CONFIRMED successfully",
+            params={"element": "CONFIRM order"},
+            verify="Order was placed successfully",
         )
         assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_add_to_cart_uses_default_threshold(self, agent):
+        """Add to cart is NOT critical — easily reversible."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Add to cart button"},
+            verify="Cart confirmation appears or cart icon badge updates",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
 
     def test_empty_verify_uses_default_threshold(self, agent):
         from automation_agent.shared_models import ActionStep
 
         step = ActionStep(action="click", params={"element": "OK"}, verify="")
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    # ---- safe-navigation exemptions ----
+
+    def test_purchase_history_exempt_from_critical(self, agent):
+        """'Purchase History' is navigation, not a destructive purchase."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase History"},
+            verify="Purchase history page is visible",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_order_history_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Order History"},
+            verify="Order history page loaded",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_view_order_details_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "View order details for Listerine"},
+            verify="Order detail page is loaded",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_remove_filter_exempt_from_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Remove filter"},
+            verify="Filters have been cleared",
+        )
+        assert agent._get_confidence_threshold(step) == 0.5
+
+    def test_pure_purchase_still_critical(self, agent):
+        """Plain 'purchase' without safe-navigation context stays at 0.9."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Purchase now"},
+            verify="Item purchased successfully",
+        )
+        assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_pure_delete_still_critical(self, agent):
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Delete email"},
+            verify="Email deleted",
+        )
+        assert agent._get_confidence_threshold(step) == 0.9
+
+    def test_send_back_exempt_from_critical(self, agent):
+        """'send back' is a return action, not sending a message."""
+        from automation_agent.shared_models import ActionStep
+
+        step = ActionStep(
+            action="click",
+            params={"element": "Send back item"},
+            verify="Return initiated",
+        )
         assert agent._get_confidence_threshold(step) == 0.5
 
     # ---- gating behaviour ----
@@ -1115,8 +1201,10 @@ class TestValidateCandidate:
         log_dir.mkdir()
 
         coordinator = AsyncMock()
+        # Use source="" so pre-click validation runs (source="vision" now skips it,
+        # matching the grounding router fix in cycle 2).
         coordinator.find_element = AsyncMock(
-            return_value=FindElementResult(x=100, y=100, confidence=0.6, source="vision")
+            return_value=FindElementResult(x=100, y=100, confidence=0.6, source="")
         )
         coordinator.describe_screen = AsyncMock(return_value="screen")
         coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())

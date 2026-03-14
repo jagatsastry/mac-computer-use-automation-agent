@@ -3,24 +3,35 @@
 import logging
 import re
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import structlog
 
 from automation_agent.config import AgentConfig
+from automation_agent.logging.models import EventType
 from automation_agent.shared_models import (
     MatchType,
     SkillMatchResult,
     SkillRouteCandidate,
     StepResult,
 )
+
+if TYPE_CHECKING:
+    from automation_agent.skills.embeddings import EmbeddingIndex
 from automation_agent.skills.distiller import SkillDistiller
 from automation_agent.skills.experience import SkillExperienceStore
 from automation_agent.skills.loader import load_skill_from_file, parse_skill_file
 from automation_agent.skills.matcher import match_skill
 from automation_agent.skills.models import Skill, SkillCard, SkillObservation
-from automation_agent.skills.router import MIN_USEFUL_CONFIDENCE, SkillRouter
+from automation_agent.skills.router import (
+    MIN_USEFUL_CONFIDENCE,
+    SkillRouter,
+    _SEED_SITES,
+    _build_known_sites,
+    extract_site_entity,
+)
 
 std_logger = logging.getLogger(__name__)
 logger = structlog.get_logger(__name__)
@@ -67,11 +78,13 @@ class SkillRegistryImpl:
         self,
         skill_dir: Optional[Path] = None,
         config: Optional[AgentConfig] = None,
+        event_logger: Optional[Any] = None,
     ) -> None:
         self._skills: Dict[str, Skill] = {}
         self._cards: list[SkillCard] = []
         self._skill_dir = skill_dir or Path(__file__).parent / "library"
         self._config = config
+        self._event_logger = event_logger
         self._experience_store: Optional[SkillExperienceStore] = None
         self._distiller: Optional[SkillDistiller] = None
         self._librarian = None
@@ -90,15 +103,19 @@ class SkillRegistryImpl:
                 experience_store=self._experience_store,
                 registry=self,
             )
+        self._known_sites: frozenset = _SEED_SITES
         if self._skill_dir.is_dir():
             self.load_from_directory(self._skill_dir)
         # Router created lazily after skills are loaded
         self._router: Optional[SkillRouter] = None
+        # Gap 3: Embedding index for semantic skill retrieval
+        self._embedding_index: Optional["EmbeddingIndex"] = None
         if self._config is not None:
             self._rebuild_router()
 
     def _rebuild_router(self) -> None:
-        """Rebuild the router and cached cards from current skills."""
+        """Rebuild the router, cached cards, and embedding index from current skills."""
+        self._known_sites = _build_known_sites(self._skills)
         self._cards = _build_all_cards(self._skills)
         if len(self._cards) >= 25:
             logger.warning(
@@ -107,6 +124,53 @@ class SkillRegistryImpl:
             )
         if self._config is not None:
             self._router = SkillRouter(self._config, self._skills, self._cards)
+
+        # AC-18: rebuild embedding index when skills change
+        if self._config and self._config.skill_embedding_enabled:
+            try:
+                from automation_agent.skills.embeddings import EmbeddingIndex
+
+                if self._embedding_index is None:
+                    self._embedding_index = EmbeddingIndex(
+                        self._config.skill_embedding_model
+                    )
+                trusted_skills = {
+                    name: skill
+                    for name, skill in self._skills.items()
+                    if skill.metadata.get("trusted", True)
+                }
+                _build_start = time.monotonic()
+                self._embedding_index.build(trusted_skills)
+                _build_ms = int((time.monotonic() - _build_start) * 1000)
+                logger.info(
+                    "embedding_index_built",
+                    skill_count=len(trusted_skills),
+                    model=self._config.skill_embedding_model,
+                    duration_ms=_build_ms,
+                )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_BUILD,
+                        f"Embedding index built ({len(trusted_skills)} skills)",
+                        data={
+                            "skill_count": len(trusted_skills),
+                            "model": self._config.skill_embedding_model,
+                        },
+                        duration_ms=_build_ms,
+                    )
+            except (ImportError, OSError, RuntimeError) as e:
+                # AC-19: graceful degradation
+                std_logger.warning(
+                    "Embedding index build failed: %s. Falling back to keyword matching.",
+                    e,
+                )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_ERROR,
+                        f"Embedding build failed: {e}",
+                        data={"error": str(e)},
+                    )
+                self._embedding_index = None
 
     def load_from_directory(self, path: Path) -> None:
         """Load all .md skill files from a directory.
@@ -126,11 +190,13 @@ class SkillRegistryImpl:
                 if not _os_matches(skill.requires.os):
                     continue
                 if skill.name in self._skills:
-                    std_logger.warning(
-                        "Duplicate skill name '%s': '%s' overwrites previous definition",
+                    std_logger.error(
+                        "Duplicate skill name '%s': '%s' conflicts with previous "
+                        "definition — skipping duplicate",
                         skill.name,
                         md_file,
                     )
+                    continue  # Skip duplicate instead of overwriting
                 self._skills[skill.name] = skill
             except Exception:
                 # Skip malformed files during loading; validate_all catches them
@@ -153,23 +219,191 @@ class SkillRegistryImpl:
         self._rebuild_router()
         return skill
 
-    async def match(self, prompt: str) -> Optional[SkillMatchResult]:
-        """Find a matching skill for the given prompt.
+    def _build_match_result(
+        self,
+        skill: Skill,
+        prompt: str,
+        candidates: list[SkillRouteCandidate],
+        params: Optional[Dict[str, str]] = None,
+    ) -> SkillMatchResult:
+        """Helper to build SkillMatchResult from a skill and candidates."""
+        params = params or {}
+        try:
+            expanded = self.expand(skill.name, params)
+        except (ValueError, KeyError):
+            expanded = None
+        skill_context = self._build_multi_skill_context(candidates, params)
+        return SkillMatchResult(
+            skill_name=skill.name,
+            expanded_steps=expanded or skill.steps_text,
+            skill_context=skill_context,
+            params=params,
+            candidates=candidates,
+        )
 
-        Uses the LLM-driven SkillRouter when available, falling back to
-        keyword matching if the router is not configured or the LLM call fails.
+    async def match(self, prompt: str) -> Optional[SkillMatchResult]:
+        """AC-17: Three-stage pipeline — embed → conditional LLM re-rank → keyword fallback.
 
         Returns:
             SkillMatchResult with skill_name, expanded_steps, skill_context,
             params, and candidates, or None if no match.
         """
-        # Primary path: LLM router
+        # Site entity extraction: pre-pass before routing
+        site_entities = extract_site_entity(prompt, self._known_sites)
+
+        # Multiple conflicting sites -> return no match
+        if site_entities and len(site_entities) > 1:
+            logger.info(
+                "Multiple sites in prompt, returning no match",
+                sites=site_entities,
+            )
+            if self._event_logger:
+                self._event_logger.log_event(
+                    EventType.SKILL_NO_MATCH,
+                    "Multi-site conflict: {}".format(site_entities),
+                    data={
+                        "extracted_sites": site_entities,
+                        "reason": "multi_site_conflict",
+                    },
+                )
+            return None
+
+        site_entity = site_entities[0] if site_entities else None
+
+        if site_entities and self._event_logger:
+            self._event_logger.log_event(
+                EventType.SKILL_MATCH,
+                "Site entity extracted: {}".format(site_entities),
+                data={"extracted_sites": site_entities, "filter_applied": True},
+            )
+
+        # Stage 1: Embedding retrieval (AC-20: gated by config)
+        if (
+            self._config
+            and self._config.skill_embedding_enabled
+            and self._embedding_index is not None
+        ):
+            _emb_start = time.monotonic()
+            emb_candidates = self._embedding_index.query(prompt, top_k=5)
+            _emb_duration = int((time.monotonic() - _emb_start) * 1000)
+
+            # Observability (DE review round 3, issue 13): structured embedding query log
+            if emb_candidates:
+                logger.info(
+                    "embedding_query",
+                    event_type="embedding_query",
+                    top_skill=emb_candidates[0].skill_id,
+                    top_sim=round(emb_candidates[0].confidence, 3),
+                    top_k=[
+                        {"id": c.skill_id, "sim": round(c.confidence, 3)}
+                        for c in emb_candidates
+                    ],
+                    prompt=prompt[:100],
+                    duration_ms=_emb_duration,
+                )
+                if self._event_logger:
+                    self._event_logger.log_event(
+                        EventType.EMBEDDING_QUERY,
+                        f"Embedding query: top={emb_candidates[0].skill_id} "
+                        f"sim={emb_candidates[0].confidence:.3f}",
+                        data={
+                            "top_skill": emb_candidates[0].skill_id,
+                            "top_sim": round(emb_candidates[0].confidence, 3),
+                            "candidate_count": len(emb_candidates),
+                        },
+                        duration_ms=_emb_duration,
+                    )
+
+            if emb_candidates:
+                top_sim = emb_candidates[0].confidence
+                top_gap = (
+                    emb_candidates[0].confidence - emb_candidates[1].confidence
+                    if len(emb_candidates) > 1
+                    else 1.0
+                )
+
+                # AC-17: skip LLM re-rank for clear winners
+                if (
+                    top_sim >= self._config.skill_embedding_rerank_threshold
+                    and top_gap >= self._config.skill_embedding_min_gap
+                ):
+                    best = emb_candidates[0]
+                    # Site filter: reject clear winner if wrong site
+                    site_ok = True
+                    if site_entity:
+                        filtered = self._filter_by_site([best], site_entity)
+                        if not filtered:
+                            logger.info(
+                                "Embedding clear winner filtered by site",
+                                skill_id=best.skill_id,
+                                site_entity=site_entity,
+                            )
+                            site_ok = False
+                        else:
+                            best = filtered[0]
+
+                    if site_ok:
+                        skill = self._skills.get(best.skill_id)
+                        if skill:
+                            logger.info(
+                                "embedding_rerank_skip",
+                                event_type="embedding_rerank_skip",
+                                skill_id=best.skill_id,
+                                similarity=top_sim,
+                                gap=top_gap,
+                            )
+                            if self._event_logger:
+                                self._event_logger.log_event(
+                                    EventType.EMBEDDING_RERANK_SKIP,
+                                    f"Embedding rerank skipped: {best.skill_id} "
+                                    f"(sim={top_sim:.3f}, gap={top_gap:.3f})",
+                                    data={
+                                        "skill_id": best.skill_id,
+                                        "similarity": round(top_sim, 3),
+                                        "gap": round(top_gap, 3),
+                                    },
+                                )
+                            return self._build_match_result(
+                                skill, prompt, [best]
+                            )
+                    # site_ok=False: fall through to Stage 2a/2b
+
+                # Stage 2a: LLM re-rank on embedding candidates only
+                if self._router is not None:
+                    route_result = await self._router.route(
+                        prompt,
+                        candidate_ids=[c.skill_id for c in emb_candidates],
+                    )
+                    if route_result and route_result.primary:
+                        valid = [
+                            c
+                            for c in route_result.candidates
+                            if c.confidence >= MIN_USEFUL_CONFIDENCE
+                        ]
+                        # Site filter for Stage 2a
+                        if site_entity and valid:
+                            valid = self._filter_by_site(valid, site_entity)
+                        if valid:
+                            # Finding 7 fix: use valid[0].skill_id, not route_result.primary
+                            skill = self._skills.get(valid[0].skill_id)
+                            if skill:
+                                params = route_result.params or {}
+                                logger.info(
+                                    "Skill matched via embedding + LLM re-rank",
+                                    skill_name=valid[0].skill_id,
+                                    params=params,
+                                )
+                                return self._build_match_result(
+                                    skill, prompt, valid, params
+                                )
+
+        # Stage 2b fallback: full LLM routing (existing behavior)
         if self._router is not None:
             router_result = await self._router.route(prompt)
             if router_result is not None:
-                # Filter out candidates below MIN_USEFUL_CONFIDENCE
                 valid = [
-                    c for c in router_result.candidates
+                    c
+                    for c in router_result.candidates
                     if c.confidence >= MIN_USEFUL_CONFIDENCE
                 ]
                 if not valid:
@@ -179,9 +413,18 @@ class SkillRegistryImpl:
                     )
                     return None
 
+                # Site filter: remove wrong-site candidates
+                if site_entity and valid:
+                    valid = self._filter_by_site(valid, site_entity)
+                    if not valid:
+                        logger.info(
+                            "All candidates filtered by site entity",
+                            site_entity=site_entity,
+                        )
+                        return None
+
                 primary = valid[0]
                 skill_name = primary.skill_id
-                # Get params from router result
                 params = router_result.params or {}
                 try:
                     expanded = self.expand(skill_name, params)
@@ -204,11 +447,23 @@ class SkillRegistryImpl:
                     candidates=valid,
                 )
 
-        # Fallback: keyword matching (no param extraction)
+        # Stage 3: keyword fallback (no param extraction)
         result = match_skill(prompt, list(self._skills.values()))
         if result is None:
             return None
         skill, params, hit_count = result
+
+        # Site filter for keyword fallback
+        if site_entity:
+            skill_site = (skill.metadata.get("site") or "").lower()
+            if skill_site and skill_site != site_entity:
+                logger.info(
+                    "Keyword fallback filtered by site entity",
+                    skill_name=skill.name,
+                    skill_site=skill_site,
+                    expected_site=site_entity,
+                )
+                return None
 
         # Compute proportional confidence from keyword hits
         total_keywords = len(skill.trigger_keywords)
@@ -294,6 +549,36 @@ class SkillRegistryImpl:
 
         return "\n".join(sections).strip()
 
+    def _filter_by_site(
+        self,
+        candidates: list,
+        site_entity: str,
+    ) -> list:
+        """Remove candidates whose site metadata mismatches the extracted entity.
+
+        A skill with no site metadata is kept (generic skills are not filtered).
+        A skill whose site matches the entity is kept.
+        A skill whose site DIFFERS from the entity is removed entirely.
+        """
+        filtered = []
+        for c in candidates:
+            skill = self._skills.get(c.skill_id)
+            if skill is None:
+                continue
+            skill_site = (skill.metadata.get("site") or "").lower()
+            if not skill_site:
+                filtered.append(c)
+            elif skill_site == site_entity:
+                filtered.append(c)
+            else:
+                logger.info(
+                    "Suppressing wrong-site candidate",
+                    skill_id=c.skill_id,
+                    skill_site=skill_site,
+                    expected_site=site_entity,
+                )
+        return filtered
+
     def list_skills(self) -> List[Dict[str, str]]:
         """List all available skills with name and description."""
         return [
@@ -339,7 +624,7 @@ class SkillRegistryImpl:
         def _replace_placeholder(m: re.Match) -> str:
             pname = m.group(1)
             if pname in params:
-                return params[pname]
+                return str(params[pname])
             # Optional param not provided -- log warning and strip
             std_logger.warning(
                 "Unexpanded placeholder '{{%s}}' in skill '%s' (stripped)",

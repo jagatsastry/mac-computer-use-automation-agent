@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automation Agent Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a1a; color: #e0e0e0; overflow-x: hidden; }
+
+  .header { text-align: center; padding: 30px 20px 10px; }
+  .header h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+  .header p { font-size: 14px; color: #888; }
+
+  .legend { display: flex; justify-content: center; gap: 24px; padding: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .legend-dot.claude { background: #d4a574; }
+  .legend-dot.molmo { background: #7eb8da; }
+  .legend-dot.local { background: #8bc98b; }
+  .legend-dot.system { background: #b0b0cc; }
+
+  .flow-container { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+  .node {
+    position: relative;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid transparent;
+  }
+  .node:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .node.claude { background: #1a1510; border-color: #3d2e1a; }
+  .node.claude:hover { border-color: #d4a574; }
+  .node.molmo { background: #0f1620; border-color: #1a2d3d; }
+  .node.molmo:hover { border-color: #7eb8da; }
+  .node.local { background: #0f1a0f; border-color: #1a3d1a; }
+  .node.local:hover { border-color: #8bc98b; }
+  .node.system { background: #14141e; border-color: #2a2a3d; }
+  .node.system:hover { border-color: #b0b0cc; }
+
+  .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .node-number { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; }
+  .node.claude .node-number { color: #d4a574; }
+  .node.molmo .node-number { color: #7eb8da; }
+  .node.local .node-number { color: #8bc98b; }
+  .node.system .node-number { color: #b0b0cc; }
+  .node-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+  .node.claude .node-badge { background: #d4a57422; color: #d4a574; }
+  .node.molmo .node-badge { background: #7eb8da22; color: #7eb8da; }
+  .node.local .node-badge { background: #8bc98b22; color: #8bc98b; }
+  .node.system .node-badge { background: #b0b0cc22; color: #b0b0cc; }
+
+  .node-title { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+  .node-desc { font-size: 13px; color: #999; line-height: 1.5; }
+
+  .node-details {
+    max-height: 0; overflow: hidden; transition: max-height 0.4s ease, padding 0.4s ease;
+    border-top: 1px solid transparent; margin-top: 0;
+  }
+  .node.expanded .node-details {
+    max-height: 600px; padding-top: 14px; margin-top: 14px;
+    border-top-color: #ffffff10;
+  }
+
+  .detail-row { display: flex; margin-bottom: 8px; font-size: 13px; }
+  .detail-label { color: #777; width: 100px; flex-shrink: 0; }
+  .detail-value { color: #ccc; }
+  .detail-value code { background: #ffffff10; padding: 1px 6px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 12px; }
+
+  .connector {
+    display: flex; align-items: center; justify-content: center;
+    height: 32px; position: relative;
+  }
+  .connector-line {
+    width: 2px; height: 100%; background: linear-gradient(to bottom, #333, #444);
+  }
+  .connector-label {
+    position: absolute; font-size: 11px; color: #666;
+    background: #0a0a1a; padding: 0 8px;
+  }
+
+  .branch-container { display: flex; gap: 8px; margin-bottom: 8px; }
+  .branch-container .node { flex: 1; }
+
+  .loop-wrapper {
+    border: 2px dashed #2a2a3d; border-radius: 16px;
+    padding: 16px; margin-bottom: 8px; position: relative;
+  }
+  .loop-label {
+    position: absolute; top: -10px; left: 20px;
+    background: #0a0a1a; padding: 0 10px;
+    font-size: 11px; color: #888; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  .fail-branch { display: flex; gap: 8px; margin-top: 8px; }
+  .fail-option {
+    flex: 1; padding: 12px 14px; border-radius: 8px;
+    background: #1a1015; border: 1px solid #3d1a2a;
+    font-size: 12px; text-align: center; color: #cc8899;
+    transition: all 0.2s;
+  }
+  .fail-option:hover { border-color: #cc8899; background: #2a1520; }
+  .fail-option .fail-title { font-weight: 600; margin-bottom: 4px; }
+  .fail-option .fail-desc { color: #886; font-size: 11px; }
+
+  .tier-stack { display: flex; flex-direction: column; gap: 4px; }
+  .tier {
+    display: flex; align-items: center; padding: 10px 14px; border-radius: 8px;
+    font-size: 13px; transition: all 0.2s;
+  }
+  .tier:hover { transform: translateX(4px); }
+  .tier-num { font-weight: 700; width: 24px; flex-shrink: 0; }
+  .tier-name { flex: 1; }
+  .tier-speed { font-size: 11px; opacity: 0.6; margin-left: 8px; }
+  .tier-0 { background: #8bc98b15; border-left: 3px solid #8bc98b; color: #8bc98b; }
+  .tier-1 { background: #8bc98b10; border-left: 3px solid #6ba06b; color: #8bc98b; }
+  .tier-2 { background: #d4a57415; border-left: 3px solid #d4a574; color: #d4a574; }
+
+  .cost-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+  .cost-table th { text-align: left; font-size: 11px; color: #666; padding: 8px 12px; border-bottom: 1px solid #222; text-transform: uppercase; letter-spacing: 1px; }
+  .cost-table td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #151520; }
+  .cost-table tr:hover td { background: #ffffff05; }
+
+  .expand-hint { font-size: 11px; color: #555; text-align: center; padding: 8px; margin-top: -4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>macOS Automation Agent</h1>
+  <p>Execution flow &mdash; click any step to expand details</p>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot claude"></div> Claude Sonnet 4 (API)</div>
+  <div class="legend-item"><div class="legend-dot molmo"></div> Molmo v1 (Local MLX)</div>
+  <div class="legend-item"><div class="legend-dot local"></div> Local / Actuator</div>
+  <div class="legend-item"><div class="legend-dot system"></div> System Logic</div>
+</div>
+
+<div class="flow-container">
+
+  <!-- Step 1: User Prompt -->
+  <div class="node system" onclick="toggle(this)">
+    <div class="node-header">
+      <span class="node-number">Input</span>
+      <span class="node-badge">User</span>
+    </div>
+    <div class="node-title">User Prompt</div>
+    <div class="node-desc">"Return my listerine on amazon"</div>
+    <div class="node-details">
+      <div class="detail-row"><span class="detail-label">Accepts</span><span class="detail-value">Natural language, any complexity</span></div>
+      <div class="detail-row"><span class="detail-label">Example</span><span class="detail-value"><code>automation-agent "Return my listerine on amazon"</code></span></div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div></div>
+
+  <!-- Step 2: Skill Matching -->
+  <div class="node system" onclick="toggle(this)">
+    <div class="node-header">
+      <span class="node-number">Step 1</span>
+      <span class="node-badge">Registry</span>
+    </div>
+    <div class="node-title">Skill Matching</div>
+    <div class="node-desc">Scans trigger keywords against skill library &rarr; returns skill template + match type</div>
+    <div class="node-details">
+      <div class="detail-row"><span class="detail-label">Input</span><span class="detail-value">User prompt text</span></div>
+      <div class="detail-row"><span class="detail-label">Match</span><span class="detail-value"><code>return-amazon-order</code> (keywords: return, amazon)</span></div>
+      <div class="detail-row"><span class="detail-label">Types</span><span class="detail-value"><strong>direct</strong> (exact task), analogical (similar), generic (vague)</span></div>
+      <div class="detail-row"><span class="detail-label">Output</span><span class="detail-value">Skill steps + verify conditions injected into planner context</span></div>
+      <div class="detail-row"><span class="detail-label">Latency</span><span class="detail-value">&lt; 50ms (keyword scan, no LLM)</span></div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div></div>
+
+  <!-- Step 3: Describe Screen -->
+  <div class="node claude" onclick="toggle(this)">
+    <div class="node-header">
+      <span class="node-number">Step 2</span>
+      <span class="node-badge">Claude</span>
+    </div>
+    <div class="node-title">Describe Screen</div>
+    <div class="node-desc">Captures screenshot, sends to Claude &rarr; returns text description of current screen state</div>
+    <div class="node-details">
+      <div class="detail-row"><span class="detail-label">Sends</span><span class="detail-value">Screenshot (base64) + "Describe what you see on this macOS desktop"</span></div>
+      <div class="detail-row"><span class="detail-label">Returns</span><span class="detail-value">"Safari is open showing the Amazon homepage with search bar visible..."</span></div>
+      <div class="detail-row"><span class="detail-label">Latency</span><span class="detail-value">~3s</span></div>
+      <div class="detail-row"><span class="detail-label">Cost</span><span class="detail-value">~$0.005</span></div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div></div>
+
+  <!-- Step 4: Planning -->
+  <div class="node claude" onclick="toggle(this)">
+    <div class="node-header">
+      <span class="node-number">Step 3</span>
+      <span class="node-badge">Claude</span>
+    </div>
+    <div class="node-title">Generate Plan</div>
+    <div class="node-desc">Fills prompt template with goal + screen state + skill context &rarr; produces JSON action plan</div>
+    <div class="node-details">
+      <div class="detail-row"><span class="detail-label">Template</span><span class="detail-value"><code>planner/prompts/plan_from_prompt.md</code></span></div>
+      <div class="detail-row"><span class="detail-label">Inputs</span><span class="detail-value">Goal, screen description, skill steps, desktop context</span></div>
+      <div class="detail-row"><span class="detail-label">Output</span><span class="detail-value"><code>{"steps": [{action, params, verify, on_fail}, ...]}</code></span></div>
+      <div class="detail-row"><span class="detail-label">Validation</span><span class="detail-value">Every step must have non-empty <code>verify</code> and <code>on_fail</code></span></div>
+      <div class="detail-row"><span class="detail-label">Latency</span><span class="detail-value">~3-5s</span></div>
+      <div class="detail-row"><span class="detail-label">Cost</span><span class="detail-value">~$0.01</span></div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div></div>
+
+  <!-- Step Loop -->
+  <div class="loop-wrapper">
+    <div class="loop-label">For Each Step in Plan</div>
+
+    <!-- Step 5: Grounding -->
+    <div class="node molmo" onclick="toggle(this)" style="margin-top: 8px;">
+      <div class="node-header">
+        <span class="node-number">Step 4a</span>
+        <span class="node-badge">Molmo (Local)</span>
+      </div>
+      <div class="node-title">Find Element (Grounding)</div>
+      <div class="node-desc">For <code>click</code> actions with element descriptions &mdash; finds x,y coordinates on screen</div>
+      <div class="node-details">
+        <div class="detail-row"><span class="detail-label">Sends</span><span class="detail-value">Screenshot + "Find the Search button"</span></div>
+        <div class="detail-row"><span class="detail-label">Returns</span><span class="detail-value"><code>(x=512, y=34, confidence=0.82)</code></span></div>
+        <div class="detail-row"><span class="detail-label">Coord space</span><span class="detail-value">Normalized 0-100 &rarr; converted to pixels</span></div>
+        <div class="detail-row"><span class="detail-label">Confidence</span><span class="detail-value">Normal actions &ge; 0.5 &nbsp;|&nbsp; Critical (submit/pay/delete) &ge; 0.9</span></div>
+        <div class="detail-row"><span class="detail-label">Validation</span><span class="detail-value">Optional 200&times;200 crop sent to Claude for confirmation</span></div>
+        <div class="detail-row"><span class="detail-label">Accuracy</span><span class="detail-value">75% on ScreenSpot benchmark (best local model)</span></div>
+        <div class="detail-row"><span class="detail-label">Latency</span><span class="detail-value">~8-10s</span></div>
+        <div class="detail-row"><span class="detail-label">Cost</span><span class="detail-value">$0 (local)</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <!-- Step 6: Execute -->
+    <div class="node local" onclick="toggle(this)">
+      <div class="node-header">
+        <span class="node-number">Step 4b</span>
+        <span class="node-badge">Actuator</span>
+      </div>
+      <div class="node-title">Execute Action</div>
+      <div class="node-desc">Performs the desktop action via Hammerspoon or AppleScript</div>
+      <div class="node-details">
+        <div class="detail-row"><span class="detail-label">Actions</span><span class="detail-value"><code>click</code> <code>type_text</code> <code>press_key</code> <code>open_url</code> <code>activate_app</code> <code>scroll</code></span></div>
+        <div class="detail-row"><span class="detail-label">Chain</span><span class="detail-value">Bridge HTTP (27741) &rarr; <code>hs</code> CLI &rarr; AppleScript</span></div>
+        <div class="detail-row"><span class="detail-label">Diff check</span><span class="detail-value">Before/after screenshot comparison for click &amp; open_url</span></div>
+        <div class="detail-row"><span class="detail-label">Latency</span><span class="detail-value">~100-500ms</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div></div>
+
+    <!-- Step 7: Verify -->
+    <div class="node system" onclick="toggle(this)">
+      <div class="node-header">
+        <span class="node-number">Step 4c</span>
+        <span class="node-badge">3-Tier</span>
+      </div>
+      <div class="node-title">Verify Postcondition</div>
+      <div class="node-desc">Cascading verification: fastest check first, falls through to vision if inconclusive</div>
+      <div class="node-details">
+        <div class="tier-stack">
+          <div class="tier tier-0">
+            <span class="tier-num">T0</span>
+            <span class="tier-name"><strong>Accessibility API</strong> &mdash; focused element, window title, app state</span>
+            <span class="tier-speed">~10ms</span>
+          </div>
+          <div class="tier tier-1">
+            <span class="tier-num">T1</span>
+            <span class="tier-name"><strong>Actuator State</strong> &mdash; frontmost app, browser URL, field content</span>
+            <span class="tier-speed">~50ms</span>
+          </div>
+          <div class="tier tier-2">
+            <span class="tier-num">T2</span>
+            <span class="tier-name"><strong>Claude Vision</strong> &mdash; screenshot + "Is this true? [condition]" &rarr; YES/NO/UNCLEAR</span>
+            <span class="tier-speed">~2-5s &nbsp; ~$0.003</span>
+          </div>
+        </div>
+        <div class="detail-row" style="margin-top: 12px;"><span class="detail-label">Falls through</span><span class="detail-value">Each tier only runs if the previous was inconclusive</span></div>
+        <div class="detail-row"><span class="detail-label">T1 covers</span><span class="detail-value"><code>activate_app</code>, <code>open_url</code>, <code>type_text</code> &mdash; click/scroll always fall to T2</span></div>
+      </div>
+    </div>
+
+    <div class="connector"><div class="connector-line"></div><span class="connector-label">if verification fails</span></div>
+
+    <!-- Failure branches -->
+    <div class="fail-branch">
+      <div class="fail-option">
+        <div class="fail-title">retry_different</div>
+        <div class="fail-desc">Re-execute same step<br>with fresh grounding</div>
+      </div>
+      <div class="fail-option">
+        <div class="fail-title">replan</div>
+        <div class="fail-desc">Call Claude with<br>execution history</div>
+      </div>
+      <div class="fail-option">
+        <div class="fail-title">abort</div>
+        <div class="fail-desc">Stop execution<br>return failure</div>
+      </div>
+      <div class="fail-option">
+        <div class="fail-title">wait_for_user</div>
+        <div class="fail-desc">Pause for human<br>intervention</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div><span class="connector-label">all steps complete</span></div>
+
+  <!-- Step 8: Skill Learning -->
+  <div class="node system" onclick="toggle(this)">
+    <div class="node-header">
+      <span class="node-number">Step 5</span>
+      <span class="node-badge">Optional</span>
+    </div>
+    <div class="node-title">Skill Learning</div>
+    <div class="node-desc">Extracts observations from execution trace, stores in JSONL, evaluates promotion</div>
+    <div class="node-details">
+      <div class="detail-row"><span class="detail-label">Distiller</span><span class="detail-value">Extracts corrections &amp; patterns from step results</span></div>
+      <div class="detail-row"><span class="detail-label">Experience</span><span class="detail-value">Appends observations to JSONL sidecar file per skill</span></div>
+      <div class="detail-row"><span class="detail-label">Librarian</span><span class="detail-value">Evaluates promotion: patch_parent, create_sibling, observation_only</span></div>
+      <div class="detail-row"><span class="detail-label">Threshold</span><span class="detail-value">Seen 2+ times across runs AND confidence &ge; 0.6</span></div>
+    </div>
+  </div>
+
+  <div class="connector"><div class="connector-line"></div></div>
+
+  <!-- Result -->
+  <div class="node" style="background: #0f1a10; border: 1px solid #2a4d2a; text-align: center;" onclick="toggle(this)">
+    <div class="node-title" style="color: #8bc98b;">ExecutionResult</div>
+    <div class="node-desc">success/failure + step details + run_id + duration</div>
+  </div>
+
+  <!-- Cost table -->
+  <table class="cost-table" style="margin-top: 40px;">
+    <thead>
+      <tr><th>Operation</th><th>Model</th><th>Latency</th><th>Cost</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Screen describe</td><td style="color:#d4a574">Claude</td><td>~3s</td><td>~$0.005</td></tr>
+      <tr><td>Planning</td><td style="color:#d4a574">Claude</td><td>~3-5s</td><td>~$0.01</td></tr>
+      <tr><td>Find element</td><td style="color:#7eb8da">Molmo (local)</td><td>~8-10s</td><td>$0</td></tr>
+      <tr><td>Execute action</td><td style="color:#8bc98b">Actuator</td><td>~0.1-0.5s</td><td>$0</td></tr>
+      <tr><td>Verify (T0+T1)</td><td style="color:#8bc98b">Local</td><td>~50ms</td><td>$0</td></tr>
+      <tr><td>Verify (T2 fallback)</td><td style="color:#d4a574">Claude</td><td>~2-3s</td><td>~$0.003</td></tr>
+      <tr style="font-weight:600"><td>Typical 5-step task</td><td></td><td>~1-2 min</td><td>~$0.05</td></tr>
+    </tbody>
+  </table>
+
+</div>
+
+<script>
+function toggle(el) {
+  el.classList.toggle('expanded');
+}
+</script>
+</body>
+</html>

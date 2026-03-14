@@ -27,6 +27,18 @@ TEXT_INPUT_KEYWORDS: frozenset[str] = frozenset({
     "search bar", "address bar", "url bar",
 })
 
+# Common LLM misspellings → correct on_fail value.
+# Used by ActionStep.from_dict() to normalize invalid on_fail strings.
+_ON_FAIL_ALIASES: Dict[str, str] = {
+    "scroll": "retry_different",
+    "retry": "retry_different",
+    "skip": "abort",
+    "abort_reason": "abort",
+    "continue": "retry_different",
+    "fail": "abort",
+    "stop": "abort",
+}
+
 # Common LLM misspellings → correct action name.
 # Used by ActionStep.from_dict() to auto-correct invalid action names.
 _ACTION_ALIASES: Dict[str, str] = {
@@ -34,9 +46,14 @@ _ACTION_ALIASES: Dict[str, str] = {
     "keypress": "press_key",
     "send_keys": "press_key",
     "send_key": "press_key",
+    "press": "press_key",
     "typetext": "type_text",
     "type": "type_text",
     "enter_text": "type_text",
+    "fill": "type_text",
+    "fill_in": "type_text",
+    "input": "type_text",
+    "write": "type_text",
     "launch_app": "activate_app",
     "open_app": "activate_app",
     "start_app": "activate_app",
@@ -44,12 +61,26 @@ _ACTION_ALIASES: Dict[str, str] = {
     "navigate": "open_url",
     "goto_url": "open_url",
     "go_to_url": "open_url",
+    "go_to": "open_url",
+    "browse": "open_url",
+    "visit": "open_url",
     "find_element": "click",
+    "select": "click",
+    "choose": "click",
+    "tap": "click",
+    "pick": "click",
+    "submit": "click",
+    "submit_form": "click",
     "scroll_down": "scroll",
     "scroll_up": "scroll",
+    "look": "observe",
+    "check": "observe",
+    "inspect": "observe",
     "wait": "wait_for_user",
     "finish": "done",
     "complete": "done",
+    "end": "done",
+    "stop": "done",
 }
 
 
@@ -93,6 +124,7 @@ class ActionStep:
     expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
     on_fail: str = "retry_different"  # "retry_different" | "replan" | "abort" | "wait_for_user"
     max_retries: int = 3
+    destructive: bool = False  # AC-6b: optional planner flag for irreversible actions
 
     def __post_init__(self) -> None:
         valid_actions = {
@@ -134,13 +166,22 @@ class ActionStep:
                 params = {**params, "direction": "down"}
             elif raw_action == "scroll_up":
                 params = {**params, "direction": "up"}
+        # Normalize on_fail: coerce non-string types, then map aliases
+        raw_on_fail = data.get("on_fail", "retry_different")
+        if not isinstance(raw_on_fail, str):
+            raw_on_fail = "retry_different"
+        _valid_on_fail = {"retry_different", "replan", "abort", "wait_for_user"}
+        if raw_on_fail not in _valid_on_fail:
+            raw_on_fail = _ON_FAIL_ALIASES.get(raw_on_fail, "retry_different")
+
         return cls(
             action=action,
             params=params,
             verify=data.get("verify", ""),
             expected_observation=data.get("expected_observation", ""),
-            on_fail=data.get("on_fail", "retry_different"),
+            on_fail=raw_on_fail,
             max_retries=data.get("max_retries", 3),
+            destructive=bool(data.get("destructive", False)),
         )
 
 
@@ -239,7 +280,10 @@ class StepResult:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def __post_init__(self) -> None:
-        valid_methods = {"", "accessibility", "actuator_state", "vision", "both", "type_and_check"}
+        valid_methods = {
+            "", "accessibility", "actuator_state", "vision", "both",
+            "type_and_check", "lookahead",
+        }
         if self.verification_method not in valid_methods:
             raise ValueError(
                 f"Unknown verification_method '{self.verification_method}'. "
@@ -259,6 +303,7 @@ class ExecutionResult:
     iterations: int = 0
     goal: str = ""
     run_id: str = ""
+    infeasibility_reason: Optional[str] = None  # AC-3: human-readable explanation
 
 
 # ---------------------------------------------------------------------------
