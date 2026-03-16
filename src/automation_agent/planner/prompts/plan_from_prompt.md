@@ -27,7 +27,7 @@ contract, not a suggestion. Always navigate fresh.
 ## Available Actions
 - `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps (Calculator, Finder, etc). Do NOT use before `open_url` — `open_url` already activates the default browser.
 - `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
-- `type_text`: Type text into a field. Params: `text` (string), `element` (optional string — description of the input field to click first). IMPORTANT: Always specify `element` when typing into a specific input field so the agent clicks it first to ensure focus.
+- `type_text`: Type text into a field. Params: `text` (string), `element` (optional string — description of the input field to click first). IMPORTANT: Always specify `element` when typing into a specific input field so the agent clicks it first to ensure focus. Also use `type_text` with search bars and filter inputs to find specific items instead of scrolling through lists.
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
 - `open_url`: Open URL in default browser and bring it to front. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)
@@ -49,7 +49,7 @@ making a payment), set `"destructive": true` on the step. This triggers user con
    - click Search -> "The search field is focused and the text cursor is visible"
    - open_url Amazon orders -> "The Amazon orders page or sign-in page is visible"
 4. Each step must have an "on_fail" field: "retry_different", "replan", "abort", or "wait_for_user".
-5. Keep plans focused — minimum steps needed.
+5. Keep plans focused — minimum steps needed. If there's a way to directly search for what you're looking for (search bar, filter, URL query parameter), prefer that over scrolling through lists.
 6. Use `observe` when you need to see the screen before deciding what to do next.
 7. Use `wait_for_user` when user authentication or input is required.
 8. When interactive elements are listed in the Desktop State, reference them by exact name in your action steps.

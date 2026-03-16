@@ -768,7 +768,7 @@ class TestFileManipulation:
         - Walmart notes
         """)
         parent = _make_skill()
-        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        skill_id, file_path, _final_md = librarian._apply_create_sibling(md, parent)
         assert skill_id == "return-walmart-order"
         assert Path(file_path).exists()
 
@@ -806,7 +806,7 @@ class TestFileManipulation:
         - Notes
         """)
         parent = _make_skill()
-        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        skill_id, file_path, _final_md = librarian._apply_create_sibling(md, parent)
         # Should have a suffix to avoid collision
         assert skill_id != "return-walmart-order"
         assert "return-walmart-order" in skill_id
@@ -1476,7 +1476,7 @@ class TestSkillDirFromRegistry:
         - Notes
         """)
         parent = _make_skill()
-        skill_id, file_path = lib._apply_create_sibling(md, parent)
+        skill_id, file_path, _final_md = lib._apply_create_sibling(md, parent)
 
         assert Path(file_path).parent == skill_dir
         assert Path(file_path).exists()

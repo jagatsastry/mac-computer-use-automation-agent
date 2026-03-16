@@ -591,8 +591,8 @@ class SkillLibrarian:
 
     def _apply_create_sibling(
         self, md_content: str, parent_skill: Skill
-    ) -> Tuple[str, str]:
-        """Write a new sibling skill file. Returns (skill_id, file_path)."""
+    ) -> Tuple[str, str, str]:
+        """Write a new sibling skill file. Returns (skill_id, file_path, final_md)."""
         from automation_agent.skills.loader import parse_skill_file
 
         skill = parse_skill_file(md_content)
@@ -628,7 +628,7 @@ class SkillLibrarian:
         file_path = self._skill_dir / f"{skill_name.replace('/', '_')}.md"
         _atomic_write(file_path, md_content)
 
-        return skill_id, str(file_path)
+        return skill_id, str(file_path), md_content
 
     # ------------------------------------------------------------------
     # Mark promoted (delegate to experience store)
@@ -805,12 +805,14 @@ class SkillLibrarian:
                 distinct_run_count=distinct_run_count,
             )
 
-        # Step 1: write file
-        new_skill_id, file_path = self._apply_create_sibling(md_content, parent_skill)
+        # Step 1: write file (returns final content after collision rename + trusted flag)
+        new_skill_id, file_path, final_md = self._apply_create_sibling(
+            md_content, parent_skill
+        )
 
-        # Step 2: load into registry
+        # Step 2: load into registry (use final_md which has any renames applied)
         try:
-            self.registry.load_from_string(md_content)
+            self.registry.load_from_string(final_md)
         except Exception:
             logger.warning("skill_librarian_sibling_reload_failed", exc_info=True)
             # Rollback: delete file

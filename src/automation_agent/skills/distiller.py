@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import structlog
 
@@ -81,7 +81,7 @@ class SkillDistiller:
         from automation_agent.skills.llm_utils import call_skill_llm
 
         return await call_skill_llm(
-            self.config, prompt, max_tokens=1024, temperature=0.0,
+            self.config, prompt, max_tokens=4096, temperature=0.0,
         )
 
     def _parse_response(self, response: str, run_id: str = "") -> List[SkillObservation]:
@@ -92,8 +92,14 @@ class SkillDistiller:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            logger.warning("skill_distillation_parse_failed", response=text[:200])
-            return []
+            # Attempt truncated-JSON repair: close open brackets/braces
+            repaired = self._try_repair_truncated_json(text)
+            if repaired is not None:
+                payload = repaired
+                logger.info("skill_distillation_repaired_truncated_json")
+            else:
+                logger.warning("skill_distillation_parse_failed", response=text[:200])
+                return []
         items = payload.get("observations", [])
         if not isinstance(items, list):
             return []
@@ -122,3 +128,26 @@ class SkillDistiller:
                 )
             )
         return observations
+
+    @staticmethod
+    def _try_repair_truncated_json(text: str) -> Optional[dict]:
+        """Attempt to repair truncated JSON by closing open structures.
+
+        When max_tokens truncates a valid JSON mid-stream, try to salvage
+        complete observation objects by closing brackets/braces.
+        """
+        last_brace = text.rfind("}")
+        if last_brace < 0:
+            return None
+        for end in range(last_brace + 1, 0, -1):
+            candidate = text[:end]
+            opens = candidate.count("[") - candidate.count("]")
+            open_braces = candidate.count("{") - candidate.count("}")
+            suffix = "}" * max(0, open_braces) + "]" * max(0, opens)
+            try:
+                result = json.loads(candidate + suffix)
+                if isinstance(result, dict) and isinstance(result.get("observations"), list):
+                    return result
+            except json.JSONDecodeError:
+                continue
+        return None
