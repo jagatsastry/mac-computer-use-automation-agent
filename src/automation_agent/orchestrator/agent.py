@@ -485,6 +485,10 @@ class AutomationAgent:
                     if scroll_result is not None:
                         if scroll_result.success:
                             result = scroll_result
+                            # Replace the original failure in step_results
+                            # so the trace reflects the recovered outcome
+                            if step_results and step_results[-1].step is step:
+                                step_results[-1] = scroll_result
                         else:
                             infeas_result = await self._check_infeasibility(
                                 goal, frustration, step_results, force=True
