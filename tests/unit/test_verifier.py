@@ -588,7 +588,7 @@ class TestDomainVerification:
         mock_act.get_state.return_value = {
             "app_name": "Safari",
             "window_title": "Target",
-            "browser_url": "https://shop.target.com/cart",
+            "browser_url": "https://shop.target.com/s?searchTerm=sheets",
         }
         step = ActionStep(
             action="open_url",
@@ -757,3 +757,248 @@ class TestInjectDomainVerification:
         agent._inject_domain_verification(plan, "target.com")
         # Empty URL = no domain to verify, skip injection
         assert "browser domain is target.com" not in step.verify
+
+
+# ---------------------------------------------------------------------------
+# P1-4: Tier-1 matcher fixes
+# ---------------------------------------------------------------------------
+
+
+class TestOpenUrlTier1HostPathMatching:
+    """Tests for improved open_url tier-1 matching with host+path checks."""
+
+    def test_open_url_homepage_does_not_match_deep_url(self, mock_act, logger):
+        """Homepage URL should NOT match a deep expected URL."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Welcome",
+            "browser_url": "https://www.amazon.com/",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.amazon.com/orders/123"},
+            verify="Orders page visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        # Homepage should NOT satisfy a deep URL expectation
+        assert result is None or result[0] is not True
+
+    def test_open_url_deeper_actual_matches(self, mock_act, logger):
+        """Actual URL with extra query params should match expected URL."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Amazon",
+            "browser_url": "https://www.amazon.com/s?k=shoes&ref=nb",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.amazon.com/s?k=shoes"},
+            verify="Search results visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+
+    def test_open_url_exact_match_still_works(self, mock_act, logger):
+        """Exact URL match should still pass."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/s?searchTerm=sheets",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s?searchTerm=sheets"},
+            verify="Search results visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+
+    def test_open_url_different_hosts_inconclusive(self, mock_act, logger):
+        """Different hosts should return None (inconclusive)."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Google",
+            "browser_url": "https://www.google.com/search?q=amazon",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.amazon.com/s?k=shoes"},
+            verify="Amazon search results",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is None
+
+    def test_open_url_deeper_path_segments_match(self, mock_act, logger):
+        """Actual URL with deeper path segments should match shallow expected."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/s/category/shoes",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s"},
+            verify="Search results visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+
+    def test_open_url_path_prefix_boundary_not_false_positive(self, mock_act, logger):
+        """Path /s should NOT match /shoes — must respect segment boundaries."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/shoes",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/s"},
+            verify="Search results visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        # /shoes does NOT start with /s/ — these are unrelated paths
+        assert result is None
+
+    def test_open_url_reverse_path_prefix_boundary_not_false_positive(self, mock_act, logger):
+        """Expected /shop should NOT match actual /s — reverse direction boundary check."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Target",
+            "browser_url": "https://www.target.com/s",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.target.com/shop"},
+            verify="Shop page visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        # /s does NOT start with /shop/ — these are unrelated paths
+        assert result is None
+
+    def test_open_url_same_host_path_mismatch_inconclusive(self, mock_act, logger):
+        """Same host but completely different paths should be inconclusive."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Amazon",
+            "browser_url": "https://www.amazon.com/gp/help",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.amazon.com/orders/123"},
+            verify="Orders page visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        # Same host but /gp/help vs /orders/123 — no prefix relationship
+        assert result is None
+
+    def test_open_url_port_difference_still_matches(self, mock_act, logger):
+        """Same hostname with different ports should still match."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "App",
+            "browser_url": "https://target.com:8080/search",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://target.com/search"},
+            verify="Search page visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+
+
+class TestTypeTextTier1AllFields:
+    """Tests for type_text tier-1 matcher checking all populated fields."""
+
+    def test_type_text_succeeds_on_any_matching_field(self, mock_act, logger):
+        """Should succeed if ANY populated field contains the expected text."""
+        mock_act.get_state.return_value = {
+            "app_name": "TextEdit",
+            "window_title": "Untitled",
+            "focused_value": None,
+            "focused_text": "hello world",
+            "selected_text": None,
+        }
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello"},
+            verify="Text field contains hello",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+        assert "focused_text" in result[1]
+
+    def test_type_text_fails_only_when_all_fields_populated_and_mismatch(
+        self, mock_act, logger
+    ):
+        """Should fail only when ALL populated fields mismatch."""
+        mock_act.get_state.return_value = {
+            "app_name": "TextEdit",
+            "window_title": "Untitled",
+            "focused_value": "wrong value",
+            "focused_text": "also wrong",
+            "selected_text": None,
+        }
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello"},
+            verify="Text field contains hello",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is False
+
+    def test_type_text_inconclusive_when_all_none(self, mock_act, logger):
+        """Should return None (inconclusive) when all text fields are None."""
+        mock_act.get_state.return_value = {
+            "app_name": "TextEdit",
+            "window_title": "Untitled",
+            "focused_value": None,
+            "focused_text": None,
+            "selected_text": None,
+        }
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello"},
+            verify="Text field contains hello",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is None
+
+    def test_type_text_first_field_mismatch_second_matches(self, mock_act, logger):
+        """Old bug: first populated field mismatched → returned False immediately.
+        Now should check all fields and succeed on the matching one."""
+        mock_act.get_state.return_value = {
+            "app_name": "TextEdit",
+            "window_title": "Untitled",
+            "focused_value": "wrong value",
+            "focused_text": "the expected hello text",
+            "selected_text": None,
+        }
+        step = ActionStep(
+            action="type_text",
+            params={"text": "hello"},
+            verify="Text field contains hello",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        assert result is not None
+        assert result[0] is True
+        assert "focused_text" in result[1]

@@ -492,8 +492,11 @@ class TestOrchestratorMaybePromoteSkill:
         # No exception = pass
 
     @pytest.mark.asyncio
-    async def test_promote_noop_when_no_observations(self, agent):
-        """Should return immediately when observations is empty."""
+    async def test_promote_fires_with_empty_current_observations(self, agent):
+        """Empty observations should NOT block promotion — librarian loads history from disk."""
+        mock_promote = AsyncMock(return_value=None)
+        agent.skill_registry.promote_from_run = mock_promote
+
         await agent._maybe_promote_skill(
             goal="test",
             skill_name="some-skill",
@@ -504,6 +507,14 @@ class TestOrchestratorMaybePromoteSkill:
             had_replan=False,
             success=True,
         )
+
+        # promote_from_run SHOULD be called even with empty observations
+        mock_promote.assert_awaited_once()
+        # Verify the empty list was passed through (not filtered out)
+        call_kwargs = mock_promote.call_args.kwargs
+        assert call_kwargs["observations"] == []
+        assert call_kwargs["skill_name"] == "some-skill"
+        assert call_kwargs["goal"] == "test"
 
     @pytest.mark.asyncio
     async def test_promote_noop_when_no_promote_method(self, agent):

@@ -51,6 +51,8 @@ Do NOT repeat the same actions that failed. Consider:
 - Using `observe` to better understand the current state
 - When interactive elements are listed, reference them by exact name in your action steps
 - Check form progress to avoid re-filling already completed fields
+- **E-commerce goal completion**: For "buy", "purchase", "shop", or "add to cart" goals — opening a URL is NOT completion. Showing search results is NOT completion. The replan MUST include steps through add-to-cart at minimum. Do NOT end the plan after opening a search URL.
+- **Plan depth**: When a skill template is provided as a prior, your replan MUST cover all remaining phases in the skill template. Do not generate a plan shorter than what remains unless the current screen state shows the task is partially complete.
 
 ## Response Format
 Respond with ONLY valid JSON (no markdown, no explanation).

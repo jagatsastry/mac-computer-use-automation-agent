@@ -312,6 +312,13 @@ class TestScrollRecovery:
         agent._dispatch_action = AsyncMock(
             return_value={"success": True}
         )
+        # Mock verifier to return passing result (postcondition verification now runs)
+        agent.verifier.verify = AsyncMock(return_value=StepResult(
+            step=step,
+            success=True,
+            verification_method="vision",
+            evidence="Return form visible",
+        ))
 
         with patch("automation_agent.orchestrator.agent.asyncio.sleep", new_callable=AsyncMock):
             result = await agent._scroll_recovery(
@@ -320,6 +327,7 @@ class TestScrollRecovery:
 
         assert result is not None
         assert result.success is True
+        assert result.verification_method == "scroll_recovery_verified"
         # 3 scroll dispatches + 1 click dispatch = 4
         assert agent._dispatch_action.call_count == 4
 
@@ -381,6 +389,13 @@ class TestScrollRecovery:
         find_result = FindElementResult(x=50, y=100, confidence=0.8, source="mock")
         agent._find_element = AsyncMock(side_effect=[None, find_result])
         agent._dispatch_action = AsyncMock(return_value={"success": True})
+        # Mock verifier to return passing result (postcondition verification now runs)
+        agent.verifier.verify = AsyncMock(return_value=StepResult(
+            step=step,
+            success=True,
+            verification_method="actuator_state",
+            evidence="Address entered",
+        ))
 
         with patch("automation_agent.orchestrator.agent.asyncio.sleep", new_callable=AsyncMock):
             result = await agent._scroll_recovery(
@@ -389,6 +404,7 @@ class TestScrollRecovery:
 
         assert result is not None
         assert result.success is True
+        assert result.verification_method == "scroll_recovery_verified"
 
 
 class TestScrollRecoveryIntegration:
@@ -488,10 +504,10 @@ class TestScrollRecoveryIntegration:
 
 
 class TestVaryStrategy:
-    """Tests for scroll_down_and_retry in _vary_strategy()."""
+    """Tests for _vary_strategy() missing-target strategies."""
 
-    def test_scroll_down_and_retry_first_attempt(self):
-        """Missing target with no suggested alternative on attempt 1 should scroll."""
+    def test_refine_missing_element_query_first_attempt(self):
+        """Missing target with no suggested alternative on attempt 1 should refine query."""
         agent = _make_agent()
         step = ActionStep(
             action="click",
@@ -507,9 +523,9 @@ class TestVaryStrategy:
             retry_count=0,  # attempt = retry_count + 1 = 1
         )
         strategy_name, retry_step = agent._vary_strategy(step, prev_result)
-        assert strategy_name == "scroll_down_and_retry"
-        assert retry_step.action == "scroll"
-        assert retry_step.params["direction"] == "down"
+        assert strategy_name == "refine_missing_element_query"
+        assert retry_step.action == "click"
+        assert "look carefully" in retry_step.params["element"]
 
 
 # ---------------------------------------------------------------------------

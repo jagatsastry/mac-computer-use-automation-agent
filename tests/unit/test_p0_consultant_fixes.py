@@ -659,6 +659,7 @@ class TestP0_1_CurrentStepsReachPlanner:
         from automation_agent.shared_models import (
             ActionPlan,
             ActionStep,
+            FindElementResult,
             MatchType,
             ReplanPatch,
             SkillMatchResult,
@@ -705,13 +706,30 @@ class TestP0_1_CurrentStepsReachPlanner:
             goal="Return order",
         )
 
-        # Replan returns revised_steps in its patch
+        # Replan returns revised_steps in its patch.
+        # Include open_url (avoids nav enforcement) + interaction steps
+        # (avoids truncation detection by _harden_plan).
         replan_result = ActionPlan(
             steps=[
                 ActionStep(
-                    action="activate_app",
-                    params={"app_name": "Safari"},
-                    verify="Safari visible",
+                    action="open_url",
+                    params={"url": "https://www.amazon.com/orders"},
+                    verify="Orders page loaded",
+                ),
+                ActionStep(
+                    action="click",
+                    params={"element": "View Details"},
+                    verify="Details page visible",
+                ),
+                ActionStep(
+                    action="click",
+                    params={"element": "Return"},
+                    verify="Return form visible",
+                ),
+                ActionStep(
+                    action="click",
+                    params={"element": "Submit"},
+                    verify="Return submitted",
                 ),
                 ActionStep(action="done", params={}, verify=""),
             ],
@@ -733,6 +751,9 @@ class TestP0_1_CurrentStepsReachPlanner:
         coordinator.describe_screen = AsyncMock(return_value="Desktop")
         coordinator.verify_condition = AsyncMock(return_value=True)
         coordinator.capture_screenshot = AsyncMock(return_value="ZmFrZQ==")
+        coordinator.find_element = AsyncMock(
+            return_value=FindElementResult(x=500, y=300, confidence=0.9, source="vision")
+        )
 
         actuator = MagicMock()
         actuator.click = MagicMock(return_value={"success": True})
@@ -762,29 +783,52 @@ class TestP0_1_CurrentStepsReachPlanner:
         )
 
         with patch.object(agent.verifier, "verify", new_callable=AsyncMock) as mock_verify:
-            mock_verify.side_effect = [
-                # open_url passes
-                StepResult(
-                    step=fail_plan.steps[0],
-                    success=True,
+            _click_call_count = 0
+
+            def _verify_side_effect(step, actuator_result, **kwargs):
+                """Fail the first click (initial plan) to trigger replan,
+                succeed for everything in the replan."""
+                nonlocal _click_call_count
+                if step.action == "open_url":
+                    return StepResult(
+                        step=step, success=True,
+                        verification_method="actuator_state",
+                        evidence="Amazon orders page visible",
+                    )
+                if step.action == "activate_app":
+                    return StepResult(
+                        step=step, success=True,
+                        verification_method="actuator_state",
+                        evidence="Safari visible",
+                    )
+                if step.action == "done":
+                    return StepResult(
+                        step=step, success=True,
+                        verification_method="",
+                        evidence="Done",
+                    )
+                if step.action == "click":
+                    _click_call_count += 1
+                    if _click_call_count == 1:
+                        # First click (initial plan) fails -> triggers replan
+                        return StepResult(
+                            step=step, success=False,
+                            verification_method="vision",
+                            evidence="Return button not found",
+                        )
+                    # Subsequent clicks (replan) succeed
+                    return StepResult(
+                        step=step, success=True,
+                        verification_method="actuator_state",
+                        evidence="Step completed",
+                    )
+                # All other steps (press_key) succeed
+                return StepResult(
+                    step=step, success=True,
                     verification_method="actuator_state",
-                    evidence="Amazon orders page visible",
-                ),
-                # click fails -> triggers replan
-                StepResult(
-                    step=fail_plan.steps[1],
-                    success=False,
-                    verification_method="vision",
-                    evidence="Return button not found",
-                ),
-                # Replan steps succeed
-                StepResult(
-                    step=replan_result.steps[0],
-                    success=True,
-                    verification_method="actuator_state",
-                    evidence="Safari visible",
-                ),
-            ]
+                    evidence="Step completed",
+                )
+            mock_verify.side_effect = _verify_side_effect
             await agent.execute("Return my order")
 
         # Verify the distiller context includes the revised steps

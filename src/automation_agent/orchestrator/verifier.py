@@ -438,17 +438,64 @@ class StepVerifier:
                         f"(expected '{expected_url}')",
                     )
 
-                if expected_lower in actual_lower or actual_lower in expected_lower:
-                    return (
-                        True,
-                        f"Browser URL '{browser_url}' matches destination",
+                expected_parsed = urlparse(expected_lower)
+                actual_parsed = urlparse(actual_lower)
+                # Host+path compatibility check (most reliable)
+                if expected_parsed.netloc and actual_parsed.netloc:
+                    # Strip www. prefix (not all occurrences) and port
+                    exp_host = expected_parsed.hostname or ""
+                    act_host = actual_parsed.hostname or ""
+                    if exp_host.startswith("www."):
+                        exp_host = exp_host[4:]
+                    if act_host.startswith("www."):
+                        act_host = act_host[4:]
+                    # Subdomain match: actual may be a subdomain of expected
+                    # (e.g., shop.target.com navigating for target.com),
+                    # but NOT the reverse (target.com is not shop.target.com)
+                    hosts_compatible = (
+                        exp_host == act_host
+                        or act_host.endswith(f".{exp_host}")
                     )
-                # Token match against actual URL
-                if tokens and any(token in actual_lower for token in tokens):
-                    return (
-                        True,
-                        f"Browser URL '{browser_url}' contains destination tokens",
-                    )
+                    if not hosts_compatible:
+                        return None  # Inconclusive — different hosts
+                    exp_path = expected_parsed.path.rstrip("/")
+                    act_path = actual_parsed.path.rstrip("/")
+                    # Path: actual must be at or deeper than expected
+                    # Use boundary check to avoid /s matching /shoes
+                    if exp_path and (
+                        act_path == exp_path
+                        or act_path.startswith(exp_path + "/")
+                    ):
+                        return (
+                            True,
+                            f"Browser URL '{browser_url}' matches destination",
+                        )
+                    # Or expected path starts with actual (we navigated deeper)
+                    # but only if actual has a non-trivial path (not homepage)
+                    if act_path and (
+                        exp_path == act_path
+                        or exp_path.startswith(act_path + "/")
+                    ):
+                        return (
+                            True,
+                            f"Browser URL '{browser_url}' matches destination",
+                        )
+                    # Expected is homepage (empty path) = any path on same host matches
+                    if not exp_path:
+                        return (
+                            True,
+                            f"Browser URL '{browser_url}' matches destination",
+                        )
+                    # Same host but path mismatch — inconclusive, escalate to vision
+                    # (don't fall through to window title which could false-positive)
+                    return None
+                else:
+                    # No structured host info — fall back to token match
+                    if tokens and any(token in actual_lower for token in tokens):
+                        return (
+                            True,
+                            f"Browser URL '{browser_url}' contains destination tokens",
+                        )
 
             # Fallback: window title match
             title_lower = window_title.lower()
@@ -461,19 +508,17 @@ class StepVerifier:
 
         if step.action == "type_text" and step.params.get("text"):
             expected_text = step.params["text"]
+            any_populated = False
             for key in ("focused_value", "focused_text", "selected_text"):
                 actual_value = state.get(key)
                 if actual_value is None:
                     continue
+                any_populated = True
                 if expected_text in str(actual_value):
-                    return (
-                        True,
-                        f"Actuator state {key} contains '{expected_text}'",
-                    )
-                return (
-                    False,
-                    f"Actuator state {key} is '{actual_value}', expected '{expected_text}'",
-                )
+                    return (True, f"Actuator state {key} contains '{expected_text}'")
+            # Only fail if at least one field was populated and none matched
+            if any_populated:
+                return (False, f"No actuator text field contains '{expected_text}'")
 
         # P1-3 + AC-6: Scroll verification via tiered signals (axis-parametric)
         if step.action == "scroll":

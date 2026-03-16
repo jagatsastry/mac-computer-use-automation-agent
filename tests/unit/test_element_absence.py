@@ -96,32 +96,8 @@ def _bypass_scroll_recovery(agent):
         )
     agent._scroll_recovery = _quick_scroll_fail
 
-    # Also bypass the scroll_down_and_retry in _vary_strategy by wrapping it
-    # to skip that particular strategy and fall through to the old behavior.
-    original_vary = agent._vary_strategy
-
-    def _vary_no_scroll(step, prev_result):
-        strategy_name, retry_step = original_vary(step, prev_result)
-        if strategy_name == "scroll_down_and_retry":
-            # Simulate attempt 2 behavior (refine query) instead of scrolling
-            params = dict(step.params)
-            params["element"] = (
-                f"{params['element']} (visible on the same relevant card/section only)"
-            )
-            return (
-                "refine_missing_target_query",
-                ActionStep(
-                    action="click",
-                    params=params,
-                    verify=step.verify,
-                    expected_observation=step.expected_observation,
-                    on_fail=step.on_fail,
-                    max_retries=step.max_retries,
-                ),
-            )
-        return strategy_name, retry_step
-
-    agent._vary_strategy = _vary_no_scroll
+    # Note: scroll_down_and_retry was removed from _vary_strategy (P0-1 fix),
+    # so no wrapper is needed here anymore.
 
 
 # ---------------------------------------------------------------------------
