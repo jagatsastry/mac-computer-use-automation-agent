@@ -116,10 +116,13 @@ function run(argv) {
         "AXComboBox", "AXMenuItem", "AXTab", "AXIncrementor"
     ];
 
+    var skipRoles = ["AXMenuBar", "AXMenu", "AXMenuItem", "AXMenuBarItem"];
+
     function walk(elem, depth) {
         if (depth > MAX_DEPTH || elements.length >= MAX_ELEMENTS) return;
         try {
             var role = elem.role();
+            if (skipRoles.indexOf(role) !== -1) return;
             if (interactiveRoles.indexOf(role) !== -1) {
                 var pos = elem.position();
                 var size = elem.size();
@@ -159,7 +162,7 @@ function run(argv) {
     args.append(str(max_depth))
     args.append(str(max_elements))
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=120)
         if result.returncode != 0 or not result.stdout.strip():
             return []
         return json.loads(result.stdout.strip())
@@ -227,10 +230,12 @@ function run(argv) {
 
     // 3. Walk ALL elements (not just interactive) with full properties — first 50
     var allElements = [];
+    var skipAll = ["AXMenuBar", "AXMenu", "AXMenuItem", "AXMenuBarItem"];
     function walkAll(elem, depth) {
-        if (depth > 4 || allElements.length >= 50) return;
+        if (depth > 8 || allElements.length >= 200) return;
         try {
             var role = elem.role();
+            if (skipAll.indexOf(role) !== -1) return;
             var pos = (function() { try { return elem.position(); } catch(e) { return null; } })();
             var size = (function() { try { return elem.size(); } catch(e) { return null; } })();
             allElements.push({
@@ -270,7 +275,7 @@ function run(argv) {
     args = ["osascript", "-l", "JavaScript", "-e", script]
     args.append(app_name or "")
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             return {"error": result.stderr.strip()[:500]}
         return json.loads(result.stdout.strip())
@@ -286,7 +291,7 @@ def main():
     parser.add_argument("--out", default="", help="Output file (default: stdout + /tmp/ax_dump.json)")
     parser.add_argument("--deep", action="store_true", help="Include missing properties analysis")
     parser.add_argument("--max-depth", type=int, default=6, help="Max AX tree depth")
-    parser.add_argument("--max-elements", type=int, default=50, help="Max elements to collect")
+    parser.add_argument("--max-elements", type=int, default=200, help="Max elements to collect")
     args = parser.parse_args()
 
     print(f"Dumping accessibility info at {datetime.now().isoformat()}")

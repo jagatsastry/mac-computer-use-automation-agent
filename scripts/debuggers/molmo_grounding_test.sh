@@ -1,22 +1,45 @@
 #!/bin/bash
 # Test Molmo grounding using the EXACT same prompt as the agent's find_element.
 # Usage: ./molmo_grounding_test.sh <screenshot_path> "<element description>"
+#        ./molmo_grounding_test.sh <screenshot_path> --prompt-override "<full prompt>"
 # Example: ./molmo_grounding_test.sh logs/runs/260314_221202/screenshots/221254_step_03_observe.png "Order for a pair of shoes"
 
 set -euo pipefail
 
-IMAGE="${1:?Usage: $0 <screenshot.png> \"<element description>\"}"
-ELEMENT="${2:?Usage: $0 <screenshot.png> \"<element description>\"}"
-PORT="${3:-8091}"
-MODEL="${4:-mlx-community/Molmo-7B-D-0924-3bit}"
+PROMPT_OVERRIDE=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --prompt-override)
+            PROMPT_OVERRIDE="$2"
+            shift 2
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+IMAGE="${ARGS[0]:?Usage: $0 <screenshot.png> \"<element description>\"}"
+ELEMENT="${ARGS[1]:-}"
+PORT="${ARGS[2]:-8091}"
+MODEL="${ARGS[3]:-mlx-community/Molmo-7B-D-0924-3bit}"
 
 if [ ! -f "$IMAGE" ]; then
     echo "File not found: $IMAGE" >&2
     exit 1
 fi
 
-# Inline the exact prompt from src/automation_agent/vision/prompts/find_element.md
-PROMPT="Look at this screenshot of a macOS desktop. I need you to find the following UI element:
+if [[ -n "$PROMPT_OVERRIDE" ]]; then
+    PROMPT="$PROMPT_OVERRIDE"
+else
+    if [[ -z "$ELEMENT" ]]; then
+        echo "Usage: $0 <screenshot.png> \"<element description>\" OR $0 <screenshot.png> --prompt-override \"<full prompt>\"" >&2
+        exit 1
+    fi
+    # Inline the exact prompt from src/automation_agent/vision/prompts/find_element.md
+    PROMPT="Look at this screenshot of a macOS desktop. I need you to find the following UI element:
 
 ${ELEMENT}
 
@@ -29,9 +52,10 @@ If you cannot find this element, respond with exactly:
 NOT_FOUND
 
 Only respond with one of these formats, nothing else."
+fi
 
 echo "Image: $IMAGE"
-echo "Element: $ELEMENT"
+echo "Element: ${ELEMENT:-(prompt override)}"
 echo "Server: http://localhost:$PORT"
 echo "Model: $MODEL"
 echo "---"
