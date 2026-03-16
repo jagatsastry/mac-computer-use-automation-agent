@@ -470,16 +470,11 @@ class StepVerifier:
                             True,
                             f"Browser URL '{browser_url}' matches destination",
                         )
-                    # Or expected path starts with actual (we navigated deeper)
-                    # but only if actual has a non-trivial path (not homepage)
-                    if act_path and (
-                        exp_path == act_path
-                        or exp_path.startswith(act_path + "/")
-                    ):
-                        return (
-                            True,
-                            f"Browser URL '{browser_url}' matches destination",
-                        )
+                    # NOTE: We do NOT match when actual is shallower than
+                    # expected (e.g., actual=/orders vs expected=/orders/123).
+                    # Being on a parent page means we haven't navigated deep
+                    # enough — this should be inconclusive, not a match.
+
                     # Expected is homepage (empty path) = any path on same host matches
                     if not exp_path:
                         return (

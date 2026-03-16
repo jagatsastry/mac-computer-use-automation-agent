@@ -818,6 +818,23 @@ class TestOpenUrlTier1HostPathMatching:
         assert result is not None
         assert result[0] is True
 
+    def test_open_url_shallower_actual_does_not_match_deep_expected(self, mock_act, logger):
+        """Actual /orders should NOT match expected /orders/123 — we're at a parent page."""
+        mock_act.get_state.return_value = {
+            "app_name": "Safari",
+            "window_title": "Orders",
+            "browser_url": "https://www.amazon.com/orders",
+        }
+        step = ActionStep(
+            action="open_url",
+            params={"url": "https://www.amazon.com/orders/123"},
+            verify="Order details visible",
+        )
+        verifier = StepVerifier(actuator=mock_act, logger=logger)
+        result = verifier._verify_tier1(step, mock_act)
+        # Shallower actual path should NOT match deeper expected
+        assert result is None or result[0] is not True
+
     def test_open_url_different_hosts_inconclusive(self, mock_act, logger):
         """Different hosts should return None (inconclusive)."""
         mock_act.get_state.return_value = {
