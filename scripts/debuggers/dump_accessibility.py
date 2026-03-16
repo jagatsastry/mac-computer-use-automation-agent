@@ -19,20 +19,28 @@ import sys
 from datetime import datetime
 
 
-def get_state():
-    """Mirror of AppleScriptActuator.get_state() — what tier-1 verification sees."""
-    script = '''
+def get_state(app_name=""):
+    """Mirror of AppleScriptActuator.get_state() — what tier-1 verification sees.
+
+    Args:
+        app_name: Target app. Empty string means frontmost app.
+    """
+    if app_name:
+        target = f'application process "{app_name}"'
+    else:
+        target = "first application process whose frontmost is true"
+    script = f'''
 tell application "System Events"
-    set frontApp to name of first application process whose frontmost is true
-    set frontBundle to bundle identifier of first application process whose frontmost is true
+    set frontApp to name of {target}
+    set frontBundle to bundle identifier of {target}
     try
-        set winTitle to name of front window of (first application process whose frontmost is true)
+        set winTitle to name of front window of {target}
     on error
         set winTitle to ""
     end try
     try
-        set winPos to position of front window of (first application process whose frontmost is true)
-        set winSize to size of front window of (first application process whose frontmost is true)
+        set winPos to position of front window of {target}
+        set winSize to size of front window of {target}
         set winX to item 1 of winPos
         set winY to item 2 of winPos
         set winW to item 1 of winSize
@@ -289,7 +297,7 @@ def main():
     print("=" * 60)
     print("SECTION 1: get_state() — what tier-1 verification sees")
     print("=" * 60)
-    state = get_state()
+    state = get_state(args.app)
     for k, v in state.items():
         print(f"  {k}: {v}")
     print()
