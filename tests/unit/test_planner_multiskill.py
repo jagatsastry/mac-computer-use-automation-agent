@@ -181,7 +181,7 @@ class TestReplanPatchParsing:
         assert plan.replan_patch is None
 
     async def test_parse_replan_non_dict_patch(self, planner):
-        """Non-dict patch value produces empty ReplanPatch (not None)."""
+        """Non-dict patch value produces None (AC-9: malformed -> None)."""
         data = {
             "steps": VALID_STEPS,
             "derived_skill_patch": "not a dict",
@@ -189,12 +189,10 @@ class TestReplanPatchParsing:
         planner._call_llm = AsyncMock(return_value=_make_llm_response(data))
         plan = await planner.plan("Open Safari")
 
-        assert plan.replan_patch is not None
-        assert plan.replan_patch.replace_labels == []
-        assert plan.replan_patch.add_landmarks == []
+        assert plan.replan_patch is None
 
     async def test_parse_replan_malformed_dict_patch(self, planner):
-        """Dict with wrong-typed fields produces empty ReplanPatch."""
+        """Dict with wrong-typed fields produces None (AC-9: empty -> None)."""
         data = {
             "steps": VALID_STEPS,
             "derived_skill_patch": {
@@ -206,9 +204,7 @@ class TestReplanPatchParsing:
         planner._call_llm = AsyncMock(return_value=_make_llm_response(data))
         plan = await planner.plan("Open Safari")
 
-        assert plan.replan_patch is not None
-        assert plan.replan_patch.replace_labels == []
-        assert plan.replan_patch.add_landmarks == []
+        assert plan.replan_patch is None
 
     async def test_parse_replan_patch_missing_fields(self, planner):
         """Partial patch dict handled gracefully — missing fields default to empty."""

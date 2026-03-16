@@ -165,12 +165,16 @@ def experience_store(tmp_path):
 
 
 @pytest.fixture
-def mock_registry():
+def mock_registry(tmp_path):
     registry = MagicMock()
     skill = _make_skill()
     registry.get_skill.return_value = skill
     registry._skills = {"return-amazon-order": skill}
     registry.load_from_string.return_value = skill
+    # Provide a real Path so librarian._skill_dir resolves correctly
+    skill_dir = tmp_path / "skill_library"
+    skill_dir.mkdir()
+    registry._skill_dir = skill_dir
     return registry
 
 
@@ -764,7 +768,7 @@ class TestFileManipulation:
         - Walmart notes
         """)
         parent = _make_skill()
-        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        skill_id, file_path, _final_md = librarian._apply_create_sibling(md, parent)
         assert skill_id == "return-walmart-order"
         assert Path(file_path).exists()
 
@@ -802,7 +806,7 @@ class TestFileManipulation:
         - Notes
         """)
         parent = _make_skill()
-        skill_id, file_path = librarian._apply_create_sibling(md, parent)
+        skill_id, file_path, _final_md = librarian._apply_create_sibling(md, parent)
         # Should have a suffix to avoid collision
         assert skill_id != "return-walmart-order"
         assert "return-walmart-order" in skill_id
@@ -823,6 +827,10 @@ class TestCommitSequence:
             6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
         )
         experience_store.append("return-amazon-order", obs)
+
+        # Create the skill file on disk so _find_skill_path succeeds
+        skill_file = mock_registry._skill_dir / "return-amazon-order.md"
+        skill_file.write_text(SAMPLE_SKILL_MD)
 
         # Mock LLM calls
         librarian._decide_promotion_type = AsyncMock(
@@ -864,6 +872,10 @@ class TestCommitSequence:
             6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
         )
         experience_store.append("return-amazon-order", obs)
+
+        # Create the skill file on disk so _find_skill_path succeeds
+        skill_file = mock_registry._skill_dir / "return-amazon-order.md"
+        skill_file.write_text(SAMPLE_SKILL_MD)
 
         librarian._decide_promotion_type = AsyncMock(
             return_value={
@@ -1376,3 +1388,689 @@ class TestLibrarianNewDefaults:
             f"Score {score:.3f} exceeds old 0.7 threshold — "
             f"dead zone scenario requires fewer observations"
         )
+
+
+# ===========================================================================
+# P0-3: Promotion writes must use registry's configured skill_dir
+# ===========================================================================
+
+
+class TestSkillDirFromRegistry:
+    """Librarian must resolve file paths from registry._skill_dir, not __file__."""
+
+    def test_find_skill_path_uses_registry_skill_dir(self, tmp_path):
+        """_find_skill_path should look in registry._skill_dir, not hardcoded path."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "custom_skills"
+        skill_dir.mkdir()
+        (skill_dir / "my_skill.md").write_text("content")
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        result = lib._find_skill_path("my_skill")
+        assert result is not None
+        assert result == skill_dir / "my_skill.md"
+
+    def test_find_skill_path_not_hardcoded(self, tmp_path):
+        """_find_skill_path must NOT find files only in the source library dir."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        # Use a custom dir that differs from the default
+        skill_dir = tmp_path / "skills_here"
+        skill_dir.mkdir()
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        # Should NOT find files that only exist in the hardcoded source path
+        result = lib._find_skill_path("nonexistent_in_custom_dir")
+        assert result is None
+
+    def test_create_sibling_writes_to_registry_skill_dir(self, tmp_path):
+        """_apply_create_sibling must write files to registry._skill_dir."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "custom_library"
+        skill_dir.mkdir()
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        registry._skills = {}
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        md = textwrap.dedent("""\
+        ---
+        name: new-sibling-skill
+        skill-id: new-sibling-skill
+        description: A new sibling
+        summary: New sibling
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        parent = _make_skill()
+        skill_id, file_path, _final_md = lib._apply_create_sibling(md, parent)
+
+        assert Path(file_path).parent == skill_dir
+        assert Path(file_path).exists()
+
+    def test_patch_parent_fails_when_skill_path_not_found(self, tmp_path):
+        """_commit_patch_parent should fail if _find_skill_path returns None."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        # Point to empty dir — skill file doesn't exist on disk
+        skill_dir = tmp_path / "empty_skills"
+        skill_dir.mkdir()
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        skill = _make_skill()
+        registry.get_skill.return_value = skill
+        registry._skills = {"return-amazon-order": skill}
+        registry.load_from_string.return_value = skill
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        import asyncio
+
+        obs = _make_observations(5, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5"])
+        decision = asyncio.get_event_loop().run_until_complete(
+            lib._commit_patch_parent(
+                skill_name="return-amazon-order",
+                parent_skill=skill,
+                tips_text="- New tip",
+                score=0.9,
+                obs_keys=[["alt", "tip"]],
+                run_id="run-1",
+                best_key=("alt", "tip"),
+                best_group=obs,
+                reason="test",
+                baseline={"friction_runs": 3},
+                distinct_run_count=3,
+            )
+        )
+        # Must NOT succeed as patch_parent if skill file can't be found
+        assert decision.promotion_type == "observation_only"
+        assert "path" in decision.reason.lower() or "file" in decision.reason.lower()
+
+    def test_find_skill_path_dash_underscore_equivalence(self, tmp_path):
+        """_find_skill_path should find files with underscored names for dashed skills."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "return_amazon_order.md").write_text("content")
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        result = lib._find_skill_path("return-amazon-order")
+        assert result is not None
+        assert result.exists()
+
+
+# ===========================================================================
+# P1-6: Sibling validation must check full schema
+# ===========================================================================
+
+
+class TestSiblingValidationStrict:
+    """_validate_sibling_md must reject siblings missing required fields/sections."""
+
+    def test_sibling_missing_summary(self, librarian):
+        """Sibling without summary should be rejected."""
+        md = textwrap.dedent("""\
+        ---
+        name: bad-sibling
+        skill-id: bad-sibling
+        description: Has no summary
+        trigger-keywords: [test]
+        tags: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_missing_tags(self, librarian):
+        """Sibling without tags should be rejected."""
+        md = textwrap.dedent("""\
+        ---
+        name: bad-sibling
+        skill-id: bad-sibling
+        description: Has no tags
+        summary: Summary here
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_missing_error_recovery(self, librarian):
+        """Sibling without Error Recovery section should be rejected."""
+        md = textwrap.dedent("""\
+        ---
+        name: bad-sibling
+        skill-id: bad-sibling
+        description: Has no error recovery
+        summary: Summary here
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Notes
+        - Notes
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_missing_notes(self, librarian):
+        """Sibling without Notes section should be rejected."""
+        md = textwrap.dedent("""\
+        ---
+        name: bad-sibling
+        skill-id: bad-sibling
+        description: Has no notes
+        summary: Summary here
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+    def test_sibling_valid_with_all_fields(self, librarian):
+        """A sibling with all required fields/sections should pass validation."""
+        md = textwrap.dedent("""\
+        ---
+        name: good-sibling
+        skill-id: good-sibling
+        description: Complete sibling
+        summary: A properly formed sibling skill
+        tags: [test, ecommerce]
+        trigger-keywords: [test, return]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes here
+        """)
+        assert librarian._validate_sibling_md(md) is True
+
+    def test_sibling_missing_description(self, librarian):
+        """Sibling without description should be rejected (parse_skill_file raises)."""
+        md = textwrap.dedent("""\
+        ---
+        name: bad-sibling
+        skill-id: bad-sibling
+        summary: Has no description
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        assert librarian._validate_sibling_md(md) is False
+
+
+# ===========================================================================
+# Finding 1: getattr fallback raises ValueError when _skill_dir is absent
+# ===========================================================================
+
+
+class TestSkillDirRequiredOnRegistry:
+    """Librarian must raise ValueError if registry lacks _skill_dir."""
+
+    def test_missing_skill_dir_raises_valueerror(self, tmp_path):
+        """SkillLibrarian.__init__ raises ValueError when registry has no _skill_dir."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock(spec=["get_skill", "_skills", "load_from_string"])
+        # spec= restricts attrs; _skill_dir is NOT in the spec
+        assert not hasattr(registry, "_skill_dir")
+
+        with pytest.raises(ValueError, match="requires registry._skill_dir"):
+            SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+    def test_present_skill_dir_no_error(self, tmp_path):
+        """SkillLibrarian.__init__ succeeds when registry has _skill_dir."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+        assert lib._skill_dir == skill_dir
+
+
+# ===========================================================================
+# Finding 2: evaluate_run-level test for skill file not found
+# ===========================================================================
+
+
+class TestEvaluateRunSkillFileNotFound:
+    """evaluate_run should return observation_only when skill file is missing on disk."""
+
+    @pytest.mark.asyncio
+    async def test_evaluate_run_skill_file_not_found_returns_observation_only(
+        self, tmp_path
+    ):
+        """Full evaluate_run path: custom skill_dir without the skill file on disk
+        should return observation_only with 'skill_file_not_found' reason."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        # Point to empty dir -- skill file doesn't exist on disk
+        skill_dir = tmp_path / "empty_skills"
+        skill_dir.mkdir()
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        skill = _make_skill()
+        registry.get_skill.return_value = skill
+        registry._skills = {"return-amazon-order": skill}
+        registry.load_from_string.return_value = skill
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        obs = _make_observations(
+            6, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5", "r6"]
+        )
+        store.append("return-amazon-order", obs)
+
+        # Mock LLM calls to request patch_parent
+        lib._decide_promotion_type = AsyncMock(
+            return_value={
+                "promotion_type": "patch_parent",
+                "reason": "Strong evidence for tips",
+            }
+        )
+        lib._generate_content = AsyncMock(
+            return_value={"learned_tips": "- When return is hidden, try View item"}
+        )
+
+        decision = await lib.evaluate_run(
+            goal="Return Tylenol",
+            skill_name="return-amazon-order",
+            derived_session=None,
+            observations=obs,
+            trace=[],
+            run_id="run-file-not-found",
+            had_replan=False,
+            success=True,
+        )
+
+        assert decision is not None
+        assert decision.promotion_type == "observation_only"
+        assert "file" in decision.reason.lower() or "not_found" in decision.reason
+
+
+# ===========================================================================
+# Finding 3: _find_skill_path underscore-to-dash fallback
+# ===========================================================================
+
+
+class TestFindSkillPathUnderscoreToDash:
+    """_find_skill_path should find files with dashed names for underscored skills."""
+
+    def test_underscore_to_dash_fallback(self, tmp_path):
+        """Skill named 'return_amazon_order' should find 'return-amazon-order.md'."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "return-amazon-order.md").write_text("content")
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        result = lib._find_skill_path("return_amazon_order")
+        assert result is not None
+        assert result.exists()
+        assert result.name == "return-amazon-order.md"
+
+    def test_dash_to_underscore_still_works(self, tmp_path):
+        """Existing fallback: 'return-amazon-order' finds 'return_amazon_order.md'."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "return_amazon_order.md").write_text("content")
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        result = lib._find_skill_path("return-amazon-order")
+        assert result is not None
+        assert result.exists()
+        assert result.name == "return_amazon_order.md"
+
+    def test_exact_match_preferred(self, tmp_path):
+        """If exact name matches, should prefer it over fallbacks."""
+        from automation_agent.skills.librarian import SkillLibrarian
+
+        skill_dir = tmp_path / "skills"
+        skill_dir.mkdir()
+        (skill_dir / "my-skill.md").write_text("exact")
+        (skill_dir / "my_skill.md").write_text("fallback")
+
+        config = _make_config(tmp_path)
+        store = SkillExperienceStore(config.skill_learning_dir)
+        registry = MagicMock()
+        registry._skill_dir = skill_dir
+        lib = SkillLibrarian(config=config, experience_store=store, registry=registry)
+
+        result = lib._find_skill_path("my-skill")
+        assert result is not None
+        assert result.name == "my-skill.md"
+
+
+# ===========================================================================
+# Finding 4: CI guard for duplicate skill names in library frontmatter
+# ===========================================================================
+
+
+class TestNoDuplicateSkillNames:
+    """CI guard: no two skill files in library/ may share the same 'name:' or 'skill-id:'."""
+
+    @staticmethod
+    def _scan_library_frontmatter():
+        """Return list of (meta_dict, filename) for all .md files in library/."""
+        import re as _re
+
+        import yaml
+
+        library_dir = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "automation_agent"
+            / "skills"
+            / "library"
+        )
+        if not library_dir.exists():
+            pytest.skip("skills/library/ not found")
+
+        results = []
+        for md_file in sorted(library_dir.glob("*.md")):
+            content = md_file.read_text(encoding="utf-8")
+            fm_match = _re.match(
+                r"^---\s*\n(.*?)\n---", content, _re.DOTALL
+            )
+            if not fm_match:
+                continue
+            try:
+                meta = yaml.safe_load(fm_match.group(1))
+            except Exception:
+                continue
+            if not isinstance(meta, dict):
+                continue
+            results.append((meta, md_file.name))
+        return results
+
+    def test_no_duplicate_skill_names_in_library(self):
+        """Scan all .md files in skills/library/ for duplicate name: values.
+
+        This prevents the P0-4 regression where multiple files claim the same
+        skill name, causing nondeterministic routing.
+        """
+        entries = self._scan_library_frontmatter()
+
+        seen_names: dict[str, str] = {}  # name -> file
+        duplicates: list[str] = []
+
+        for meta, filename in entries:
+            name = meta.get("name", "")
+            if not name:
+                continue
+            if name in seen_names:
+                duplicates.append(
+                    f"Duplicate name '{name}': {seen_names[name]} and {filename}"
+                )
+            else:
+                seen_names[name] = filename
+
+        assert not duplicates, (
+            "Duplicate skill name(s) found in library/:\n"
+            + "\n".join(duplicates)
+        )
+
+    def test_no_duplicate_skill_ids_in_library(self):
+        """Scan all .md files in skills/library/ for duplicate skill-id: values.
+
+        skill-id is the routing key used by the registry; duplicates cause
+        nondeterministic skill selection just like duplicate names.
+        """
+        entries = self._scan_library_frontmatter()
+
+        seen_ids: dict[str, str] = {}  # skill-id -> file
+        duplicates: list[str] = []
+
+        for meta, filename in entries:
+            skill_id = meta.get("skill-id", "")
+            if not skill_id:
+                continue
+            if skill_id in seen_ids:
+                duplicates.append(
+                    f"Duplicate skill-id '{skill_id}': {seen_ids[skill_id]} and {filename}"
+                )
+            else:
+                seen_ids[skill_id] = filename
+
+        assert not duplicates, (
+            "Duplicate skill-id(s) found in library/:\n"
+            + "\n".join(duplicates)
+        )
+
+    def test_at_least_one_skill_scanned(self):
+        """Guard: the duplicate check must scan at least one file."""
+        library_dir = (
+            Path(__file__).resolve().parent.parent.parent
+            / "src"
+            / "automation_agent"
+            / "skills"
+            / "library"
+        )
+        md_files = list(library_dir.glob("*.md"))
+        assert len(md_files) > 0, "No .md files found in library/ -- test is vacuous"
+
+
+# ===========================================================================
+# Finding 5: _validate_sibling_md parent_skill_id fallback path
+# ===========================================================================
+
+
+class TestValidateSiblingParentSkillId:
+    """Test that _validate_sibling_md rejects siblings without parent-skill-id.
+
+    The fallback re-parse of raw YAML was removed because parse_skill_file()
+    faithfully extracts parent-skill-id from frontmatter, making the fallback
+    dead code under normal operation. These tests verify the direct check.
+    """
+
+    def test_parent_skill_id_present_passes(self, librarian):
+        """Sibling with parent-skill-id in frontmatter passes validation."""
+        md = textwrap.dedent("""\
+        ---
+        name: valid-sibling
+        skill-id: valid-sibling
+        description: Has parent
+        summary: Valid sibling
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        parent-skill-id: return-amazon-order
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        result = librarian._validate_sibling_md(md)
+        assert result is True
+
+    def test_parent_skill_id_missing_fails(self, librarian):
+        """Sibling without parent-skill-id is rejected."""
+        md = textwrap.dedent("""\
+        ---
+        name: no-parent
+        skill-id: no-parent
+        description: No parent
+        summary: No parent
+        tags: [test]
+        trigger-keywords: [test]
+        parameters: {}
+        requires:
+          apps: [Safari]
+          os: darwin
+        success-condition: Done
+        max-retries: 3
+        ---
+
+        ## Steps
+        1. Do thing
+           - verify: Done
+
+        ## Error Recovery
+        - If X: Y
+
+        ## Notes
+        - Notes
+        """)
+        result = librarian._validate_sibling_md(md)
+        assert result is False

@@ -1,13 +1,6 @@
-Look at this screenshot of a macOS desktop. I need you to find the following UI element:
+Look at this screenshot of a macOS desktop. Find this element: {{element_description}}
 
-{{element_description}}
-
-If you can find the element, respond with exactly:
-FOUND: x=<number>, y=<number>, confidence=<0.0-1.0>
-
-where confidence indicates how certain you are (1.0 = absolutely sure, 0.5 = uncertain, 0.0 = guessing).
-
-If you cannot find this element, respond with exactly:
-NOT_FOUND
+If you CANNOT find it, respond: NOT_FOUND
+If you CAN find it, respond: FOUND: x=<number>, y=<number>, confidence=<0.0-1.0>
 
 Only respond with one of these formats, nothing else.

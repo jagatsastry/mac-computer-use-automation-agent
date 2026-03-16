@@ -14,7 +14,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 import structlog
 
 from automation_agent.config import AgentConfig
-from automation_agent.skills.experience import SkillExperienceStore
+from automation_agent.skills.experience import (
+    SkillExperienceStore,
+    _normalize_key,
+)
 from automation_agent.skills.llm_utils import call_skill_llm
 from automation_agent.skills.models import (
     PromotionDecision,
@@ -61,6 +64,14 @@ class SkillLibrarian:
         self.config = config
         self.experience_store = experience_store
         self.registry = registry
+        # Resolve skill_dir from registry — fail fast if absent
+        if not hasattr(registry, "_skill_dir"):
+            raise ValueError(
+                "SkillLibrarian requires registry._skill_dir to be set. "
+                "Cannot fall back to hardcoded path — that would silently "
+                "write to the source tree instead of the configured skill dir."
+            )
+        self._skill_dir: Path = registry._skill_dir
         self._decide_template = ""
         self._generate_template = ""
         if _DECIDE_TEMPLATE_PATH.exists():
@@ -278,13 +289,6 @@ class SkillLibrarian:
     # Grouping and scoring
     # ------------------------------------------------------------------
 
-    def _normalize_key(self, text: str) -> str:
-        """Normalize text for grouping: lowercase, strip punctuation, collapse whitespace."""
-        text = text.strip().lower()
-        text = _NORMALIZE_RE.sub("", text)
-        text = _WHITESPACE_RE.sub(" ", text).strip()
-        return text
-
     @staticmethod
     def _extract_topic(text: str, n_words: int = 4) -> str:
         """Extract first N content words (skipping stop words) as a topic key.
@@ -301,16 +305,17 @@ class SkillLibrarian:
     def _group_observations(
         self, observations: list[SkillObservation]
     ) -> Dict[Tuple[str, str], list[SkillObservation]]:
-        """Group observations by (category, topic).
+        """Group observations by (category, recommendation).
 
-        Uses category-level grouping so the LLM can synthesize across
-        multiple semantically similar observations from different runs.
-        The topic is set to the category name itself to keep keys as tuples.
+        Uses normalized (category, recommendation) keys so that grouping
+        aligns with ``mark_promoted()`` in ``SkillExperienceStore``, which
+        also keys by ``(category, recommendation)``.
         """
         groups: dict[tuple[str, str], list[SkillObservation]] = defaultdict(list)
         for obs in observations:
-            cat = self._normalize_key(obs.category)
-            groups[(cat, cat)].append(obs)
+            cat = _normalize_key(obs.category)
+            rec = _normalize_key(obs.recommendation)
+            groups[(cat, rec)].append(obs)
         return dict(groups)
 
     def _compute_score(self, group: list[SkillObservation]) -> float:
@@ -511,7 +516,12 @@ class SkillLibrarian:
         return True
 
     def _validate_sibling_md(self, md_content: str) -> bool:
-        """Validate generated sibling skill markdown."""
+        """Validate generated sibling skill markdown.
+
+        Enforces the full schema expected by loader.py and
+        build_runtime_context: frontmatter fields (summary, tags) and
+        body sections (## Error Recovery, ## Notes) are all required.
+        """
         from automation_agent.skills.loader import parse_skill_file
 
         try:
@@ -527,19 +537,24 @@ class SkillLibrarian:
         if not skill.success_condition:
             return False
 
-        # parent-skill-id is required for siblings
-        if not skill.parent_skill_id:
-            # Check raw frontmatter as fallback
-            try:
-                import yaml
-                from automation_agent.skills.loader import _split_frontmatter
+        # Full schema: summary and tags required for SkillCard / routing
+        if not skill.summary:
+            return False
+        if not skill.tags:
+            return False
 
-                fm, _ = _split_frontmatter(md_content)
-                meta = yaml.safe_load(fm)
-                if not meta.get("parent-skill-id"):
-                    return False
-            except Exception:
-                return False
+        # Required body sections used by build_runtime_context
+        if not skill.error_recovery_text:
+            return False
+        if not skill.notes_text:
+            return False
+
+        # parent-skill-id is required for siblings.
+        # No fallback re-parse needed: parse_skill_file() faithfully extracts
+        # the parent-skill-id frontmatter field into skill.parent_skill_id,
+        # so a direct check is sufficient.
+        if not skill.parent_skill_id:
+            return False
 
         return True
 
@@ -576,8 +591,8 @@ class SkillLibrarian:
 
     def _apply_create_sibling(
         self, md_content: str, parent_skill: Skill
-    ) -> Tuple[str, str]:
-        """Write a new sibling skill file. Returns (skill_id, file_path)."""
+    ) -> Tuple[str, str, str]:
+        """Write a new sibling skill file. Returns (skill_id, file_path, final_md)."""
         from automation_agent.skills.loader import parse_skill_file
 
         skill = parse_skill_file(md_content)
@@ -609,12 +624,11 @@ class SkillLibrarian:
         if "trusted:" not in md_content:
             md_content = md_content.replace("---\n", "---\ntrusted: false\n", 1)
 
-        # Determine write path
-        skill_dir = Path(__file__).parent / "library"
-        file_path = skill_dir / f"{skill_name.replace('/', '_')}.md"
+        # Determine write path from registry's configured skill_dir
+        file_path = self._skill_dir / f"{skill_name.replace('/', '_')}.md"
         _atomic_write(file_path, md_content)
 
-        return skill_id, str(file_path)
+        return skill_id, str(file_path), md_content
 
     # ------------------------------------------------------------------
     # Mark promoted (delegate to experience store)
@@ -664,10 +678,26 @@ class SkillLibrarian:
         backup = parent_skill.raw_content
         updated = self._apply_patch_parent(skill_name, tips_text)
 
-        # Step 2: write file
+        # Step 2: write file — fail if canonical file can't be found on disk
         skill_path = self._find_skill_path(skill_name)
-        if skill_path:
-            _atomic_write(skill_path, updated)
+        if not skill_path:
+            logger.warning(
+                "skill_librarian_patch_parent_no_file",
+                skill_name=skill_name,
+                skill_dir=str(self._skill_dir),
+            )
+            return PromotionDecision(
+                skill_name=skill_name,
+                promotion_type="observation_only",
+                reason="skill_file_not_found",
+                confidence_score=score,
+                observation_keys=obs_keys,
+                run_id=run_id,
+                timestamp=datetime.utcnow().isoformat(),
+                observation_count=len(best_group),
+                distinct_run_count=distinct_run_count,
+            )
+        _atomic_write(skill_path, updated)
 
         # Step 3: reload into registry
         try:
@@ -775,12 +805,14 @@ class SkillLibrarian:
                 distinct_run_count=distinct_run_count,
             )
 
-        # Step 1: write file
-        new_skill_id, file_path = self._apply_create_sibling(md_content, parent_skill)
+        # Step 1: write file (returns final content after collision rename + trusted flag)
+        new_skill_id, file_path, final_md = self._apply_create_sibling(
+            md_content, parent_skill
+        )
 
-        # Step 2: load into registry
+        # Step 2: load into registry (use final_md which has any renames applied)
         try:
-            self.registry.load_from_string(md_content)
+            self.registry.load_from_string(final_md)
         except Exception:
             logger.warning("skill_librarian_sibling_reload_failed", exc_info=True)
             # Rollback: delete file
@@ -855,14 +887,27 @@ class SkillLibrarian:
     # ------------------------------------------------------------------
 
     def _find_skill_path(self, skill_name: str) -> Optional[Path]:
-        """Find the .md file path for a skill on disk."""
-        skill_dir = Path(__file__).parent / "library"
+        """Find the .md file path for a skill on disk.
+
+        Searches in registry's configured skill_dir, not a hardcoded path.
+
+        Separator assumption: the global replace('-', '_') / replace('_', '-')
+        below assumes skill file names use consistent separators — either
+        all-dashes (e.g., ``return-amazon-order.md``) or all-underscores
+        (e.g., ``return_amazon_order.md``), never mixed within a single name.
+        This convention is enforced by the skill file naming pattern in
+        ``_apply_create_sibling`` and the canonical library files.
+        """
         safe_name = skill_name.replace("/", "_")
-        path = skill_dir / f"{safe_name}.md"
+        path = self._skill_dir / f"{safe_name}.md"
         if path.exists():
             return path
-        # Try with dashes -> underscores
-        path2 = skill_dir / f"{safe_name.replace('-', '_')}.md"
+        # Try with dashes -> underscores (consistent separator convention)
+        path2 = self._skill_dir / f"{safe_name.replace('-', '_')}.md"
         if path2.exists():
             return path2
+        # Try with underscores -> dashes (consistent separator convention)
+        path3 = self._skill_dir / f"{safe_name.replace('_', '-')}.md"
+        if path3.exists():
+            return path3
         return None

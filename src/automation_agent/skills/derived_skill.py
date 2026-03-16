@@ -63,7 +63,7 @@ class DerivedSkillSession:
             self.successful_adaptations, patch.successful_adaptations
         )
 
-        if patch.revised_steps:
+        if patch.revised_steps and patch.revised_steps.strip():
             self.current_steps = patch.revised_steps
 
     @staticmethod
@@ -83,6 +83,9 @@ class DerivedSkillSession:
         """Serialize to a string for injection into skill_context."""
         sections = ["## Derived Procedure (run-local, current best hypothesis)"]
         sections.append(f"Parent skill(s): {', '.join(self.parent_skill_ids)}")
+        if self.current_steps and self.current_steps.strip():
+            sections.append("### Current Steps")
+            sections.append(self.current_steps)
         if self.replaced_labels:
             sections.append("### Label Replacements")
             for r in self.replaced_labels:

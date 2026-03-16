@@ -444,7 +444,7 @@ class ActionPlannerImpl:
                         "Failed to parse derived_skill_patch",
                         exc_info=True,
                     )
-                    replan_patch = ReplanPatch()
+                    replan_patch = None
                 logger.debug(
                     "Extracted replan patch before steps check",
                     has_patch=replan_patch is not None,

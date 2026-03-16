@@ -136,47 +136,52 @@ class TestReplanPatchFromDictValid:
 
 class TestReplanPatchFromDictMalformed:
     def test_replan_patch_from_dict_malformed(self):
-        """Missing keys produce empty defaults."""
+        """Empty dict returns None (no usable content)."""
         patch = ReplanPatch.from_dict({})
-        assert patch.replace_labels == []
-        assert patch.add_landmarks == []
-        assert patch.verify_improvements == []
-        assert patch.failed_assumptions == []
-        assert patch.successful_adaptations == []
-        assert patch.revised_steps == ""
+        assert patch is None
 
 
 class TestReplanPatchFromDictNonDict:
     def test_replan_patch_from_dict_non_dict(self):
-        """Non-dict input returns empty patch."""
+        """Non-dict input returns None."""
         patch = ReplanPatch.from_dict("not a dict")
-        assert patch.replace_labels == []
-        assert patch.revised_steps == ""
+        assert patch is None
 
 
 class TestReplanPatchFromDictExtraKeys:
     def test_replan_patch_from_dict_extra_keys(self):
-        """Unknown keys silently ignored."""
+        """Unknown keys silently ignored; returns None when no usable content."""
         data = {
             "replace_labels": [],
             "unknown_field": "should be ignored",
             "another_unknown": 42,
         }
         patch = ReplanPatch.from_dict(data)
-        assert patch.replace_labels == []
+        # No usable content (empty replace_labels), so returns None
+        assert patch is None
+
+    def test_replan_patch_from_dict_extra_keys_with_content(self):
+        """Unknown keys silently ignored when usable content is present."""
+        data = {
+            "add_landmarks": ["a landmark"],
+            "unknown_field": "should be ignored",
+        }
+        patch = ReplanPatch.from_dict(data)
+        assert patch is not None
+        assert patch.add_landmarks == ["a landmark"]
         assert not hasattr(patch, "unknown_field")
 
 
 class TestReplanPatchFromDictWrongNesting:
     def test_replan_patch_from_dict_wrong_nesting(self):
-        """replace_labels as string not list produces empty list."""
+        """replace_labels as string not list -> no usable content -> None."""
         data = {
             "replace_labels": "not a list",
             "add_landmarks": 42,
         }
         patch = ReplanPatch.from_dict(data)
-        assert patch.replace_labels == []
-        assert patch.add_landmarks == []
+        # All fields are malformed, so no usable content -> None
+        assert patch is None
 
 
 class TestReplanPatchEmptyRevisedSteps:
