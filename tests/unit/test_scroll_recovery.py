@@ -429,3 +429,106 @@ class TestVaryStrategyNoBareScroll:
                 assert retry_step.action != "scroll", (
                     f"Got scroll action at retry_count={retry_count}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Execute-loop regression: scroll recovery replaces failure in step_results
+# ---------------------------------------------------------------------------
+
+
+class TestScrollRecoveryExecuteLoopIntegration:
+    """Regression test for consultant finding 1: the execute loop must replace
+    the original failure in step_results when scroll recovery succeeds,
+    so the trace reflects the recovered outcome."""
+
+    async def test_scroll_recovery_replaces_failure_in_step_results(self):
+        """When scroll recovery succeeds inside the execute loop, the
+        step_results list must contain the recovered success, not the
+        original failure."""
+        agent = _make_agent()
+
+        # Build a plan: open_url (succeeds) → click (fails initially, scroll recovers)
+        click_step = ActionStep(
+            action="click",
+            params={"element": "Add to Cart"},
+            verify="Cart updated",
+            on_fail="retry_different",
+        )
+        plan = ActionPlan(
+            steps=[
+                ActionStep(
+                    action="open_url",
+                    params={"url": "https://example.com"},
+                    verify="Page visible",
+                ),
+                click_step,
+                ActionStep(action="done", params={}, verify=""),
+            ]
+        )
+
+        # Mock planner to return our plan
+        agent.planner.plan = AsyncMock(return_value=plan)
+        agent.planner.replan = AsyncMock()
+
+        # Mock skill registry
+        agent.skill_registry.match = AsyncMock(return_value=None)
+
+        # Mock _execute_step: open_url succeeds, click fails with element not found
+        open_url_result = StepResult(
+            step=plan.steps[0],
+            success=True,
+            verification_method="actuator_state",
+            evidence="URL matches",
+        )
+        click_fail_result = StepResult(
+            step=click_step,
+            success=False,
+            verification_method="",
+            evidence="Element not found",
+            error="Element not found: Add to Cart",
+        )
+        done_result = StepResult(
+            step=plan.steps[2],
+            success=True,
+            verification_method="",
+            evidence="Done",
+        )
+        agent._execute_step = AsyncMock(
+            side_effect=[
+                (open_url_result, False),
+                (click_fail_result, False),
+                (done_result, False),
+            ]
+        )
+
+        # Mock scroll recovery to succeed
+        scroll_success = StepResult(
+            step=click_step,
+            success=True,
+            verification_method="scroll_recovery_verified",
+            evidence="Found after 1 scroll",
+            retry_strategies_used=["scroll_recovery_1"],
+        )
+        agent._scroll_recovery = AsyncMock(return_value=scroll_success)
+
+        # Mock context monitor
+        agent.context_monitor = None
+
+        # Run execute
+        result = await agent.execute("Click add to cart")
+
+        # The key assertion: step_results should contain the RECOVERED result,
+        # not the original failure
+        assert result.success is True
+        click_results = [
+            sr for sr in result.steps
+            if sr.step.action == "click"
+        ]
+        assert len(click_results) == 1, (
+            f"Expected 1 click result, got {len(click_results)}"
+        )
+        assert click_results[0].success is True, (
+            "Click result in step_results should be the recovered success, "
+            "not the original failure"
+        )
+        assert click_results[0].verification_method == "scroll_recovery_verified"
