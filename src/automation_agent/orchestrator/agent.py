@@ -433,7 +433,43 @@ class AutomationAgent:
                     step_results.append(result)
                     iterations += 1
 
-                # Record context after actions (AC-29: pass result for milestone/obstacle tracking)
+                # AC-4: On element NOT_FOUND, attempt scroll recovery
+                # BEFORE context recording and frustration tracking, so that
+                # a recovered success is what downstream bookkeeping sees.
+                _scrollable_actions = {"click", "type_text"}
+                if (
+                    not result.success
+                    and step.action in _scrollable_actions
+                    and step.params.get("element")
+                    and result.error
+                    and "not found" in result.error.lower()
+                ):
+                    max_scrolls = step.params.get("_max_scrolls", 3)
+                    scroll_result = await self._scroll_recovery(
+                        step, result, step_results, goal, max_scrolls
+                    )
+                    if scroll_result is not None:
+                        if scroll_result.success:
+                            result = scroll_result
+                            # Replace the original failure in step_results
+                            # so the trace reflects the recovered outcome
+                            if step_results and step_results[-1].step is step:
+                                step_results[-1] = scroll_result
+                        else:
+                            infeas_result = await self._check_infeasibility(
+                                goal, frustration, step_results, force=True
+                            )
+                            if infeas_result is not None:
+                                infeas_result.total_duration_ms = int(
+                                    (time.monotonic() - start) * 1000
+                                )
+                                infeas_result.iterations = iterations
+                                infeas_result.goal = goal
+                                infeas_result.run_id = self.logger.run_id
+                                return infeas_result
+
+                # Record context after actions (and after scroll recovery, so
+                # recovered result is what bookkeeping sees)
                 if self.context_monitor:
                     self._record_context(step, result)
 
@@ -467,40 +503,6 @@ class AutomationAgent:
                 else:
                     frustration.identical_action_count = 0
                 frustration._last_action_key = action_key
-
-                # AC-4: On element NOT_FOUND, attempt scroll recovery
-                # before infeasibility
-                _scrollable_actions = {"click", "type_text"}
-                if (
-                    not result.success
-                    and step.action in _scrollable_actions
-                    and step.params.get("element")
-                    and result.error
-                    and "not found" in result.error.lower()
-                ):
-                    max_scrolls = step.params.get("_max_scrolls", 3)
-                    scroll_result = await self._scroll_recovery(
-                        step, result, step_results, goal, max_scrolls
-                    )
-                    if scroll_result is not None:
-                        if scroll_result.success:
-                            result = scroll_result
-                            # Replace the original failure in step_results
-                            # so the trace reflects the recovered outcome
-                            if step_results and step_results[-1].step is step:
-                                step_results[-1] = scroll_result
-                        else:
-                            infeas_result = await self._check_infeasibility(
-                                goal, frustration, step_results, force=True
-                            )
-                            if infeas_result is not None:
-                                infeas_result.total_duration_ms = int(
-                                    (time.monotonic() - start) * 1000
-                                )
-                                infeas_result.iterations = iterations
-                                infeas_result.goal = goal
-                                infeas_result.run_id = self.logger.run_id
-                                return infeas_result
 
                 # AC-2: threshold-based trigger
                 if frustration.is_triggered(
