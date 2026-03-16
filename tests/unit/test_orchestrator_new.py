@@ -1191,9 +1191,9 @@ class TestBugFixes:
     async def test_missing_target_no_alternative_triggers_replan_on_attempt_3(
         self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
     ):
-        """Missing target with no suggested element should replan after scroll + refine attempts.
+        """Missing target with no suggested element should replan after refine attempts.
 
-        Strategy order: attempt 1 = scroll_down_and_retry, attempt 2 = refine_missing_target_query,
+        Strategy order: attempt 1 = refine_missing_element_query, attempt 2 = refine_missing_target_query,
         attempt 3+ = replan_missing_target.
         """
         logger = EventLogger(tmp_log_dir)

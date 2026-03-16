@@ -304,6 +304,7 @@ class StepResult:
         valid_methods = {
             "", "accessibility", "actuator_state", "vision", "both",
             "type_and_check", "lookahead",
+            "scroll_recovery", "scroll_recovery_verified",
         }
         if self.verification_method not in valid_methods:
             raise ValueError(

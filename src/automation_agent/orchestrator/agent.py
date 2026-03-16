@@ -329,64 +329,25 @@ class AutomationAgent:
                 plan_kwargs["desktop_context"] = desktop_context
             plan = await self.planner.plan(goal, **plan_kwargs)
             fallback_plan = self._build_skill_fallback_plan(goal, skill_context)
-            replace_with_fallback = False
-            if self._is_trivial_done_plan(plan) and fallback_plan is not None:
-                if await self._plan_already_satisfied(fallback_plan):
-                    slog.info("✅ Trivial done plan accepted because fallback condition is already met")
-                else:
-                    replace_with_fallback = True
-                    slog.warning(
-                        "Planner returned trivial done plan before fallback target was satisfied",
-                        goal=goal,
-                    )
-            elif self._is_truncated_plan(plan, fallback_plan):
-                replace_with_fallback = True
-                slog.warning(
-                    "Planner returned truncated plan (navigation only, no interactions)",
-                    plan_steps=len(plan.steps),
-                    fallback_steps=len(fallback_plan.steps),
-                    goal=goal,
-                )
-            if replace_with_fallback and fallback_plan is not None:
-                self.logger.log_event(
-                    EventType.SKILL_EXPAND,
-                    f"Replacing incomplete plan with skill fallback ({len(fallback_plan.steps)} steps)",
-                    data={"step_count": len(fallback_plan.steps)},
-                )
-                plan = fallback_plan
 
-            # AC-2: Ensure skill-mandated navigation is present.
-            # Skip for trivial done plans that were intentionally accepted
-            # (target already satisfied — no need to re-navigate).
-            if skill_context and fallback_plan and not self._is_trivial_done_plan(plan):
-                plan = AutomationAgent._ensure_skill_navigation(plan, fallback_plan)
-
-            # P2-3: Inject domain verification for single-site goals
+            # P2-3: Extract expected domain for single-site goals (before hardening)
             self._expected_domain = None
             try:
                 from automation_agent.skills.router import extract_site_entity
                 site_entities = extract_site_entity(goal)
                 if site_entities and len(site_entities) == 1:
                     self._expected_domain = f"{site_entities[0]}.com"
-                    self._inject_domain_verification(plan, self._expected_domain)
             except ImportError:
-                pass  # extract_site_entity not yet available (Slice 1)
+                pass  # extract_site_entity not yet available
             except Exception as exc:
-                # Don't crash plan generation for domain extraction bugs
                 slog.warning(
                     "domain_extraction_failed",
                     error=str(exc),
                     goal=goal,
                 )
 
-            # Safety net: when a skill is matched, the LLM planner sometimes
-            # sets on_fail=abort for click steps, which prevents any retry.
-            # Override to retry_different so the agent can refine the element
-            # query before giving up.
-            if skill_context:
-                for step in plan.steps:
-                    if step.action == "click" and step.on_fail == "abort":
-                        step.on_fail = "retry_different"
+            # Apply all plan hardening checks
+            plan = await self._harden_plan(plan, goal, skill_context, fallback_plan)
 
             slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
             plan_data = {"step_count": len(plan.steps)}
@@ -1567,6 +1528,71 @@ class AutomationAgent:
         else:
             # Both failed -- return original click failure + next failure
             return result, next_result, next_tf
+
+    async def _harden_plan(
+        self,
+        plan: ActionPlan,
+        goal: str,
+        skill_context: Optional[str],
+        fallback_plan: Optional[ActionPlan],
+    ) -> ActionPlan:
+        """Apply all plan hardening checks. Used by both initial plan and replan.
+
+        Steps:
+        1. Trivial done / truncated plan -> fallback replacement
+        2. Navigation enforcement
+        3. Domain verification injection
+        4. Click on_fail normalization (abort -> retry_different)
+
+        Validation is caller responsibility: _execute hard-fails, replan soft-warns.
+        """
+        # 1. Trivial done / truncated plan -> fallback replacement
+        replace_with_fallback = False
+        if self._is_trivial_done_plan(plan) and fallback_plan is not None:
+            if await self._plan_already_satisfied(fallback_plan):
+                slog.info(
+                    "trivial_done_plan_accepted",
+                    reason="fallback condition already met",
+                )
+            else:
+                replace_with_fallback = True
+                slog.warning(
+                    "trivial_done_plan_rejected",
+                    reason="fallback target not yet satisfied",
+                    goal=goal,
+                )
+        elif self._is_truncated_plan(plan, fallback_plan):
+            replace_with_fallback = True
+            slog.warning(
+                "truncated_plan_detected",
+                plan_steps=len(plan.steps),
+                fallback_steps=len(fallback_plan.steps) if fallback_plan else 0,
+                goal=goal,
+            )
+        if replace_with_fallback and fallback_plan is not None:
+            self.logger.log_event(
+                EventType.SKILL_EXPAND,
+                f"Replacing incomplete plan with skill fallback"
+                f" ({len(fallback_plan.steps)} steps)",
+                data={"step_count": len(fallback_plan.steps)},
+            )
+            plan = fallback_plan
+
+        # 2. Navigation enforcement
+        if skill_context and fallback_plan and not self._is_trivial_done_plan(plan):
+            plan = AutomationAgent._ensure_skill_navigation(plan, fallback_plan)
+
+        # 3. Domain verification
+        if self._expected_domain:
+            self._inject_domain_verification(plan, self._expected_domain)
+
+        # 4. Click on_fail normalization
+        if skill_context:
+            for step in plan.steps:
+                if step.action == "click" and step.on_fail == "abort":
+                    step.on_fail = "retry_different"
+
+        return plan
 
     @staticmethod
     def _is_trivial_done_plan(plan: ActionPlan) -> bool:
@@ -2923,12 +2949,40 @@ class AutomationAgent:
                     step, _pre_resolved_location=find_result
                 )
                 success = action_result.get("success", False)
+                if not success:
+                    # Element found but action failed — scroll and re-find rather than
+                    # retrying at the same location. Rationale: a failed dispatch often
+                    # means the element was partially obscured or the coordinate was stale
+                    # (e.g., a lazy-loaded page shifted layout). Scrolling gives the page
+                    # a fresh layout and _find_element produces a fresh coordinate.
+                    slog.warning(
+                        "Scroll recovery action failed",
+                        attempt=i + 1,
+                        error=action_result.get("error"),
+                    )
+                    continue
+                if step.verify:
+                    # Run postcondition verification (same pipeline as _execute_step)
+                    verify_result = await self.verifier.verify(step, action_result)
+                    if verify_result is not None:
+                        return StepResult(
+                            step=step,
+                            success=verify_result.success,
+                            verification_method="scroll_recovery_verified",
+                            evidence=verify_result.evidence,
+                            retry_strategies_used=[f"scroll_recovery_{i + 1}"],
+                        )
+                # NOTE: If verification was inconclusive (verify_result is None) or
+                # the step had no verify field, we fall through to unverified success.
+                # In _execute_step, an inconclusive Tier 1 escalates to Tier 2 (vision).
+                # Here we accept unverified success as a pragmatic tradeoff — scroll
+                # recovery is already a best-effort path. Future work: escalate to
+                # Tier 2 vision verification on inconclusive results.
                 return StepResult(
                     step=step,
-                    success=success,
-                    verification_method="",
+                    success=True,
+                    verification_method="scroll_recovery",
                     evidence=f"Scroll recovery click after {i + 1} scrolls",
-                    error=action_result.get("error") if not success else None,
                     retry_strategies_used=[f"scroll_recovery_{i + 1}"],
                 )
 
@@ -3680,11 +3734,12 @@ class AutomationAgent:
                     )
                     return ("refine_visible_alternative_affordance", _retry_step("click", params))
                 return ("replan_after_alternative_affordance", None)
-            # AC-4: Scroll down as first recovery strategy for NOT_FOUND
-            if missing_target and not suggested_element and attempt == 1:
-                scroll_params = {"direction": "down", "amount": 3}
-                return ("scroll_down_and_retry", _retry_step("scroll", scroll_params))
             if missing_target and not suggested_element:
+                if attempt == 1:
+                    params["element"] = (
+                        f"{params['element']} (look carefully, may be partially hidden)"
+                    )
+                    return ("refine_missing_element_query", _retry_step("click", params))
                 if attempt == 2:
                     params["element"] = (
                         f"{params['element']} (visible on the same relevant card/section only)"
@@ -3845,9 +3900,26 @@ class AutomationAgent:
                 "No replan patch in LLM response, derived procedure unchanged"
             )
 
-        # P2-3: Re-inject domain verification for replans
-        if self._expected_domain:
-            self._inject_domain_verification(new_plan, self._expected_domain)
+        # P0-2: Apply full plan hardening to replans (fallback, nav, domain, on_fail)
+        fallback_plan = (
+            self._build_skill_fallback_plan(goal, skill_context)
+            if skill_context
+            else None
+        )
+        if skill_context and fallback_plan is None:
+            slog.warning(
+                "replan_fallback_build_failed",
+                reason="skill_context present but could not parse into fallback plan",
+                goal=goal,
+            )
+        new_plan = await self._harden_plan(
+            new_plan, goal, skill_context, fallback_plan
+        )
+
+        # Soft validation for replans (log but don't abort — partial value possible)
+        validation_errors = new_plan.validate()
+        if validation_errors:
+            slog.warning("replan_validation_issues", errors=validation_errors)
 
         # Execute new plan with proper failure handling
         _skip_next = False
@@ -4055,7 +4127,7 @@ class AutomationAgent:
         Uses getattr to check for promote_from_run on the registry, consistent
         with the learn_from_run pattern.
         """
-        if not skill_name or not observations:
+        if not skill_name:
             return
         promote = getattr(self.skill_registry, "promote_from_run", None)
         if promote is None:
