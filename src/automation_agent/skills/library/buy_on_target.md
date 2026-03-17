@@ -19,7 +19,7 @@ parameters:
     description: Maximum price filter (e.g., "$50", "50")
     examples: ["$50", "25"]
 requires:
-  apps: [Safari, Google Chrome]
+  apps: [browser]
   os: darwin
 success-condition: Product has been added to cart and cart confirmation is visible
 max-retries: 3

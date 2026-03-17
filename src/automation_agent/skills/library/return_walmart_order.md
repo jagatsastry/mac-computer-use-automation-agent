@@ -14,7 +14,7 @@ parameters:
     description: Item to return (product name or description)
     examples: ["Crest 3D Whitestrips", "dog food", "shoes"]
 requires:
-  apps: [Safari, Google Chrome]
+  apps: [browser]
   os: darwin
 success-condition: Return confirmation or label page is visible
 max-retries: 3

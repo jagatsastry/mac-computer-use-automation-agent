@@ -11,7 +11,7 @@ parameters:
     required: true
     description: What to return
 requires:
-  apps: [Safari, Google Chrome]
+  apps: [browser]
   os: darwin
 success-condition: Return confirmation visible
 max-retries: 3

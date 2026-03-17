@@ -12,18 +12,14 @@ parameters:
     description: Search query
     examples: ["weather today", "best restaurants nearby"]
 requires:
-  apps: [Safari, Google Chrome]
+  apps: [browser]
   os: darwin
 success-condition: Google search results page visible
 max-retries: 2
 ---
 
 ## Steps
-1. Open the default browser (Safari or Google Chrome)
-   - verify: A browser is the frontmost app
-2. Click the address bar
-   - verify: Address bar is focused
-3. Type "https://www.google.com/search?q={{query}}" and press Enter
+1. Use open_url to navigate to https://www.google.com/search?q={{query}}
    - verify: Google search results page visible for "{{query}}"
 
 ## Error Recovery

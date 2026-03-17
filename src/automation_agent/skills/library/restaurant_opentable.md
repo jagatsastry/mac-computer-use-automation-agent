@@ -45,8 +45,7 @@ parameters:
       - "19:00"
 requires:
   apps:
-    - Safari
-    - Google Chrome
+    - browser
   os: darwin
 success-condition: Reservation confirmation page is visible with a booking reference number or "Reservation confirmed" message showing restaurant name, date, time, and party size.
 max-retries: 3

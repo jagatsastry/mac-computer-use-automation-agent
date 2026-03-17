@@ -46,8 +46,7 @@ parameters:
       - "19:00"
 requires:
   apps:
-    - Safari
-    - Google Chrome
+    - browser
   os: darwin
 success-condition: Reservation confirmation is visible with booking details including restaurant name, date, time, party size, and a confirmation number or "Reservation confirmed" message.
 max-retries: 3
