@@ -659,6 +659,14 @@ class AutomationAgent:
                 run_id=self.logger.run_id,
             )
 
+    def _snapshot_state(self) -> tuple:
+        """Return (app_name, browser_url) from the actuator."""
+        try:
+            s = self.actuator.get_state()
+            return s.get("app_name", ""), s.get("browser_url", "")
+        except Exception:
+            return "", ""
+
     async def _execute_step(
         self,
         index: int,
@@ -673,6 +681,28 @@ class AutomationAgent:
             (StepResult, text_field_focused) where text_field_focused indicates
             whether a text input field was focused after a click action (AC-1).
         """
+        _pre_app, _pre_url = self._snapshot_state()
+
+        result, tf = await self._execute_step_inner(
+            index, step, history, goal, plan,
+        )
+
+        _post_app, _post_url = self._snapshot_state()
+        result.pre_state_app = _pre_app
+        result.pre_state_url = _pre_url
+        result.post_state_app = _post_app
+        result.post_state_url = _post_url
+        return result, tf
+
+    async def _execute_step_inner(
+        self,
+        index: int,
+        step: ActionStep,
+        history: list,
+        goal: str,
+        plan: ActionPlan,
+    ) -> Tuple[StepResult, bool]:
+        """Inner step execution (wrapped by _execute_step for state capture)."""
         slog.info("🎯 Executing step", step_index=index, action=step.action, params=step.params)
         self.logger.log_event(
             EventType.STEP_START,

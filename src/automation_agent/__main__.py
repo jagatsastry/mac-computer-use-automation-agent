@@ -185,7 +185,14 @@ async def run_agent(
                 print(f"\nActions executed:")
                 for i, sr in enumerate(result.steps, 1):
                     status = "OK" if sr.success else "FAIL"
-                    print(f"  {i}. [{status}] {sr.step.action}: {sr.step.params}")
+                    pre = f"[{sr.pre_state_app}]" if sr.pre_state_app else "[?]"
+                    post = f"[{sr.post_state_app}]" if sr.post_state_app else "[?]"
+                    print(f"  {i}. [{status}] {pre} → {sr.step.action}: {sr.step.params} → {post}")
+                    if sr.pre_state_url or sr.post_state_url:
+                        url_pre = sr.pre_state_url[:60] if sr.pre_state_url else ""
+                        url_post = sr.post_state_url[:60] if sr.post_state_url else ""
+                        if url_pre != url_post:
+                            print(f"      URL: {url_pre} → {url_post}")
 
             if result.iterations > 0:
                 print(f"\nCompleted in {result.iterations} iteration(s)")
@@ -202,7 +209,14 @@ async def run_agent(
                 print(f"\nActions attempted:")
                 for i, sr in enumerate(result.steps, 1):
                     status = "OK" if sr.success else "FAIL"
-                    print(f"  {i}. [{status}] {sr.step.action}: {sr.step.params}")
+                    pre = f"[{sr.pre_state_app}]" if sr.pre_state_app else "[?]"
+                    post = f"[{sr.post_state_app}]" if sr.post_state_app else "[?]"
+                    print(f"  {i}. [{status}] {pre} → {sr.step.action}: {sr.step.params} → {post}")
+                    if sr.pre_state_url or sr.post_state_url:
+                        url_pre = sr.pre_state_url[:60] if sr.pre_state_url else ""
+                        url_post = sr.post_state_url[:60] if sr.post_state_url else ""
+                        if url_pre != url_post:
+                            print(f"      URL: {url_pre} → {url_post}")
                     if sr.error:
                         print(f"      Error: {sr.error}")
 

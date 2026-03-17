@@ -299,6 +299,10 @@ class StepResult:
     reflection_observed: str = ""
     suggested_element: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
+    pre_state_app: str = ""  # Frontmost app before action
+    post_state_app: str = ""  # Frontmost app after action
+    pre_state_url: str = ""  # Browser URL before action
+    post_state_url: str = ""  # Browser URL after action
 
     def __post_init__(self) -> None:
         valid_methods = {
