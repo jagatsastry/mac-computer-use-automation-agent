@@ -112,11 +112,13 @@ class GroundingRouter:
         """Find element using best available strategy with fallback."""
         tried: set[GroundingStrategy] = set()
         accessibility_matches = self._get_accessibility_matches(description)
-        accessibility_result = (
-            self._ground_accessibility_match(accessibility_matches[0])
-            if accessibility_matches
-            else None
-        )
+        if accessibility_matches:
+            _score = self._compute_match_score(description, accessibility_matches[0])
+            accessibility_result = self._ground_accessibility_match(
+                accessibility_matches[0], match_score=_score
+            )
+        else:
+            accessibility_result = None
 
         strategies = self.classify(description)
         if (
@@ -382,16 +384,39 @@ class GroundingRouter:
             lines.append(", ".join(parts))
         return "\n".join(lines)
 
-    def _ground_accessibility_match(self, elem: Any) -> Optional[GroundingResult]:
-        """Convert an AX element candidate into a grounding result."""
+    def _ground_accessibility_match(
+        self, elem: Any, match_score: float = 1.0
+    ) -> Optional[GroundingResult]:
+        """Convert an AX element candidate into a grounding result.
+
+        Args:
+            elem: An AXElement (or mock) with .center, .role, .title, etc.
+            match_score: Raw score from _element_match_score(), range [0.0, 1.0+].
+                Default 1.0 preserves backward compat for callers that don't
+                compute score.
+
+        Returns:
+            GroundingResult with confidence = 0.6 + 0.35 * min(match_score, 1.0),
+            or None if elem is None or has no center.
+        """
         center = getattr(elem, "center", None)
         if elem is None or not center:
             return None
+        confidence = 0.6 + 0.35 * min(match_score, 1.0)
+        logger.debug(
+            "ax_confidence_calibrated: description=%s raw_score=%.3f confidence=%.3f "
+            "elem_role=%s elem_title=%s",
+            getattr(elem, "description", ""),
+            match_score,
+            confidence,
+            getattr(elem, "role", ""),
+            getattr(elem, "title", ""),
+        )
         return GroundingResult(
             x=center[0],
             y=center[1],
             strategy_used=GroundingStrategy.ACCESSIBILITY,
-            confidence=0.95,
+            confidence=confidence,
             element_info={
                 "role": getattr(elem, "role", ""),
                 "title": getattr(elem, "title", None),
@@ -403,6 +428,55 @@ class GroundingRouter:
             },
         )
 
+    def _compute_match_score(self, description: str, elem: Any) -> float:
+        """Compute match score using AccessibilityBridge._element_match_score().
+
+        Follows the MagicMock detection pattern from _get_accessibility_matches()
+        to support both real and mocked accessibility backends.
+
+        Args:
+            description: The natural language element description.
+            elem: The AXElement candidate.
+
+        Returns:
+            Float score in range [0.0, 1.0+]. Returns 1.0 if scoring is
+            unavailable (no accessibility backend, no score_fn, exception).
+        """
+        if not self.accessibility:
+            return 1.0
+        try:
+            is_mock = "MagicMock" in type(self.accessibility).__name__
+            explicit_attrs = vars(self.accessibility) if is_mock else {}
+            extract_target = (
+                explicit_attrs.get("_extract_match_target")
+                if is_mock
+                else getattr(
+                    type(self.accessibility), "_extract_match_target", None
+                )
+            )
+            score_fn = (
+                explicit_attrs.get("_element_match_score")
+                if is_mock
+                else getattr(
+                    type(self.accessibility), "_element_match_score", None
+                )
+            )
+            if not callable(extract_target) or not callable(score_fn):
+                logger.debug(
+                    "ax_score_unavailable: description=%s reason=no_score_fn",
+                    description,
+                )
+                return 1.0
+            _, text_hint = extract_target(description)
+            return score_fn(elem, text_hint)
+        except Exception:
+            logger.debug(
+                "ax_score_unavailable: description=%s reason=exception",
+                description,
+                exc_info=True,
+            )
+            return 1.0
+
     async def _ground_accessibility(
         self, description: str
     ) -> Optional[GroundingResult]:
@@ -410,7 +484,10 @@ class GroundingRouter:
         if not self.accessibility:
             return None
         elem = self.accessibility.find_element_by_description(description)
-        return self._ground_accessibility_match(elem)
+        if elem is None:
+            return None
+        score = self._compute_match_score(description, elem)
+        return self._ground_accessibility_match(elem, match_score=score)
 
     async def _ground_vision(
         self, description: str

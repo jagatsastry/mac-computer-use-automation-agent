@@ -2309,11 +2309,12 @@ class AutomationAgent:
                             "error": f"low_confidence:{confidence:.2f}",
                         }
 
-                    # Rec 3: pre-click validation (skip for accessibility, high confidence,
-                    # or dedicated grounding model results — grounding is purpose-built for
-                    # element finding and more accurate than crop-based secondary validation)
+                    # Rec 3: pre-click validation (skip for high confidence or
+                    # dedicated grounding/vision model results — those are purpose-built
+                    # for element finding). AX results use calibrated confidence so
+                    # partial matches (conf < 0.9) go through crop validation.
                     skip_validation = (
-                        location.source in ("accessibility", "grounding", "vision")
+                        location.source in ("grounding", "vision")
                         or confidence >= 0.9
                     )
                     if not skip_validation:
