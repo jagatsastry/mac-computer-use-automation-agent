@@ -116,6 +116,14 @@ def _verbose_detail(event_type: str, data: Dict[str, Any]) -> str:
         if params:
             parts.append(f"  params: {params}")
 
+    elif event_type in ("narrate_intent", "narrate_observe"):
+        app = data.get("app")
+        url = data.get("url")
+        if app:
+            parts.append(f"  app: {app}")
+        if url:
+            parts.append(f"  url: {url[:80]}")
+
     elif event_type == "action_start":
         pass  # message already contains full info
 
@@ -218,6 +226,10 @@ def _title_for_event(event_type: str, message: str, event: Dict[str, Any]) -> st
     if event_type == "step_start":
         action = data.get("action")
         return f"Executing: {action}" if action else "Executing step"
+    if event_type == "narrate_intent":
+        return f"💭 {message[:60]}"
+    if event_type == "narrate_observe":
+        return f"👁 {message[:60]}"
     if event_type == "action_start":
         return "Acting"
     if event_type == "verify_start":

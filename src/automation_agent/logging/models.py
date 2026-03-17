@@ -83,6 +83,10 @@ class EventType(str, Enum):
     # World state events (Gap 2)
     STATE_DIFF = "state_diff"
 
+    # Narration events (overlay "thinking aloud")
+    NARRATE_INTENT = "narrate_intent"
+    NARRATE_OBSERVE = "narrate_observe"
+
     # Aggregate
     TASK_SUMMARY = "task_summary"
 

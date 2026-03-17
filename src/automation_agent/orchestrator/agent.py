@@ -2295,6 +2295,29 @@ class AutomationAgent:
         action = step.action
         params = dict(step.params)
 
+        # Narrate intent: what we're about to do and what we see
+        _pre_app, _pre_url = self._snapshot_state()
+        intent_parts = [f"I will {action}"]
+        if action == "click" and params.get("element"):
+            intent_parts[0] = f"I will click '{params['element']}'"
+        elif action == "type_text" and params.get("text"):
+            intent_parts[0] = f"I will type '{params['text'][:40]}'"
+        elif action == "open_url" and params.get("url"):
+            intent_parts[0] = f"I will open {params['url'][:60]}"
+        elif action == "press_key" and params.get("keys"):
+            intent_parts[0] = f"I will press {params['keys']}"
+        elif action == "activate_app" and params.get("app_name"):
+            intent_parts[0] = f"I will activate {params['app_name']}"
+        if _pre_app:
+            intent_parts.append(f"Currently focused: {_pre_app}")
+        if _pre_url:
+            intent_parts.append(f"URL: {_pre_url[:60]}")
+        self.logger.log_event(
+            EventType.NARRATE_INTENT,
+            " | ".join(intent_parts),
+            data={"app": _pre_app, "url": _pre_url},
+        )
+
         slog.debug("🎯 Dispatching action", action=action, params=params)
         self.logger.log_event(EventType.ACTION_START, f"{action}({params})")
 
@@ -2574,6 +2597,26 @@ class AutomationAgent:
                 result = {"success": False, "error": f"Unknown action: {action}"}
 
             self.logger.log_event(EventType.ACTION_COMPLETE, f"{action} -> {result}")
+
+            # Narrate observation: what we see after the action
+            _post_app, _post_url = self._snapshot_state()
+            obs_parts = []
+            if result.get("success"):
+                obs_parts.append(f"Done: {action} succeeded")
+            else:
+                obs_parts.append(f"Done: {action} failed — {result.get('error', '?')}")
+            if _post_app:
+                obs_parts.append(f"Now focused: {_post_app}")
+            if _post_url:
+                obs_parts.append(f"URL: {_post_url[:60]}")
+            if _pre_app and _post_app and _pre_app != _post_app:
+                obs_parts.append(f"Focus changed: {_pre_app} → {_post_app}")
+            self.logger.log_event(
+                EventType.NARRATE_OBSERVE,
+                " | ".join(obs_parts),
+                data={"app": _post_app, "url": _post_url},
+            )
+
             return result
         except Exception as e:
             self.logger.log_event(EventType.ACTION_ERROR, f"{action} error: {e}")
