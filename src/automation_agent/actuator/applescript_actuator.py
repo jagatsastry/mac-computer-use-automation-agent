@@ -162,11 +162,38 @@ class AppleScriptActuator:
 
         return self._run_osascript(script).to_dict()
 
+    _BROWSERS = frozenset(
+        ("safari", "chrome", "google chrome", "firefox", "arc", "edge", "brave", "opera")
+    )
+
     def activate_app(self, app_name: str) -> Dict[str, Any]:
+        # Browser substitution: if the plan says "Safari" but another browser
+        # is already frontmost, use that browser instead of switching.
+        # This preserves the user's context (e.g., Amazon open in Chrome).
+        target = app_name
+        if app_name.lower() in self._BROWSERS:
+            try:
+                state = self.get_state()
+                current_app = state.get("app_name", "")
+                if (
+                    current_app
+                    and current_app.lower() in self._BROWSERS
+                    and current_app.lower() != app_name.lower()
+                ):
+                    slog.info(
+                        "browser_substitution",
+                        requested=app_name,
+                        using=current_app,
+                        reason="another browser is already frontmost",
+                    )
+                    target = current_app
+            except Exception:
+                pass
+
         # Use 'open -a' which is more reliable than AppleScript activate
         try:
             result = subprocess.run(
-                ["open", "-a", app_name],
+                ["open", "-a", target],
                 capture_output=True,
                 text=True,
                 timeout=self.TIMEOUT_SECONDS,
@@ -176,7 +203,7 @@ class AppleScriptActuator:
                     success=False, error=result.stderr.strip()
                 ).to_dict()
             return ActuatorResult(
-                success=True, output=f"Activated {app_name}"
+                success=True, output=f"Activated {target}"
             ).to_dict()
         except subprocess.TimeoutExpired:
             return ActuatorResult(
