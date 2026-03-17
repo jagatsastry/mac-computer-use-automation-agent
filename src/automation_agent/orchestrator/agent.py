@@ -2294,6 +2294,35 @@ class AutomationAgent:
                             "error": f"Element not found: {params['element']}",
                         }
 
+                    # Keyboard shortcut fast path: press keys instead of clicking
+                    if location.source == "keyboard_shortcut":
+                        import ast
+                        try:
+                            keys = ast.literal_eval(location.raw_response)
+                        except Exception:
+                            keys = [location.raw_response]
+                        slog.info(
+                            "keyboard_shortcut_dispatch",
+                            element=params["element"],
+                            keys=keys,
+                        )
+                        for key_combo in keys:
+                            key_parts = key_combo.replace("+", " ").split()
+                            result = self.actuator.press_key(key_parts)
+                            if not result.get("success", False):
+                                return result
+                        await asyncio.sleep(max(self.config.action_delay, 0.3))
+                        self.logger.log_event(
+                            EventType.ACTION_COMPLETE,
+                            f"click via keyboard shortcut {keys} "
+                            f"for '{params['element']}'",
+                        )
+                        return {
+                            "success": True,
+                            "output": f"Keyboard shortcut {keys} "
+                            f"for '{params['element']}'",
+                        }
+
                     # Rec 2: confidence gate — check before any click
                     confidence = location.confidence
                     threshold = self._get_confidence_threshold(step)
@@ -2536,6 +2565,14 @@ class AutomationAgent:
         if self.grounding_router is not None:
             gr = await self.grounding_router.find_element(description)
             if gr is not None:
+                # Keyboard shortcut fast path: press keys instead of clicking
+                if gr.keyboard_shortcut:
+                    return FindElementResult(
+                        x=0, y=0,
+                        confidence=gr.confidence,
+                        source="keyboard_shortcut",
+                        raw_response=str(gr.keyboard_shortcut),
+                    )
                 result = FindElementResult(
                     x=gr.x,
                     y=gr.y,

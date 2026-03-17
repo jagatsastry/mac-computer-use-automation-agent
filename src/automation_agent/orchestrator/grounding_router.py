@@ -35,6 +35,7 @@ class GroundingResult:
     strategy_used: GroundingStrategy
     confidence: float
     element_info: Optional[dict] = None
+    keyboard_shortcut: Optional[list[str]] = None  # e.g. ["cmd+l"] for address bar
 
 
 # Keyword sets for classification.
@@ -106,10 +107,41 @@ class GroundingRouter:
             return False
         return True
 
+    def _check_keyboard_shortcut(self, description: str) -> Optional[GroundingResult]:
+        """Check if element can be reached via keyboard shortcut instead of clicking.
+
+        Returns a GroundingResult with keyboard_shortcut set if the description
+        matches a known browser chrome element with a shortcut. The agent should
+        use press_key instead of click when this field is set.
+        """
+        from automation_agent.perception.accessibility import BROWSER_KEYBOARD_SHORTCUTS
+        desc_lower = description.lower().strip()
+        # Try exact match first, then strip common suffixes
+        for candidate in [desc_lower, desc_lower.replace(" button", "")]:
+            shortcuts = BROWSER_KEYBOARD_SHORTCUTS.get(candidate)
+            if shortcuts:
+                logger.info(
+                    "keyboard_shortcut_match: '%s' → %s (skipping vision)",
+                    description, shortcuts,
+                )
+                return GroundingResult(
+                    x=0, y=0,
+                    strategy_used=GroundingStrategy.ACCESSIBILITY,
+                    confidence=0.99,
+                    keyboard_shortcut=shortcuts,
+                    element_info={"shortcut_for": description},
+                )
+        return None
+
     async def find_element(
         self, description: str
     ) -> Optional[GroundingResult]:
         """Find element using best available strategy with fallback."""
+        # Fast path: keyboard shortcut for known browser chrome elements
+        shortcut_result = self._check_keyboard_shortcut(description)
+        if shortcut_result is not None:
+            return shortcut_result
+
         tried: set[GroundingStrategy] = set()
         accessibility_matches = self._get_accessibility_matches(description)
         if accessibility_matches:

@@ -45,6 +45,56 @@ def _resolve_ax_copy_attr() -> Any:
     return None
 
 # Mapping of natural-language keywords to AX roles.
+# Semantic aliases: user descriptions → AX labels.
+# Maps common natural-language element names to their actual AX titles.
+# Used by _element_match_score to bridge the vocabulary gap.
+_ELEMENT_ALIASES: Dict[str, list[str]] = {
+    # Safari / browser chrome
+    "address bar": ["smart search field", "address and search", "url"],
+    "url bar": ["smart search field", "address and search", "url"],
+    "search bar": ["smart search field", "search field", "search"],
+    "location bar": ["smart search field", "address and search"],
+    "back button": ["go back"],
+    "forward button": ["go forward"],
+    "reload button": ["reload this page"],
+    "refresh button": ["reload this page"],
+    "new tab button": ["new tab"],
+    "close tab button": ["close button"],
+    "share button": ["share"],
+    # Calculator
+    "multiply button": ["multiply", "×"],
+    "times button": ["multiply", "×"],
+    "divide button": ["divide", "÷"],
+    "plus button": ["add", "+"],
+    "minus button": ["subtract", "−", "-"],
+    "equals button": ["equals", "="],
+}
+
+# Keyboard shortcuts for browser chrome elements.
+# When the agent wants to click one of these, a keyboard shortcut
+# is faster, more reliable, and doesn't need coordinates.
+BROWSER_KEYBOARD_SHORTCUTS: Dict[str, list[str]] = {
+    "address bar": ["cmd+l"],
+    "url bar": ["cmd+l"],
+    "search bar": ["cmd+l"],
+    "location bar": ["cmd+l"],
+    "smart search field": ["cmd+l"],
+    "new tab": ["cmd+t"],
+    "new tab button": ["cmd+t"],
+    "close tab": ["cmd+w"],
+    "close tab button": ["cmd+w"],
+    "back": ["cmd+["],
+    "go back": ["cmd+["],
+    "back button": ["cmd+["],
+    "forward": ["cmd+]"],
+    "go forward": ["cmd+]"],
+    "forward button": ["cmd+]"],
+    "reload": ["cmd+r"],
+    "reload button": ["cmd+r"],
+    "refresh": ["cmd+r"],
+    "refresh button": ["cmd+r"],
+}
+
 _NL_ROLE_MAP: Dict[str, str] = {
     "button": "AXButton",
     "text field": "AXTextField",
@@ -373,7 +423,12 @@ class AccessibilityBridge:
                 break
 
         if role is None:
-            return None, desc_lower.strip(" '\"") or None
+            clean = desc_lower.strip(" '\"")
+            # Expand aliases so find_elements can match by AX title
+            alias_targets = _ELEMENT_ALIASES.get(clean, [])
+            if alias_targets:
+                return None, alias_targets[0]  # Use primary alias as search hint
+            return None, clean or None
 
         return role, text_hint.strip(" '\"") if text_hint else None
 
@@ -392,9 +447,19 @@ class AccessibilityBridge:
 
         best = 0.0
         query_tokens = set(query.split())
+
+        # Check semantic aliases: "address bar" → "smart search field"
+        aliases = _ELEMENT_ALIASES.get(query, [])
         for field in fields:
             if not field:
                 continue
+            # Direct alias match (high confidence)
+            for alias in aliases:
+                alias_norm = cls._normalize_text(alias)
+                if alias_norm and (alias_norm == field or alias_norm in field):
+                    best = max(best, 1.0)
+                    break
+
             if field == query:
                 best = max(best, 1.0)
                 continue
