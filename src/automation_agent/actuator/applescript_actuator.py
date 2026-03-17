@@ -439,9 +439,92 @@ function run(argv) {
             )
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
+            # Detect Safari "Allow JavaScript from Apple Events" not enabled
+            stderr = result.stderr if result.stderr else ""
+            if "Allow JavaScript from Apple Events" in stderr:
+                if not getattr(self, "_js_permission_warned", False):
+                    self._js_permission_warned = True
+                    slog.warning(
+                        "safari_js_permission_disabled",
+                        fix="Safari > Develop > Developer Settings "
+                        "> check 'Allow JavaScript from Apple Events'",
+                        impact="JS verification disabled — "
+                        "all browser verifications will use slow vision",
+                    )
+                    self._try_enable_safari_js()
         except (subprocess.TimeoutExpired, OSError) as exc:
             slog.debug("get_browser_js_error", js=js[:60], error=str(exc))
         return None
+
+    def _try_enable_safari_js(self) -> None:
+        """Attempt to auto-enable 'Allow JavaScript from Apple Events' in Safari.
+
+        Opens Safari Settings > Developer tab and tries to check the box.
+        This is best-effort — if it fails, the warning message tells the user
+        how to do it manually.
+        """
+        try:
+            enable_script = '''
+tell application "Safari" to activate
+delay 0.5
+tell application "System Events"
+    keystroke "," using command down
+    delay 1
+    tell process "Safari"
+        try
+            click button "Developer" of toolbar 1 of window 1
+            delay 0.5
+            set allElems to entire contents of front window
+            repeat with elem in allElems
+                try
+                    if class of elem is checkbox then
+                        if name of elem is "Allow JavaScript from Apple Events" then
+                            if value of elem is 0 then
+                                click elem
+                                delay 0.3
+                            end if
+                        end if
+                    end if
+                end try
+            end repeat
+            keystroke "w" using command down
+        on error
+            keystroke "w" using command down
+        end try
+    end tell
+end tell
+'''
+            result = subprocess.run(
+                ["osascript", "-e", enable_script],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                # Verify it worked
+                test = subprocess.run(
+                    [
+                        "osascript", "-e",
+                        'tell application "Safari" to do JavaScript '
+                        '"1+1" in current tab of front window',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                if test.returncode == 0:
+                    slog.info("safari_js_auto_enabled",
+                              message="Auto-enabled JS from Apple Events")
+                    self._js_permission_warned = False  # Reset so it won't warn again
+                    return
+            slog.info(
+                "safari_js_auto_enable_failed",
+                message="Could not auto-enable. Please enable manually: "
+                "Safari > Develop > Developer Settings "
+                "> check 'Allow JavaScript from Apple Events'",
+            )
+        except Exception:
+            pass
 
     def _get_browser_js_batch(self, app_name: str) -> dict:
         """Run a batched JS expression returning multiple DOM values as JSON.

@@ -165,7 +165,7 @@ class AgentConfig(BaseSettings):
         description="Local HuggingFace Molmo model identifier",
     )
     use_accessibility: bool = Field(
-        default=False,
+        default=True,
         description="Use macOS Accessibility API for fast UI element lookup",
     )
     # Screenshot / Vision Configuration
