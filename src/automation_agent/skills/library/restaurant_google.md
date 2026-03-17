@@ -47,6 +47,7 @@ parameters:
 requires:
   apps:
     - Safari
+    - Google Chrome
   os: darwin
 success-condition: Reservation confirmation is visible with booking details including restaurant name, date, time, party size, and a confirmation number or "Reservation confirmed" message from the embedded reservation provider.
 max-retries: 3
@@ -54,8 +55,8 @@ max-retries: 3
 
 ## Steps
 
-1. Open Safari and navigate to https://maps.google.com
-   - verify: Safari is open and the URL contains "maps.google.com" and the Google Maps interface is loaded
+1. Open the browser and navigate to https://maps.google.com
+   - verify: The browser is open and the URL contains "maps.google.com" and the Google Maps interface is loaded
 
 2. Click the Google Maps search bar and type "{{restaurant_name}}" then press Enter
    - verify: A map result and sidebar panel shows the restaurant named "{{restaurant_name}}" with address and business details

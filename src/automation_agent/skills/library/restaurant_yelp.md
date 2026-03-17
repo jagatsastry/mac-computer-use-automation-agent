@@ -47,6 +47,7 @@ parameters:
 requires:
   apps:
     - Safari
+    - Google Chrome
   os: darwin
 success-condition: Reservation confirmation is visible with booking details including restaurant name, date, time, party size, and a confirmation number or "Reservation confirmed" message.
 max-retries: 3
@@ -54,8 +55,8 @@ max-retries: 3
 
 ## Steps
 
-1. Open Safari and navigate to https://www.yelp.com
-   - verify: Safari is open and the page title or URL contains "yelp.com"
+1. Open the browser and navigate to https://www.yelp.com
+   - verify: The browser is open and the page title or URL contains "yelp.com"
 
 2. Type "{{restaurant_name}}" in the Yelp search bar (the "Find" or business name field) and press Enter
    - verify: Search results page is visible showing restaurant listings

@@ -214,12 +214,24 @@ class StepVerifier:
 
     @staticmethod
     def _matches_expected_app(expected_app: str, actual_app: str) -> bool:
-        """Return True when the active app matches the requested app name."""
+        """Return True when the active app matches the requested app name.
+
+        Treats browsers as interchangeable: if the plan expects Safari but
+        Chrome is frontmost (or vice versa), that's still a match.
+        """
         if not expected_app or not actual_app:
             return False
         expected = expected_app.lower()
         actual = actual_app.lower()
-        return expected in actual or actual in expected
+        if expected in actual or actual in expected:
+            return True
+        # Browser interchangeability: Safari ↔ Chrome ↔ Firefox etc.
+        browsers = ("safari", "chrome", "firefox", "arc", "edge", "brave", "opera")
+        exp_is_browser = any(b in expected for b in browsers)
+        act_is_browser = any(b in actual for b in browsers)
+        if exp_is_browser and act_is_browser:
+            return True
+        return False
 
     @staticmethod
     def _is_browser_app(app_name: str) -> bool:

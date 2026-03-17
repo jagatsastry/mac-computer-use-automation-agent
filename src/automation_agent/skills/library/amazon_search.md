@@ -13,15 +13,15 @@ parameters:
     description: Product to search for
     examples: ["shampoo", "wireless mouse", "USB-C cable"]
 requires:
-  apps: [Safari]
+  apps: [Safari, Google Chrome]
   os: darwin
 success-condition: Amazon search results visible sorted by price low to high
 max-retries: 3
 ---
 
 ## Steps
-1. Use activate_app to open Safari
-   - verify: Safari is frontmost app
+1. Use activate_app to open the default browser (Safari or Google Chrome)
+   - verify: A browser is the frontmost app
 2. Use open_url to navigate to https://www.amazon.com/s?k={{product}}&s=price-asc-rank
    - verify: Amazon search results page visible showing {{product}} listings sorted by price
 3. Use done to confirm results are visible

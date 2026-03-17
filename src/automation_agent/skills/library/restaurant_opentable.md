@@ -46,6 +46,7 @@ parameters:
 requires:
   apps:
     - Safari
+    - Google Chrome
   os: darwin
 success-condition: Reservation confirmation page is visible with a booking reference number or "Reservation confirmed" message showing restaurant name, date, time, and party size.
 max-retries: 3
@@ -53,8 +54,8 @@ max-retries: 3
 
 ## Steps
 
-1. Open Safari and navigate to https://www.opentable.com
-   - verify: Safari is open and the page title or URL contains "opentable.com"
+1. Open the browser and navigate to https://www.opentable.com
+   - verify: The browser is open and the page title or URL contains "opentable.com"
 
 2. Click on the search bar at the top of the OpenTable homepage and type "{{restaurant_name}}"
    - verify: Search results or autocomplete suggestions are visible showing restaurant names
