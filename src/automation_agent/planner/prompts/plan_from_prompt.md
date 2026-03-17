@@ -69,10 +69,10 @@ Respond with ONLY valid JSON (no markdown, no explanation):
 {
   "steps": [
     {
-      "action": "activate_app",
-      "params": {"app_name": "Safari"},
-      "verify": "Safari is the frontmost application",
-      "expected_observation": "Safari becomes the frontmost window",
+      "action": "open_url",
+      "params": {"url": "https://example.com"},
+      "verify": "The page loaded successfully in the browser",
+      "expected_observation": "Browser shows the target page",
       "on_fail": "retry_different",
       "max_retries": 3
     },
