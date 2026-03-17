@@ -4,7 +4,9 @@ Uses osascript to execute common desktop automation actions.
 Works without any additional setup on macOS.
 """
 
+import json
 import subprocess
+import time
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -21,7 +23,7 @@ class AppleScriptActuator:
     TIMEOUT_SECONDS = 10
 
     def __init__(self, config: Optional[AgentConfig] = None):
-        pass
+        self.config = config
 
     def is_available(self) -> bool:
         """Always available on macOS."""
@@ -407,6 +409,140 @@ function run(argv) {
             slog.debug("get_scroll_position_error", axis=axis, error=str(exc))
         return None
 
+    def _get_browser_js(self, app_name: str, js: str) -> Optional[str]:
+        """Run a JS expression in the frontmost browser tab and return the result.
+
+        Supports Safari and Chrome. Returns None for other browsers or on error.
+        """
+        lower = app_name.lower()
+
+        if "safari" in lower:
+            script = (
+                f'tell application "Safari" to do JavaScript '
+                f'"{js}" in current tab of front window'
+            )
+        elif "chrome" in lower:
+            script = (
+                f'tell application "Google Chrome" to execute '
+                f"front window's active tab javascript "
+                f'"{js}"'
+            )
+        else:
+            return None
+
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            slog.debug("get_browser_js_error", js=js[:60], error=str(exc))
+        return None
+
+    def _get_browser_js_batch(self, app_name: str) -> dict:
+        """Run a batched JS expression returning multiple DOM values as JSON.
+
+        Executes a single JSON.stringify() call in the frontmost browser tab
+        containing focused_value, selected_text, page_title, and page_heading.
+
+        Args:
+            app_name: The application name (e.g., "Safari", "Google Chrome").
+
+        Returns:
+            Dict with string keys: "focused_value", "selected_text",
+            "page_title", "page_heading". Values are str or empty str.
+            Returns empty dict {} on any failure: non-browser, timeout,
+            JSON parse error, subprocess error.
+        """
+        t0 = time.monotonic()
+        js = (
+            "JSON.stringify({focused_value: (document.activeElement "
+            "? (document.activeElement.value || document.activeElement.textContent || '') "
+            ": ''), selected_text: (window.getSelection "
+            "? window.getSelection().toString() : ''), "
+            "page_title: document.title || '', "
+            "page_heading: (document.querySelector('h1') "
+            "? document.querySelector('h1').textContent : '') || ''})"
+        )
+        raw = self._get_browser_js(app_name, js)
+        latency_ms = (time.monotonic() - t0) * 1000
+        if raw is None:
+            if self._is_browser(app_name):
+                slog.debug(
+                    "browser_js_batch_error",
+                    app_name=app_name,
+                    error="raw result is None",
+                    latency_ms=round(latency_ms, 1),
+                )
+            return {}
+        try:
+            result = json.loads(raw)
+            slog.debug(
+                "browser_js_batch_result",
+                app_name=app_name,
+                keys_populated=[k for k, v in result.items() if v],
+                latency_ms=round(latency_ms, 1),
+            )
+            return result
+        except (json.JSONDecodeError, TypeError) as exc:
+            slog.debug(
+                "browser_js_batch_error",
+                app_name=app_name,
+                error=str(exc),
+                latency_ms=round(latency_ms, 1),
+            )
+            return {}
+
+    def get_active_element_value(self) -> Optional[str]:
+        """Get the value/textContent of the focused element in the frontmost browser tab.
+
+        Returns None for non-browser apps or on timeout/error.
+        """
+        state = self.get_state()
+        app_name = state.get("app_name", "")
+        if not self._is_browser(app_name):
+            return None
+        return self._get_browser_js(
+            app_name,
+            "document.activeElement.value || document.activeElement.textContent || ''",
+        )
+
+    def get_selected_text(self) -> Optional[str]:
+        """Get the current text selection in the frontmost browser tab.
+
+        Returns None for non-browser apps or on timeout/error.
+        """
+        state = self.get_state()
+        app_name = state.get("app_name", "")
+        if not self._is_browser(app_name):
+            return None
+        return self._get_browser_js(
+            app_name,
+            "window.getSelection().toString()",
+        )
+
+    def get_page_title(self) -> Optional[str]:
+        """Get document.title from frontmost browser tab.
+
+        Returns:
+            Page title string, or None for non-browser apps, timeout, or error.
+        """
+        state = self.get_state()
+        return state.get("page_title")
+
+    def get_page_heading(self) -> Optional[str]:
+        """Get document.querySelector('h1')?.textContent from frontmost browser tab.
+
+        Returns:
+            First h1 element text, or None for non-browser apps, no h1, timeout, or error.
+        """
+        state = self.get_state()
+        return state.get("page_heading")
+
     def _get_browser_url(self, app_name: str) -> str:
         """Get the current URL from a browser's frontmost tab."""
         lower = app_name.lower()
@@ -486,6 +622,17 @@ return frontApp & "|" & frontBundle & "|" & winTitle & "|" & winX & "|" & winY &
             }
             if self._is_browser(app_name):
                 state["browser_url"] = self._get_browser_url(app_name)
+                # JS injection for verification (focused_value, selected_text,
+                # page_title, page_heading) — single batched subprocess call
+                js_enabled = True
+                if self.config is not None:
+                    js_enabled = getattr(self.config, "js_verification_enabled", True)
+                if js_enabled:
+                    batch = self._get_browser_js_batch(app_name)
+                    state["focused_value"] = batch.get("focused_value") or None
+                    state["selected_text"] = batch.get("selected_text") or None
+                    state["page_title"] = batch.get("page_title") or None
+                    state["page_heading"] = batch.get("page_heading") or None
             return state
         except (ValueError, IndexError):
             return default_state

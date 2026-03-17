@@ -463,6 +463,12 @@ class AgentConfig(BaseSettings):
         description="Save screenshots at each step (observe, NOT_FOUND, post-action)",
     )
 
+    # JS injection for browser state verification
+    js_verification_enabled: bool = Field(
+        default=True,
+        description="Enable JS injection for browser state verification (type_text, page state)",
+    )
+
     @field_validator("log_dir")
     @classmethod
     def create_log_dir(cls, v: Path) -> Path:

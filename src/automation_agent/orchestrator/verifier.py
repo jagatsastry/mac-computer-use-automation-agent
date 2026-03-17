@@ -584,6 +584,46 @@ class StepVerifier:
                     "Scroll accepted via actuator success (no JS or pixel signal)",
                 )
 
+        # Tier 1: Page content token match (page_title, page_heading)
+        page_title = state.get("page_title")
+        page_heading = state.get("page_heading")
+        if page_title is not None or page_heading is not None:
+            verify_tokens = set(re.findall(r'\b\w{3,}\b', verify_lower))
+            if verify_tokens:
+                for field_name, field_value in [
+                    ("page_title", page_title),
+                    ("page_heading", page_heading),
+                ]:
+                    if field_value is None:
+                        continue
+                    field_tokens = set(re.findall(r'\b\w{3,}\b', field_value.lower()))
+                    overlap = verify_tokens & field_tokens
+                    # Require 2+ matching tokens to avoid false positives
+                    if len(overlap) >= 2:
+                        slog.debug(
+                            "tier1_page_content_match",
+                            field=field_name,
+                            overlap_tokens=overlap,
+                            verify_text=step.verify,
+                        )
+                        return (
+                            True,
+                            f"Tier 1 page {field_name} tokens match verify: {overlap}",
+                        )
+                    # Single token match only if it's >= 5 chars (distinctive)
+                    if len(overlap) == 1 and all(len(t) >= 5 for t in overlap):
+                        slog.debug(
+                            "tier1_page_content_match",
+                            field=field_name,
+                            overlap_tokens=overlap,
+                            verify_text=step.verify,
+                        )
+                        return (
+                            True,
+                            f"Tier 1 page {field_name} token match: {overlap}",
+                        )
+        # No page content match — fall through to Tier 2
+
         # For click, type_text, etc. -- Tier 1 is inconclusive, escalate to Tier 2
         return None
 

@@ -76,9 +76,13 @@ User prompt → Orchestrator.execute()
 
 **3-tier verification** (`orchestrator/verifier.py`):
 1. Tier 0: Accessibility API state — structured element checks
-2. Tier 1: Actuator state query (~50ms) — URL match, domain verification, scroll verification
+2. Tier 1: Actuator state query (~50ms) — URL match, domain verification, scroll verification, type_text field matching, page content token matching
 3. Tier 2: Vision screenshot verification (2-5s) — visual confirmation via coordinator
 Falls through tiers; returns first conclusive result.
+
+**JS-injected browser state** (`actuator/applescript_actuator.py`): `_get_browser_js_batch()` executes a single `JSON.stringify()` call via AppleScript to extract `focused_value`, `selected_text`, `page_title`, and `page_heading` from the frontmost browser tab (Safari/Chrome). Populates `get_state()` dict, enabling Tier 1 verification for type_text and click actions without vision calls. Gated by `js_verification_enabled` config (default True).
+
+**Calibrated AX confidence** (`orchestrator/grounding_router.py`): `_ground_accessibility_match()` uses `confidence = 0.6 + 0.35 * min(match_score, 1.0)` instead of hardcoded 0.95. Exact AX matches (score=1.0) get 0.95 (skip pre-click validation); partial matches get lower confidence (trigger crop validation). The pre-click skip gate in `agent.py` checks confidence, not source strategy.
 
 **Actuator fallback chain** (`actuator/__init__.py` → `create_actuator()`):
 AppleScript (`osascript`) is the primary backend. Includes `get_scroll_position()` for JS-based scroll verification and `_escape_for_applescript()` for safe string embedding.
@@ -109,6 +113,9 @@ Settings are loaded from environment variables prefixed with `AGENT_` (see `.env
 - `AGENT_VISION_SERVER_URL` — Vision server endpoint (default `localhost:8080`; any OpenAI-compatible server)
 - `AGENT_VISION_MODEL` / `AGENT_TEXT_MODEL` — model names
 - `AGENT_LOG_DIR` — structured JSONL event logs with per-run directories
+
+Speed optimization settings (on by default):
+- `AGENT_JS_VERIFICATION_ENABLED` — JS injection for browser state verification: focused_value, selected_text, page_title, page_heading (default True)
 
 Safety and feature gate settings (all off by default):
 - `AGENT_SOM_ENABLED` — Set-of-Mark numbered label overlay on screenshots
