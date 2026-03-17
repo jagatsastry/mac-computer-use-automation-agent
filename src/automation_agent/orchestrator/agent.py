@@ -2472,31 +2472,29 @@ class AutomationAgent:
                 element_desc = params.pop("element", None)
                 if element_desc and not params.pop("_skip_focus", False):
                     try:
-                        # P1-1: capture screenshot (was NameError: screenshot_b64)
-                        focus_screenshot = await self.coordinator.capture_screenshot()
-                        location = await self.coordinator.find_element(
-                            element_desc, screenshot_b64=focus_screenshot
-                        )
-                        if (
-                            location
-                            and hasattr(location, "x")
-                            and location.x is not None
-                        ):
-                            # No confidence gating for click-to-focus: clicking
-                            # the wrong element is recoverable (verification
-                            # catches it), but not clicking is worse — text
-                            # goes to whatever has focus.
-                            sx = (
-                                location.screen_x
-                                if location.screen_x is not None
-                                else location.x
-                            )
-                            sy = (
-                                location.screen_y
-                                if location.screen_y is not None
-                                else location.y
-                            )
-                            self.actuator.click(sx, sy)
+                        location = await self._find_element(element_desc)
+                        if location is not None:
+                            # Keyboard shortcut path (e.g., Cmd+L for address bar)
+                            if location.source == "keyboard_shortcut":
+                                import ast
+                                try:
+                                    keys = ast.literal_eval(location.raw_response)
+                                except Exception:
+                                    keys = [location.raw_response]
+                                for kc in keys:
+                                    self.actuator.press_key(kc.replace("+", " ").split())
+                            else:
+                                sx = (
+                                    location.screen_x
+                                    if location.screen_x is not None
+                                    else location.x
+                                )
+                                sy = (
+                                    location.screen_y
+                                    if location.screen_y is not None
+                                    else location.y
+                                )
+                                self.actuator.click(sx, sy)
                             await asyncio.sleep(
                                 max(self.config.action_delay, 0.3)
                             )
