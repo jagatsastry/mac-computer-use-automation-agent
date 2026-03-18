@@ -402,6 +402,7 @@ class ActionPlannerImpl:
         _RETRY_KEYS = {
             "_clear_first", "_slow_type", "_pre_delay",
             "_address_bar_fallback", "_quit_first",
+            "_pre_keys", "_spotlight",
         }
         a = {k: v for k, v in actual.items() if k not in _RETRY_KEYS}
         b = {k: v for k, v in expected.items() if k not in _RETRY_KEYS}

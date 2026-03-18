@@ -45,6 +45,7 @@ slog = structlog.get_logger(__name__)
 _RETRY_ONLY_KEYS = frozenset({
     "_clear_first", "_slow_type", "_pre_delay",
     "_address_bar_fallback", "_quit_first",
+    "_pre_keys", "_spotlight",
 })
 
 

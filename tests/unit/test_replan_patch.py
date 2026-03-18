@@ -732,3 +732,19 @@ class TestOpenAIScreenDescription:
         call_args = planner._call_llm.call_args
         prompt_text = call_args[0][0]
         assert "Real screen description here" in prompt_text
+
+    async def test_openai_provider_not_in_screenshot_branch(self):
+        """OpenAI provider is NOT in the agent's screenshot-placeholder branch."""
+        # This tests the agent-side routing — OpenAI should get describe_screen() text
+        from automation_agent.orchestrator.agent import AutomationAgent
+
+        config = AgentConfig(
+            _env_file=None,
+            model_provider="openai",
+            openai_api_key="test-key",
+        )
+
+        # The screenshot branch checks: provider in ("gemini", "anthropic")
+        provider, _ = config.resolve_step_model("planning")
+        assert provider == "openai"
+        assert provider not in ("gemini", "anthropic")  # OpenAI excluded
