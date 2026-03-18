@@ -123,7 +123,7 @@ class StatusOverlayWindow:
         panel.setTitle_(title)
         panel.setLevel_(NSFloatingWindowLevel)
         panel.setHidesOnDeactivate_(False)
-        panel.setIgnoresMouseEvents_(True)
+        panel.setIgnoresMouseEvents_(False)  # Allow scrolling
         panel.setOpaque_(False)
         panel.setAlphaValue_(0.95)
         panel.setCollectionBehavior_(
