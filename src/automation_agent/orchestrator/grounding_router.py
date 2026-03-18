@@ -173,12 +173,12 @@ class GroundingRouter:
     async def find_element(
         self, description: str
     ) -> Optional[GroundingResult]:
-        """Find element using best available strategy with fallback."""
-        # Fast path: keyboard shortcut for known browser chrome elements
-        shortcut_result = self._check_keyboard_shortcut(description)
-        if shortcut_result is not None:
-            return shortcut_result
+        """Find element using best available strategy with fallback.
 
+        Priority: AX aliases → Vision → Keyboard shortcuts.
+        Keyboard shortcuts are last resort (they activate browser chrome,
+        not page elements).
+        """
         tried: set[GroundingStrategy] = set()
         accessibility_matches = self._get_accessibility_matches(description)
         if accessibility_matches:
@@ -262,6 +262,12 @@ class GroundingRouter:
                     description,
                     exc_info=True,
                 )
+
+        # Last resort: keyboard shortcut for browser chrome elements
+        shortcut_result = self._check_keyboard_shortcut(description)
+        if shortcut_result is not None:
+            return shortcut_result
+
         return None
 
     async def _maybe_reorder_with_llm(
