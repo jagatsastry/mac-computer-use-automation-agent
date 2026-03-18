@@ -14,9 +14,11 @@ from AppKit import (
     NSColor,
     NSFloatingWindowLevel,
     NSFont,
+    NSForegroundColorAttributeName,
     NSMakeRect,
     NSMenu,
     NSMenuItem,
+    NSMutableAttributedString,
     NSPanel,
     NSScreen,
     NSScrollView,
@@ -33,7 +35,7 @@ from AppKit import (
     NSWindowStyleMaskTitled,
     NSWindowStyleMaskUtilityWindow,
 )
-from Foundation import NSObject
+from Foundation import NSObject, NSRange
 from PyObjCTools import AppHelper
 
 from automation_agent.status import StatusSnapshot, load_status_snapshot
@@ -86,10 +88,11 @@ class StatusOverlayWindow:
         self.max_lines = max_lines
         self._verbose = verbose
         self._destroyed = False
-        self._lines: list[str] = []
+        self._lines: list[tuple] = []  # (text, is_plan)
         self._panel = None
         self._header = None
         self._text_view = None
+        self._font = None
         self._create_window()
 
     def _create_window(self) -> None:
@@ -165,6 +168,7 @@ class StatusOverlayWindow:
 
         self._panel = panel
         self._header = header
+        self._font = NSFont.monospacedSystemFontOfSize_weight_(font_size, 0.0)
         self._text_view = text_view
 
     def apply_snapshot(self, snapshot: StatusSnapshot) -> None:
@@ -172,16 +176,40 @@ class StatusOverlayWindow:
         if self._destroyed:
             return
 
+        is_plan = getattr(snapshot, "is_plan", False)
+
         def _do() -> None:
             if self._destroyed or self._header is None or self._text_view is None:
                 return
             self._header.setStringValue_(snapshot.title)
-            self._lines.append(snapshot.line)
+            self._lines.append((snapshot.line, is_plan))
             if len(self._lines) > self.max_lines:
                 self._lines = self._lines[-self.max_lines:]
-            text = "\n".join(self._lines)
-            self._text_view.setString_(text)
-            self._text_view.scrollRangeToVisible_((len(text), 0))
+
+            # Build attributed string with colored plan lines
+            result = NSMutableAttributedString.alloc().init()
+            font = self._font
+            normal_color = NSColor.labelColor()
+            plan_color = NSColor.systemOrangeColor()
+
+            for i, (line_text, line_is_plan) in enumerate(self._lines):
+                prefix = "\n" if i > 0 else ""
+                s = NSMutableAttributedString.alloc().initWithString_(
+                    prefix + line_text
+                )
+                color = plan_color if line_is_plan else normal_color
+                rng = NSRange(0, s.length())
+                s.addAttribute_value_range_(
+                    NSForegroundColorAttributeName, color, rng
+                )
+                if font:
+                    s.addAttribute_value_range_("NSFont", font, rng)
+                result.appendAttributedString_(s)
+
+            self._text_view.textStorage().setAttributedString_(result)
+            self._text_view.scrollRangeToVisible_(
+                NSRange(result.length(), 0)
+            )
             self._panel.orderFrontRegardless()
 
         _run_on_main(_do)

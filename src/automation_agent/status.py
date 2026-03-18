@@ -24,6 +24,7 @@ class StatusSnapshot:
     terminal: bool = False
     step_label: str = ""
     goal: str = ""
+    is_plan: bool = False  # True for plan_complete/replan_complete
 
 
 def format_status_event(
@@ -83,6 +84,7 @@ def format_status_event(
         terminal=event_type in TERMINAL_EVENT_TYPES,
         step_label=step_label,
         goal=goal,
+        is_plan=event_type in ("plan_complete", "replan_complete"),
     )
 
 
