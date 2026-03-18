@@ -712,6 +712,8 @@ class ScreenCoordinatorImpl:
             FindElementResult with x, y pixel coordinates, confidence, and source,
             or None if the element could not be found.
         """
+        _find_start = time.monotonic()
+
         # FAST PATH: Accessibility API
         if self.accessibility is not None:
             try:
@@ -723,6 +725,15 @@ class ScreenCoordinatorImpl:
                         description=description,
                         x=cx,
                         y=cy,
+                    )
+                    _dur = int((time.monotonic() - _find_start) * 1000)
+                    self._log_element_search(
+                        element=description,
+                        prompt_summary="accessibility lookup (no vision prompt)",
+                        response="",
+                        source="accessibility",
+                        confidence=1.0,
+                        duration_ms=_dur,
                     )
                     return FindElementResult(x=cx, y=cy, confidence=1.0, source="accessibility")
             except Exception:
@@ -797,6 +808,16 @@ class ScreenCoordinatorImpl:
                                 "confidence": result.confidence,
                             },
                         )
+                    _dur = int((time.monotonic() - _find_start) * 1000)
+                    self._log_element_search(
+                        element=description,
+                        prompt_summary=som_prompt[:200],
+                        response=response[:300] if response else "",
+                        source="som",
+                        confidence=result.confidence,
+                        duration_ms=_dur,
+                        screenshot_b64=annotated_b64,
+                    )
                     return result
 
                 # AC-14: SoM didn't match by number, try raw coordinate parsing
@@ -806,6 +827,16 @@ class ScreenCoordinatorImpl:
                     w, h = self.config.screenshot_resolution
                     x, y = self._convert_coordinates(
                         raw_coords[0], raw_coords[1], model, w, h
+                    )
+                    _dur = int((time.monotonic() - _find_start) * 1000)
+                    self._log_element_search(
+                        element=description,
+                        prompt_summary=som_prompt[:200],
+                        response=response[:300] if response else "",
+                        source="vision",
+                        confidence=raw_coords[2],
+                        duration_ms=_dur,
+                        screenshot_b64=annotated_b64,
                     )
                     return FindElementResult(
                         x=x, y=y, confidence=raw_coords[2],
@@ -857,6 +888,16 @@ class ScreenCoordinatorImpl:
                         raw_y=raw_coords[1],
                         grounding_response=response[:200] if response else "(empty)",
                     )
+                    _dur = int((time.monotonic() - _find_start) * 1000)
+                    self._log_element_search(
+                        element=description,
+                        prompt_summary=prompt[:200],
+                        response=response[:300] if response else "",
+                        source="grounding",
+                        confidence=conf,
+                        duration_ms=_dur,
+                        screenshot_b64=screenshot_b64,
+                    )
                     return FindElementResult(
                         x=x, y=y, confidence=conf, source="grounding", raw_response=response
                     )
@@ -877,6 +918,16 @@ class ScreenCoordinatorImpl:
 
         raw_coords = self._parse_coordinates(response)
         if raw_coords is None:
+            _dur = int((time.monotonic() - _find_start) * 1000)
+            self._log_element_search(
+                element=description,
+                prompt_summary=prompt[:200],
+                response=response[:300] if response else "",
+                source="vision",
+                confidence=0.0,
+                duration_ms=_dur,
+                screenshot_b64=screenshot_b64,
+            )
             return None
 
         model = self._get_active_model()
@@ -884,7 +935,65 @@ class ScreenCoordinatorImpl:
         x, y = self._convert_coordinates(raw_coords[0], raw_coords[1], model, w, h)
         conf = raw_coords[2]
 
+        _dur = int((time.monotonic() - _find_start) * 1000)
+        self._log_element_search(
+            element=description,
+            prompt_summary=prompt[:200],
+            response=response[:300] if response else "",
+            source="vision",
+            confidence=conf,
+            duration_ms=_dur,
+            screenshot_b64=screenshot_b64,
+        )
         return FindElementResult(x=x, y=y, confidence=conf, source="vision", raw_response=response)
+
+    def _log_element_search(
+        self,
+        element: str,
+        prompt_summary: str,
+        response: str,
+        source: str,
+        confidence: float,
+        duration_ms: int,
+        screenshot_b64: Optional[str] = None,
+    ) -> None:
+        """Log an ELEMENT_SEARCH event with grounding details.
+
+        Saves the screenshot to the debug directory when an event logger
+        is available and screenshot data is provided.
+        """
+        if not self._event_logger:
+            return
+
+        screenshot_path: Optional[str] = None
+        if screenshot_b64:
+            try:
+                import base64 as _b64
+                ts = int(time.time() * 1000)
+                img_bytes = _b64.b64decode(screenshot_b64)
+                screenshot_path = self._event_logger.save_screenshot(
+                    img_bytes, f"grounding_{ts}",
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to save grounding screenshot", exc_info=True
+                )
+
+        self._event_logger.log_event(
+            EventType.ELEMENT_SEARCH,
+            f"find_element('{element}') via {source} "
+            f"conf={confidence:.2f} ({duration_ms}ms)",
+            data={
+                "element": element,
+                "prompt_summary": prompt_summary[:200],
+                "response": response[:300],
+                "source": source,
+                "confidence": confidence,
+                "duration_ms": duration_ms,
+            },
+            screenshot_path=screenshot_path,
+            duration_ms=duration_ms,
+        )
 
     async def describe_screen(
         self,
