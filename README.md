@@ -7,23 +7,23 @@ Vision-guided desktop automation for macOS. Give the agent a natural-language go
 ```bash
 # With Gemini (recommended — fast planning + vision)
 AGENT_MODEL_PROVIDER=gemini AGENT_GEMINI_API_KEY=... \
-  automation-agent --status-ui overlay --verbose-overlay "return my listerine amazon order"
+  .venv/bin/python -m automation_agent --status-ui overlay --verbose-overlay "return my listerine amazon order"
 
 # With OpenAI GPT
 AGENT_MODEL_PROVIDER=openai AGENT_OPENAI_API_KEY=... \
-  automation-agent --status-ui overlay "Open Calculator and compute 42 times 7"
+  .venv/bin/python -m automation_agent --status-ui overlay "Open Calculator and compute 42 times 7"
 
 # With local Molmo vision + Gemini planning (hybrid)
 AGENT_PLANNING_MODEL=gemini:gemini-2.5-flash \
 AGENT_GROUNDING_MODEL_PROVIDER=local:mlx-community/Molmo-7B-D-0924-3bit \
-  automation-agent --status-ui overlay "search amazon for wireless mouse"
+  .venv/bin/python -m automation_agent --status-ui overlay "search amazon for wireless mouse"
 
 # With Claude
 AGENT_MODEL_PROVIDER=anthropic AGENT_ANTHROPIC_API_KEY=... \
-  automation-agent --status-ui overlay "Open Safari and go to news.ycombinator.com"
+  .venv/bin/python -m automation_agent --status-ui overlay "Open Safari and go to news.ycombinator.com"
 
 # Dry run (no execution)
-automation-agent --dry-run "Return my Amazon order"
+.venv/bin/python -m automation_agent --dry-run "Return my Amazon order"
 ```
 
 After each run, a detailed report is saved to `logs/runs/{run_id}/report.md` with:
@@ -195,7 +195,7 @@ python -m automation_agent.actuator status
 python -m automation_agent.actuator state
 
 # Show the live overlay during a run
-automation-agent --status-ui overlay "Open Safari"
+.venv/bin/python -m automation_agent --status-ui overlay "Open Safari"
 ```
 
 ## More Docs
