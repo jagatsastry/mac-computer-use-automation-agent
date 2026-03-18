@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import structlog
 
@@ -394,6 +394,19 @@ class ActionPlannerImpl:
         )
         return prompt
 
+    @staticmethod
+    def _params_match_ignoring_retry_keys(
+        actual: Dict[str, Any], expected: Dict[str, Any],
+    ) -> bool:
+        """Compare params ignoring retry-injected keys like _pre_delay, _clear_first."""
+        _RETRY_KEYS = {
+            "_clear_first", "_slow_type", "_pre_delay",
+            "_address_bar_fallback", "_quit_first",
+        }
+        a = {k: v for k, v in actual.items() if k not in _RETRY_KEYS}
+        b = {k: v for k, v in expected.items() if k not in _RETRY_KEYS}
+        return a == b
+
     def _build_annotated_plan(
         self,
         original_steps: List[ActionStep],
@@ -411,13 +424,14 @@ class ActionPlannerImpl:
             Multi-line annotated plan string with checkmarks/crosses.
         """
         # Build a result map: for each original step index, find the best matching result.
-        # step_results may contain retries and bypasses, so we match by step identity.
+        # step_results may contain retries with mutated params (_clear_first, _pre_delay, etc.),
+        # so we match by action name only (ignoring retry-injected params) and keep the last match.
         result_for_step: Dict[int, StepResult] = {}
         for sr in step_results:
             for j, orig_step in enumerate(original_steps):
                 if sr.step is orig_step or (
                     sr.step.action == orig_step.action
-                    and sr.step.params == orig_step.params
+                    and self._params_match_ignoring_retry_keys(sr.step.params, orig_step.params)
                 ):
                     result_for_step[j] = sr  # last result for this step wins
                     break
@@ -689,7 +703,15 @@ class ActionPlannerImpl:
 
         resume_from = data.get("resume_from_step")
         if resume_from is not None and original_steps:
-            resume_from = max(0, min(int(resume_from), len(original_steps)))
+            try:
+                resume_from = max(0, min(int(resume_from), len(original_steps)))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Malformed resume_from_step=%r, falling back to current_step_index=%d",
+                    resume_from, current_step_index,
+                )
+                resume_from = None
+        if resume_from is not None and original_steps:
             plan.resume_from_step = resume_from
             logger.info(
                 "Replan: resume_from_step=%d, %d new steps (completed steps NOT re-included)",

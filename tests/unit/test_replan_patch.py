@@ -597,3 +597,138 @@ class TestActionPlanResumeField:
         """resume_from_step can be set."""
         plan = ActionPlan(steps=[STEP_DONE], goal="test", resume_from_step=2)
         assert plan.resume_from_step == 2
+
+
+# ---------------------------------------------------------------------------
+# Consultant-requested: retry param mutation robustness
+# ---------------------------------------------------------------------------
+
+
+class TestRetryParamMutationMatching:
+    """Consultant finding P1 #1: retries that mutate params must still match."""
+
+    def test_annotated_plan_matches_despite_retry_params(self, planner):
+        """Step with _pre_delay retry still matches original for annotation."""
+        original = [STEP_OPEN, STEP_TYPE]
+        # Simulate a retry that added _pre_delay to the step's params
+        mutated_step = ActionStep(
+            action="type_text",
+            params={"text": "listerine", "element": "Search input", "_pre_delay": 0.5},
+            verify="Search input contains listerine",
+        )
+        results = [
+            StepResult(step=STEP_OPEN, success=True, evidence="URL matches"),
+            StepResult(step=STEP_TYPE, success=False, evidence="first attempt failed"),
+            StepResult(step=mutated_step, success=True, evidence="retry succeeded"),
+        ]
+
+        text = planner._build_annotated_plan(original, results, failed_step_index=2)
+
+        # Step 1 should show the LAST result (retry succeeded), not first attempt
+        lines = text.strip().split("\n")
+        assert "\u2713" in lines[1]  # step 1 passed (via retry)
+        assert "retry succeeded" in lines[1]
+
+    def test_params_match_ignoring_retry_keys(self, planner):
+        """_params_match_ignoring_retry_keys strips transient keys."""
+        assert planner._params_match_ignoring_retry_keys(
+            {"text": "hello", "_pre_delay": 0.5, "_clear_first": True},
+            {"text": "hello"},
+        )
+        assert not planner._params_match_ignoring_retry_keys(
+            {"text": "hello"},
+            {"text": "world"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Consultant-requested: malformed resume_from_step
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedResumeFromStep:
+    """Consultant finding P1 #3: malformed resume_from_step must not crash."""
+
+    async def test_string_resume_from_step_falls_back(self, planner):
+        """resume_from_step='bad' falls back to current_step_index."""
+        response_data = {
+            "resume_from_step": "bad",
+            "steps": [
+                {"action": "done", "params": {}, "verify": ""},
+            ],
+        }
+
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(response_data))
+
+        plan = await planner.replan(
+            "Goal", "Screen", [], [],
+            original_steps=[STEP_OPEN], current_step_index=1,
+        )
+
+        # Should fall back to current_step_index, not crash
+        assert plan.resume_from_step == 1
+        assert len(plan.steps) == 1
+
+    async def test_list_resume_from_step_falls_back(self, planner):
+        """resume_from_step=[] falls back to current_step_index."""
+        response_data = {
+            "resume_from_step": [],
+            "steps": [
+                {"action": "click", "params": {"element": "X"}, "verify": "clicked"},
+            ],
+        }
+
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(response_data))
+
+        plan = await planner.replan(
+            "Goal", "Screen", [], [],
+            original_steps=[STEP_OPEN, STEP_TYPE], current_step_index=0,
+        )
+
+        assert plan.resume_from_step == 0
+        assert len(plan.steps) == 1
+
+    async def test_none_resume_from_step_falls_back(self, planner):
+        """resume_from_step=null in JSON falls back to current_step_index."""
+        response_data = {
+            "resume_from_step": None,
+            "steps": [
+                {"action": "done", "params": {}, "verify": ""},
+            ],
+        }
+
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(response_data))
+
+        plan = await planner.replan(
+            "Goal", "Screen", [], [],
+            original_steps=[STEP_OPEN], current_step_index=1,
+        )
+
+        assert plan.resume_from_step == 1
+
+
+# ---------------------------------------------------------------------------
+# Consultant-requested: OpenAI gets real screen description
+# ---------------------------------------------------------------------------
+
+
+class TestOpenAIScreenDescription:
+    """Consultant finding P1 #2: OpenAI must get real text, not image placeholder."""
+
+    async def test_openai_replan_gets_text_description(self, planner):
+        """When provider is openai, screenshot_b64 is None in _call_llm."""
+        response_data = {
+            "steps": [{"action": "done", "params": {}, "verify": ""}],
+        }
+        planner._call_llm = AsyncMock(return_value=_make_llm_response(response_data))
+
+        # Even if screenshot_b64 is provided, OpenAI path ignores it
+        await planner.replan(
+            "Goal", "Real screen description here", [], [],
+            screenshot_b64="base64data",
+        )
+
+        # The prompt should contain the real screen description
+        call_args = planner._call_llm.call_args
+        prompt_text = call_args[0][0]
+        assert "Real screen description here" in prompt_text

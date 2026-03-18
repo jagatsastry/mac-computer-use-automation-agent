@@ -40,6 +40,20 @@ from automation_agent.vision.geometry import image_to_screen_coords, screen_to_i
 
 slog = structlog.get_logger(__name__)
 
+# Retry strategies inject transient keys into step params (_pre_delay, _clear_first, etc.).
+# Strip them before comparing to the original step's params for result attribution.
+_RETRY_ONLY_KEYS = frozenset({
+    "_clear_first", "_slow_type", "_pre_delay",
+    "_address_bar_fallback", "_quit_first",
+})
+
+
+def _params_match_ignoring_retry(actual: Dict, expected: Dict) -> bool:
+    """Compare params ignoring retry-injected keys."""
+    a = {k: v for k, v in actual.items() if k not in _RETRY_ONLY_KEYS}
+    b = {k: v for k, v in expected.items() if k not in _RETRY_ONLY_KEYS}
+    return a == b
+
 
 # ---------------------------------------------------------------------------
 # LLM Call Tracking & Run Report
@@ -4965,10 +4979,12 @@ class AutomationAgent:
             failed_step_index=failed_step_index,
         )
 
-        # Capture screenshot for vision-capable planning providers
+        # Capture screenshot for vision-capable planning providers.
+        # OpenAI excluded: image_b64 is not wired through to _call_openai_llm,
+        # so OpenAI gets a real text description instead of a placeholder.
         screenshot_b64: Optional[str] = None
         provider, _ = self.config.resolve_step_model("planning")
-        if provider in ("gemini", "anthropic", "openai"):
+        if provider in ("gemini", "anthropic"):
             try:
                 screenshot_b64 = await self.coordinator.capture_screenshot()
                 screen_desc = (
@@ -5065,7 +5081,8 @@ class AutomationAgent:
                 sr_match = None
                 for sr in step_results:
                     if sr.step is s or (
-                        sr.step.action == s.action and sr.step.params == s.params
+                        sr.step.action == s.action
+                        and _params_match_ignoring_retry(sr.step.params, s.params)
                     ):
                         sr_match = sr  # keep scanning — last match wins
                 _completed_steps.append({
