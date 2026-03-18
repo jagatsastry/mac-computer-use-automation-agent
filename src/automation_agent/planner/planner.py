@@ -120,7 +120,10 @@ class ActionPlannerImpl:
         return plan
 
     async def _call_llm(self, prompt: str) -> dict:
-        """Call LLM for planning — routes to Anthropic or local based on config.
+        """Call LLM for planning — routes based on per-step model config.
+
+        Uses ``config.resolve_step_model("planning")`` so the user can
+        override the planning provider independently of the global provider.
 
         Args:
             prompt: The prompt to send to the LLM.
@@ -128,11 +131,13 @@ class ActionPlannerImpl:
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
         """
-        provider = getattr(self.config.model_provider, "value", self.config.model_provider)
+        provider, _model = self.config.resolve_step_model("planning")
         if provider == "local":
             return await self._call_local_llm(prompt)
         if provider == "gemini":
             return await self._call_gemini_llm(prompt)
+        if provider == "openai":
+            return await self._call_openai_llm(prompt)
         return await self._call_anthropic_llm(prompt)
 
     # Ollama structured output schema — guarantees valid JSON via GBNF grammar.
@@ -146,6 +151,7 @@ class ActionPlannerImpl:
                     "properties": {
                         "action": {"type": "string"},
                         "params": {"type": "object"},
+                        "precondition": {"type": "string"},
                         "verify": {"type": "string"},
                         "expected_observation": {"type": "string"},
                         "on_fail": {"type": "string"},
@@ -262,6 +268,17 @@ class ActionPlannerImpl:
                     await asyncio.sleep(delay)
                     continue
                 raise
+
+    async def _call_openai_llm(self, prompt: str) -> dict:
+        """Call OpenAI GPT API via Responses API with retry."""
+        from automation_agent.llm.openai_client import OpenAIClient
+
+        client = OpenAIClient(
+            api_key=self.config.openai_api_key or "",
+            model=self.config.openai_model,
+            timeout=self.config.vision_server_timeout,
+        )
+        return await client.generate_text(prompt)
 
     async def _call_anthropic_llm(self, prompt: str) -> dict:
         """Call Anthropic Claude API with retry and exponential backoff."""

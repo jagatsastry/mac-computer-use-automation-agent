@@ -3,6 +3,7 @@
 from .client import OllamaClient
 from .exceptions import ModelNotFoundError, ModelTimeoutError
 from .molmo_client import MolmoVisionClient
+from .openai_client import OpenAIClient
 
 # Optional Anthropic client (requires anthropic package)
 try:
@@ -14,6 +15,7 @@ except ImportError:
 __all__ = [
     "OllamaClient",
     "MolmoVisionClient",
+    "OpenAIClient",
     "AnthropicClient",
     "ANTHROPIC_AVAILABLE",
     "ModelNotFoundError",

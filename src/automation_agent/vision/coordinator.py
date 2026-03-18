@@ -28,8 +28,9 @@ COORDINATE_SPACES: Dict[str, str] = {
     "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
     "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
     "claude-sonnet-4-20250514": "pixel",  # Claude returns pixel coords
-    "gpt-5.4": "pixel",  # GPT computer-use returns pixel coords
+    "gpt-4.1": "pixel",  # GPT computer-use returns pixel coords
     "gpt-4o": "pixel",
+    "gpt-5.4": "pixel",
 }
 
 # Directory containing prompt template files
@@ -89,8 +90,8 @@ class ScreenCoordinatorImpl:
 
     def _get_models_to_validate(self) -> list:
         """Return the list of model names that need validation."""
-        # Gemini handles its own model routing — no coordinate space to validate
-        if self.config.model_provider.value == "gemini":
+        # Gemini and OpenAI handle their own model routing — no coordinate space to validate
+        if self.config.model_provider.value in ("gemini", "openai"):
             models = []
         elif self.config.model_provider.value == "anthropic":
             models = [self.config.vision_model, self.config.anthropic_vision_model]
@@ -105,12 +106,15 @@ class ScreenCoordinatorImpl:
 
         When model_provider is 'anthropic', the Anthropic vision model is used.
         When model_provider is 'gemini', the Gemini model is used.
+        When model_provider is 'openai', the OpenAI model is used.
         Otherwise, the local vision model is used.
         """
         if self.config.model_provider.value == "anthropic":
             return self.config.anthropic_vision_model
         if self.config.model_provider.value == "gemini":
             return self.config.gemini_model
+        if self.config.model_provider.value == "openai":
+            return self.config.openai_model
         return self.config.vision_model
 
     @staticmethod
@@ -246,31 +250,50 @@ class ScreenCoordinatorImpl:
         prompt_path = _PROMPTS_DIR / filename
         return prompt_path.read_text()
 
-    async def _call_vision_model(self, prompt: str, screenshot_b64: str) -> str:
+    async def _call_vision_model(
+        self, prompt: str, screenshot_b64: str, step: Optional[str] = None,
+    ) -> str:
         """Call the configured vision model with a prompt and screenshot.
-
-        This method dispatches to the appropriate API based on config.model_provider.
 
         Args:
             prompt: The text prompt for the vision model.
             screenshot_b64: Base64-encoded screenshot image.
+            step: Optional per-step routing key passed through to
+                ``_call_vision_model_with_images``.
 
         Returns:
             The model's text response.
         """
-        return await self._call_vision_model_with_images(prompt, [screenshot_b64])
+        return await self._call_vision_model_with_images(
+            prompt, [screenshot_b64], step=step,
+        )
 
     async def _call_vision_model_with_images(
         self,
         prompt: str,
         screenshots_b64: Sequence[str],
+        step: Optional[str] = None,
     ) -> str:
-        """Call the configured vision model with one or more screenshots."""
-        provider = self.config.model_provider.value
+        """Call the configured vision model with one or more screenshots.
+
+        Args:
+            prompt: The text prompt for the vision model.
+            screenshots_b64: One or more base64-encoded screenshots.
+            step: Optional per-step routing key (e.g., 'grounding',
+                'verification', 'screen_description'). When set, the
+                provider is resolved via ``config.resolve_step_model(step)``
+                instead of the global ``model_provider``.
+        """
+        if step:
+            provider, _model = self.config.resolve_step_model(step)
+        else:
+            provider = self.config.model_provider.value
         if provider == "anthropic":
             return await self._call_anthropic_vision(prompt, screenshots_b64)
         elif provider == "gemini":
             return await self._call_gemini_vision(prompt, screenshots_b64)
+        elif provider == "openai":
+            return await self._call_openai_vision(prompt, screenshots_b64)
         else:
             return await self._call_local_vision(prompt, screenshots_b64)
 
@@ -427,6 +450,44 @@ class ScreenCoordinatorImpl:
                     logger.warning(
                         "🔄 Anthropic API error, retrying",
                         status_code=e.status_code,
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay_s=delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+    async def _call_openai_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+        """Call OpenAI GPT vision model via the Responses API.
+
+        Args:
+            prompt: The text prompt.
+            screenshots_b64: Base64-encoded screenshots.
+
+        Returns:
+            The model's text response.
+        """
+        from automation_agent.llm.openai_client import OpenAIClient
+
+        client = OpenAIClient(
+            api_key=self.config.openai_api_key or "",
+            model=self.config.openai_model,
+            timeout=self.config.vision_server_timeout,
+        )
+
+        max_retries = 4
+        base_delay = 1.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                return await client.generate_vision(prompt, screenshots_b64)
+            except Exception as e:
+                err_str = str(e)
+                if attempt < max_retries and ("429" in err_str or "529" in err_str):
+                    delay = base_delay * (2**attempt)
+                    logger.warning(
+                        "OpenAI API error, retrying",
                         attempt=attempt + 1,
                         max_retries=max_retries,
                         delay_s=delay,
@@ -696,7 +757,9 @@ class ScreenCoordinatorImpl:
                     "{{element_list}}",
                     self._build_candidate_prefix(candidates, description),
                 )
-                response = await self._call_vision_model(som_prompt, annotated_b64)
+                response = await self._call_vision_model(
+                    som_prompt, annotated_b64, step="grounding",
+                )
 
                 # AC-13: parse element_number response
                 result = self._parse_som_response(response, candidates, description)
@@ -793,7 +856,9 @@ class ScreenCoordinatorImpl:
                 )
 
         # Fall back to general vision model
-        response = await self._call_vision_model(prompt, screenshot_b64)
+        response = await self._call_vision_model(
+            prompt, screenshot_b64, step="grounding",
+        )
 
         raw_coords = self._parse_coordinates(response)
         if raw_coords is None:
@@ -825,7 +890,9 @@ class ScreenCoordinatorImpl:
             screenshot_b64 = self.capture.capture_b64()
 
         prompt = self._load_prompt("describe_screen.md")
-        vision_description = await self._call_vision_model(prompt, screenshot_b64)
+        vision_description = await self._call_vision_model(
+            prompt, screenshot_b64, step="screen_description",
+        )
         logger.info("👁️ Screen described", length=len(vision_description))
 
         if desktop_state:
@@ -852,7 +919,9 @@ class ScreenCoordinatorImpl:
         prompt = self._load_prompt("verify_condition.md").replace(
             "{{condition}}", condition
         )
-        response = await self._call_vision_model(prompt, screenshot_b64)
+        response = await self._call_vision_model(
+            prompt, screenshot_b64, step="verification",
+        )
 
         # AC-3: Ternary parsing — YES / UNCLEAR / anything else
         response_lower = response.strip().lower()
@@ -885,7 +954,9 @@ class ScreenCoordinatorImpl:
             "Respond with ONLY YES if both images support that the centered target matches.\n"
             "Respond with ONLY NO otherwise."
         )
-        response = await self._call_vision_model_with_images(prompt, [detail_b64, context_b64])
+        response = await self._call_vision_model_with_images(
+            prompt, [detail_b64, context_b64], step="verification",
+        )
         return response.strip().lower().startswith("yes")
 
     async def reflect_action_outcome(
@@ -1030,7 +1101,8 @@ class ScreenCoordinatorImpl:
         try:
             response = await asyncio.wait_for(
                 self._call_vision_model_with_images(
-                    prompt, [context_b64, screenshot_b64]
+                    prompt, [context_b64, screenshot_b64],
+                    step="grounding",
                 ),
                 timeout=self.config.dual_res_timeout_s,
             )

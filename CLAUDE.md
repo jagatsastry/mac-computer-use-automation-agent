@@ -60,6 +60,7 @@ User prompt → Orchestrator.execute()
   → _is_truncated_plan()           # Detect shallow plans; fall back to skill template if truncated
   → _inject_domain_verification()  # Append "AND browser domain is X" to open_url verify fields
   → For each ActionStep:
+      → Precondition check         # Assert precondition via verifier before action
       → Lookahead prediction       # Destructive steps only (opt-in via config)
       → Confirmation gate          # Destructive action user confirmation
       → Actuator.execute()         # Perform the action
@@ -73,6 +74,10 @@ User prompt → Orchestrator.execute()
 ### Key Design Patterns
 
 **Mandatory postconditions**: Every `ActionStep` must have a non-empty `verify` field. Plans fail validation without them.
+
+**Precondition/Action/Verify step model**: Each `ActionStep` has three phases: `precondition` (what must be true before), `action` (what to do), and `verify` (what must be true after). The `precondition` field is optional (default empty). When non-empty, `_execute_step_inner()` asserts the precondition via the verifier before executing the action. If the precondition fails, the step fails with `precondition_failed` error. Precondition checks are skipped for `done` and `observe` actions. `from_dict()` parses the `precondition` field from LLM JSON, and the Ollama structured output schema includes it. The planner prompt instructs the LLM to generate preconditions that chain: step N's `verify` should match step N+1's `precondition`.
+
+**Per-step model routing** (`config.py`): Five config fields allow overriding the model provider per step: `planning_model`, `grounding_model_provider`, `verification_model`, `screen_description_model`, `reflection_model`. Each accepts `provider:model` syntax (e.g., `openai:gpt-5.4`) or just a provider name (uses its default model). `resolve_step_model(step)` returns `(provider, model)` tuple, falling back to the global `model_provider`. The planner's `_call_llm()` uses `resolve_step_model("planning")` and the coordinator's `_call_vision_model_with_images()` accepts an optional `step` parameter to route through `resolve_step_model()`. Call sites pass `step="grounding"`, `step="verification"`, or `step="screen_description"` as appropriate.
 
 **3-tier verification** (`orchestrator/verifier.py`):
 1. Tier 0: Accessibility API state — structured element checks
@@ -113,6 +118,13 @@ Settings are loaded from environment variables prefixed with `AGENT_` (see `.env
 - `AGENT_VISION_SERVER_URL` — Vision server endpoint (default `localhost:8080`; any OpenAI-compatible server)
 - `AGENT_VISION_MODEL` / `AGENT_TEXT_MODEL` — model names
 - `AGENT_LOG_DIR` — structured JSONL event logs with per-run directories
+
+Per-step model routing (all None/unset by default — falls back to global `AGENT_MODEL_PROVIDER`):
+- `AGENT_PLANNING_MODEL` — Model for plan generation (e.g., `gemini:gemini-2.5-flash`)
+- `AGENT_GROUNDING_MODEL_PROVIDER` — Model for element grounding (e.g., `openai:gpt-5.4`)
+- `AGENT_VERIFICATION_MODEL` — Model for visual verification (e.g., `gemini:gemini-2.5-flash`)
+- `AGENT_SCREEN_DESCRIPTION_MODEL` — Model for screen description (e.g., `local:molmo`)
+- `AGENT_REFLECTION_MODEL` — Model for async post-run reflection (e.g., `anthropic:claude-opus-4-20250514`)
 
 Speed optimization settings (on by default):
 - `AGENT_JS_VERIFICATION_ENABLED` — JS injection for browser state verification: focused_value, selected_text, page_title, page_heading (default True)

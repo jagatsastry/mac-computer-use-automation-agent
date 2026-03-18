@@ -178,6 +178,7 @@ class ActionStep:
         return cls(
             action=action,
             params=params,
+            precondition=data.get("precondition", ""),
             verify=data.get("verify", ""),
             expected_observation=data.get("expected_observation", ""),
             on_fail=raw_on_fail,
