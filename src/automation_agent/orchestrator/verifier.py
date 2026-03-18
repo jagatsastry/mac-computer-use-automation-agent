@@ -88,13 +88,22 @@ class StepVerifier:
 
         # Tier 0: Accessibility state (fastest structured signal)
         if accessibility:
+            _t0_start = time.monotonic()
             tier0_result = self._verify_tier0(step, accessibility)
+            _t0_dur = int((time.monotonic() - _t0_start) * 1000)
             if tier0_result is not None:
                 duration = int((time.monotonic() - start) * 1000)
+                slog.info(
+                    "verify_tier0_conclusive",
+                    condition=step.verify[:80],
+                    passed=tier0_result[0],
+                    evidence=tier0_result[1][:100],
+                    duration_ms=_t0_dur,
+                )
                 if self.logger:
                     self.logger.log_event(
                         EventType.VERIFY_PASS if tier0_result[0] else EventType.VERIFY_FAIL,
-                        f"Tier 0: {tier0_result[1]}",
+                        f"Tier 0 ({_t0_dur}ms): {tier0_result[1]}",
                     )
                 return StepResult(
                     step=step,
@@ -103,23 +112,31 @@ class StepVerifier:
                     evidence=tier0_result[1],
                     duration_ms=duration,
                 )
+            else:
+                slog.debug(
+                    "verify_tier0_inconclusive",
+                    condition=step.verify[:80],
+                    duration_ms=_t0_dur,
+                )
 
         # Tier 1: Actuator state query (fast)
         if act:
+            _t1_start = time.monotonic()
             tier1_result = self._verify_tier1(step, act, actuator_result)
+            _t1_dur = int((time.monotonic() - _t1_start) * 1000)
             if tier1_result is not None:  # Conclusive (pass or fail)
                 duration = int((time.monotonic() - start) * 1000)
-                emoji = "✅" if tier1_result[0] else "❌"
                 slog.info(
-                    f"{emoji} Verified (tier1)",
-                    condition=step.verify,
+                    "verify_tier1_conclusive",
+                    condition=step.verify[:80],
                     passed=tier1_result[0],
-                    duration_ms=duration,
+                    evidence=tier1_result[1][:100],
+                    duration_ms=_t1_dur,
                 )
                 if self.logger:
                     self.logger.log_event(
                         EventType.VERIFY_PASS if tier1_result[0] else EventType.VERIFY_FAIL,
-                        f"Tier 1: {tier1_result[1]}",
+                        f"Tier 1 ({_t1_dur}ms): {tier1_result[1]}",
                     )
                 return StepResult(
                     step=step,
@@ -130,17 +147,26 @@ class StepVerifier:
                 )
             else:
                 # Tier 1 inconclusive -- escalate
+                slog.info(
+                    "verify_tier1_inconclusive_escalating",
+                    condition=step.verify[:80],
+                    action=step.action,
+                    duration_ms=_t1_dur,
+                )
                 if self.logger:
                     self.logger.log_event(
                         EventType.VERIFY_ESCALATE,
-                        "Tier 1 inconclusive, escalating to Tier 2",
+                        f"Tier 1 inconclusive ({_t1_dur}ms),"
+                        " escalating to Tier 2",
                     )
 
         # Tier 2: Vision verification (slower but more thorough)
         if coord:
+            _t2_start = time.monotonic()
             tier2_raw, screenshot_b64 = await self._verify_tier2(
                 step, coord, actuator_result
             )
+            _t2_dur = int((time.monotonic() - _t2_start) * 1000)
             duration = int((time.monotonic() - start) * 1000)
             screenshot_path = None
             if screenshot_b64 and self.logger:
@@ -154,16 +180,19 @@ class StepVerifier:
 
             if tier2_raw is not None:
                 # Tier 2 reached a conclusive result (pass or fail)
-                emoji = "✅" if tier2_raw[0] else "❌"
                 slog.info(
-                    f"{emoji} Verified (tier2, vision)",
-                    condition=step.verify,
+                    "verify_tier2_conclusive",
+                    condition=step.verify[:80],
                     passed=tier2_raw[0],
-                    duration_ms=duration,
+                    evidence=tier2_raw[1][:100],
+                    duration_ms=_t2_dur,
                 )
                 if self.logger:
                     event_type = EventType.VERIFY_PASS if tier2_raw[0] else EventType.VERIFY_FAIL
-                    self.logger.log_event(event_type, f"Tier 2: {tier2_raw[1]}")
+                    self.logger.log_event(
+                        event_type,
+                        f"Tier 2 ({_t2_dur}ms): {tier2_raw[1]}",
+                    )
 
                 return StepResult(
                     step=step,
@@ -176,10 +205,16 @@ class StepVerifier:
             else:
                 # AC-3: All Tier 2 conditions returned UNCLEAR.
                 # Fall through to actuator-result fallback below.
+                slog.info(
+                    "verify_tier2_inconclusive",
+                    condition=step.verify[:80],
+                    duration_ms=_t2_dur,
+                )
                 if self.logger:
                     self.logger.log_event(
                         EventType.VERIFY_ESCALATE,
-                        "Tier 2 inconclusive (all UNCLEAR), falling back to actuator result",
+                        f"Tier 2 inconclusive ({_t2_dur}ms, all UNCLEAR),"
+                        " falling back to actuator result",
                     )
 
         # No verification backend conclusive -- use actuator result

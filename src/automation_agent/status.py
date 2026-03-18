@@ -133,6 +133,31 @@ def _verbose_detail(event_type: str, data: Dict[str, Any]) -> str:
             if val:
                 parts.append(f"  {key}: {val}")
 
+    elif event_type == "task_summary":
+        # Show key summary metrics from run report
+        for key in (
+            "total_duration_ms", "step_count", "replan_count", "skill_name",
+        ):
+            val = data.get(key)
+            if val is not None:
+                parts.append(f"  {key}: {val}")
+        llm_calls = data.get("llm_calls")
+        if llm_calls:
+            parts.append(f"  llm_calls: {len(llm_calls)}")
+            for i, call in enumerate(llm_calls[:5], 1):
+                parts.append(
+                    f"    {i}. {call.get('purpose', '?')}"
+                    f" ({call.get('model', '?')})"
+                    f" {call.get('duration_ms', 0)}ms"
+                )
+        verification = data.get("verification")
+        if verification:
+            parts.append(
+                f"  verification: T0={verification.get('tier0_count', 0)}"
+                f" T1={verification.get('tier1_count', 0)}"
+                f" T2={verification.get('tier2_count', 0)}"
+            )
+
     return "\n".join(parts)
 
 
@@ -245,6 +270,8 @@ def _title_for_event(event_type: str, message: str, event: Dict[str, Any]) -> st
         return "Completed"
     if event_type == "task_fail":
         return "Failed"
+    if event_type == "task_summary":
+        return "Run Summary"
     return message[:80]
 
 

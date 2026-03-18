@@ -4,13 +4,17 @@ import asyncio
 import base64
 import inspect
 import io
+import json
+import os
 import re
 import time
 import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field as dataclass_field
+from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, ClassVar, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 import structlog
 
@@ -37,6 +41,234 @@ from automation_agent.skills.derived_skill import DerivedSkillSession
 from automation_agent.vision.geometry import image_to_screen_coords, screen_to_image_coords
 
 slog = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# LLM Call Tracking & Run Report
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LLMCallRecord:
+    """Records a single LLM invocation during a run."""
+
+    timestamp: str = ""
+    purpose: str = ""  # planning, grounding, verification, screen_description, replan
+    provider: str = ""
+    model: str = ""
+    duration_ms: int = 0
+    input_tokens_est: int = 0  # char count / 4 as rough token estimate
+
+
+@dataclass
+class VerificationStats:
+    """Aggregated verification statistics across a run."""
+
+    tier0_count: int = 0
+    tier0_pass: int = 0
+    tier1_count: int = 0
+    tier1_pass: int = 0
+    tier2_count: int = 0
+    tier2_pass: int = 0
+    escalations: int = 0
+
+
+@dataclass
+class StepTimeline:
+    """Per-step timeline entry for the run report."""
+
+    index: int = 0
+    action: str = ""
+    precondition: str = ""
+    result: str = ""  # PASS, FAIL, FAIL->retry->PASS, etc.
+    verify_tier: str = ""
+    pre_app: str = ""
+    post_app: str = ""
+    duration_s: float = 0.0
+
+
+def _generate_run_report(
+    *,
+    run_id: str,
+    goal: str,
+    success: bool,
+    total_duration_ms: int,
+    step_count: int,
+    replan_count: int,
+    skill_name: Optional[str],
+    llm_calls: List[LLMCallRecord],
+    step_timeline: List[StepTimeline],
+    verification_stats: VerificationStats,
+    issues: List[str],
+    state_changes: List[Dict[str, str]],
+) -> str:
+    """Generate a markdown run report."""
+    result_str = "SUCCESS" if success else "FAILED"
+    skill_str = skill_name or "none"
+    duration_s = total_duration_ms / 1000.0
+
+    lines = [
+        f"# Run Report: {run_id}",
+        "",
+        "## Summary",
+        f"- **Goal:** {goal}",
+        f"- **Result:** {result_str}",
+        f"- **Duration:** {total_duration_ms}ms ({duration_s:.1f}s)",
+        f"- **Steps executed:** {step_count}",
+        f"- **Replans:** {replan_count}",
+        f"- **Skill matched:** {skill_str}",
+        "",
+    ]
+
+    # LLM Calls table
+    lines.append("## LLM Calls")
+    if llm_calls:
+        lines.append(
+            "| # | Purpose | Provider | Model | Input tokens (est)"
+            " | Duration ms |"
+        )
+        lines.append(
+            "|---|---------|----------|-------|--------------------:|"
+            "------------:|"
+        )
+        for i, call in enumerate(llm_calls, 1):
+            lines.append(
+                f"| {i} | {call.purpose} | {call.provider}"
+                f" | {call.model} | ~{call.input_tokens_est}"
+                f" | {call.duration_ms} |"
+            )
+    else:
+        lines.append("No LLM calls recorded.")
+    lines.append("")
+
+    # Step Timeline table
+    lines.append("## Step Timeline")
+    if step_timeline:
+        lines.append(
+            "| # | Action | Precondition | Result | Verify Tier"
+            " | Pre App | Post App | Duration |"
+        )
+        lines.append(
+            "|---|--------|-------------|--------|-------------|"
+            "---------|----------|----------|"
+        )
+        for entry in step_timeline:
+            dur_str = f"{entry.duration_s:.1f}s"
+            pre = entry.precondition or "-"
+            lines.append(
+                f"| {entry.index} | {entry.action} | {pre}"
+                f" | {entry.result} | {entry.verify_tier}"
+                f" | {entry.pre_app} | {entry.post_app}"
+                f" | {dur_str} |"
+            )
+    else:
+        lines.append("No steps executed.")
+    lines.append("")
+
+    # Verification Summary
+    vs = verification_stats
+    lines.append("## Verification Summary")
+    lines.append(
+        f"- Tier 0 (AX): {vs.tier0_count} checks,"
+        f" {vs.tier0_pass} passed"
+    )
+    lines.append(
+        f"- Tier 1 (actuator/JS): {vs.tier1_count} checks,"
+        f" {vs.tier1_pass} passed"
+    )
+    lines.append(
+        f"- Tier 2 (vision): {vs.tier2_count} checks,"
+        f" {vs.tier2_pass} passed"
+    )
+    lines.append(f"- Escalations: {vs.escalations} (tier1->tier2)")
+    lines.append("")
+
+    # Issues & Observations
+    lines.append("## Issues & Observations")
+    if issues:
+        for issue in issues:
+            lines.append(f"- {issue}")
+    else:
+        lines.append("No issues observed.")
+    lines.append("")
+
+    # State Changes
+    lines.append("## State Changes")
+    if state_changes:
+        lines.append("| Timestamp | App | URL |")
+        lines.append("|-----------|-----|-----|")
+        for sc in state_changes:
+            ts = sc.get("timestamp", "")
+            app = sc.get("app", "")
+            url = sc.get("url", "-")
+            lines.append(f"| {ts} | {app} | {url} |")
+    else:
+        lines.append("No state changes recorded.")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _build_report_data_dict(
+    *,
+    run_id: str,
+    goal: str,
+    success: bool,
+    total_duration_ms: int,
+    step_count: int,
+    replan_count: int,
+    skill_name: Optional[str],
+    llm_calls: List[LLMCallRecord],
+    step_timeline: List[StepTimeline],
+    verification_stats: VerificationStats,
+    issues: List[str],
+    state_changes: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Build structured dict for the TASK_SUMMARY event."""
+    vs = verification_stats
+    return {
+        "run_id": run_id,
+        "goal": goal,
+        "success": success,
+        "total_duration_ms": total_duration_ms,
+        "step_count": step_count,
+        "replan_count": replan_count,
+        "skill_name": skill_name,
+        "llm_calls": [
+            {
+                "purpose": c.purpose,
+                "provider": c.provider,
+                "model": c.model,
+                "duration_ms": c.duration_ms,
+                "input_tokens_est": c.input_tokens_est,
+            }
+            for c in llm_calls
+        ],
+        "step_timeline": [
+            {
+                "index": s.index,
+                "action": s.action,
+                "precondition": s.precondition,
+                "result": s.result,
+                "verify_tier": s.verify_tier,
+                "pre_app": s.pre_app,
+                "post_app": s.post_app,
+                "duration_s": s.duration_s,
+            }
+            for s in step_timeline
+        ],
+        "verification": {
+            "tier0_count": vs.tier0_count,
+            "tier0_pass": vs.tier0_pass,
+            "tier1_count": vs.tier1_count,
+            "tier1_pass": vs.tier1_pass,
+            "tier2_count": vs.tier2_count,
+            "tier2_pass": vs.tier2_pass,
+            "escalations": vs.escalations,
+        },
+        "issues": issues,
+        "state_changes": state_changes,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -239,14 +471,30 @@ class AutomationAgent:
         self._last_step_pixel_changed: Optional[bool] = None
         # P2-3: Expected domain for domain verification
         self._expected_domain: Optional[str] = None
+        # Run report tracking — reset per execute() call
+        self._llm_calls: List[LLMCallRecord] = []
+        self._step_timeline: List[StepTimeline] = []
+        self._verification_stats = VerificationStats()
+        self._issues: List[str] = []
+        self._state_changes: List[Dict[str, str]] = []
+        self._replan_count: int = 0
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
         self.last_successful_region = None  # Rec 4: reset for new task
         self._current_skill_context = None  # Reset for new task
+        self._reset_run_tracking()  # Reset per-run report tracking
         start = time.monotonic()
-        slog.info("🎯 Executing goal", goal=goal)
+        slog.info("task_start", goal=goal, run_id=self.logger.run_id)
         self.logger.log_event(EventType.TASK_START, f"Goal: {goal}", data={"goal": goal})
+        # Record initial state
+        _init_app, _init_url = self._snapshot_state()
+        self._record_state_change(_init_app, _init_url)
+        slog.info(
+            "initial_state",
+            app=_init_app,
+            url=_init_url[:80] if _init_url else "",
+        )
 
         step_results: list[StepResult] = []
         iterations = 0
@@ -261,7 +509,9 @@ class AutomationAgent:
 
         try:
             # 1. Check for matching skill
+            _skill_start = time.monotonic()
             skill_match = await self.skill_registry.match(goal)
+            _skill_dur = int((time.monotonic() - _skill_start) * 1000)
             if skill_match:
                 skill_name = skill_match["skill_name"]
                 params = skill_match.get("params", {})
@@ -292,14 +542,25 @@ class AutomationAgent:
                 elif not isinstance(skill_match, SkillMatchResult):
                     expanded_steps_for_distiller = skill_context
 
-                slog.info("🤔 Skill matched", skill_name=skill_name, params=params)
+                _ctx_len = len(skill_context) if skill_context else 0
+                slog.info(
+                    "skill_matched",
+                    skill_name=skill_name,
+                    params=params,
+                    context_chars=_ctx_len,
+                    duration_ms=_skill_dur,
+                )
                 self.logger.log_event(
                     EventType.SKILL_MATCH,
                     f"Matched skill: {skill_name}",
-                    data={"skill_name": skill_name, "params": params},
+                    data={
+                        "skill_name": skill_name,
+                        "params": params,
+                        "context_chars": _ctx_len,
+                    },
                 )
             else:
-                slog.info("🤔 No matching skill found")
+                slog.info("skill_no_match", duration_ms=_skill_dur)
                 self.logger.log_event(EventType.SKILL_NO_MATCH, "No matching skill found")
 
             # Store skill context for error recovery hint lookups
@@ -311,16 +572,47 @@ class AutomationAgent:
             if self.context_monitor:
                 self.context_monitor.update_cheap()
             if not self.context_monitor or self.context_monitor.needs_full_vision():
+                _desc_start = time.monotonic()
                 try:
                     screen_desc = await self.coordinator.describe_screen()
+                    _desc_dur = int((time.monotonic() - _desc_start) * 1000)
+                    slog.info(
+                        "screen_described",
+                        description_len=len(screen_desc),
+                        duration_ms=_desc_dur,
+                    )
+                    self._record_llm_call(
+                        "screen_description", _desc_dur, len(screen_desc)
+                    )
                     if self.context_monitor:
                         self.context_monitor.context.last_vision_description = screen_desc
-                except Exception:
-                    pass
+                except Exception as _desc_exc:
+                    _desc_dur = int((time.monotonic() - _desc_start) * 1000)
+                    slog.warning(
+                        "screen_describe_failed",
+                        error=str(_desc_exc),
+                        duration_ms=_desc_dur,
+                    )
             if self.context_monitor:
                 desktop_context = self.context_monitor.format_for_planner()
+                slog.debug(
+                    "context_monitor_state",
+                    context_len=len(desktop_context),
+                )
 
             # 3. Plan
+            _plan_input_chars = (
+                len(goal)
+                + len(screen_desc)
+                + (len(skill_context) if skill_context else 0)
+                + len(desktop_context)
+            )
+            slog.info(
+                "planning_start",
+                model=str(getattr(self.config, "text_model", "?")),
+                context_chars=_plan_input_chars,
+                skill_context_included=bool(skill_context),
+            )
             self.logger.log_event(EventType.PLAN_START, "Planning...")
             plan_kwargs = dict(
                 screen_description=screen_desc,
@@ -328,7 +620,10 @@ class AutomationAgent:
             )
             if desktop_context:
                 plan_kwargs["desktop_context"] = desktop_context
+            _plan_start = time.monotonic()
             plan = await self.planner.plan(goal, **plan_kwargs)
+            _plan_dur = int((time.monotonic() - _plan_start) * 1000)
+            self._record_llm_call("planning", _plan_dur, _plan_input_chars)
             fallback_plan = self._build_skill_fallback_plan(goal, skill_context)
 
             # P2-3: Extract expected domain for single-site goals (before hardening)
@@ -350,16 +645,25 @@ class AutomationAgent:
             # Apply all plan hardening checks
             plan = await self._harden_plan(plan, goal, skill_context, fallback_plan)
 
-            slog.info("📋 Plan generated", step_count=len(plan.steps), goal=goal)
-            plan_data = {"step_count": len(plan.steps)}
-            if plan.raw_llm_response:
-                plan_data["llm_response"] = plan.raw_llm_response
-            plan_data["steps_summary"] = [
+            _step_summaries = [
                 f"{s.action}({s.params})" for s in plan.steps
             ]
+            slog.info(
+                "plan_generated",
+                step_count=len(plan.steps),
+                planning_ms=_plan_dur,
+                steps=_step_summaries,
+            )
+            plan_data = {
+                "step_count": len(plan.steps),
+                "planning_duration_ms": _plan_dur,
+            }
+            if plan.raw_llm_response:
+                plan_data["llm_response"] = plan.raw_llm_response
+            plan_data["steps_summary"] = _step_summaries
             self.logger.log_event(
                 EventType.PLAN_COMPLETE,
-                f"Plan: {len(plan.steps)} steps",
+                f"Plan: {len(plan.steps)} steps ({_plan_dur}ms)",
                 data=plan_data,
             )
 
@@ -638,6 +942,13 @@ class AutomationAgent:
             ):
                 self.logger.log_event(EventType.TASK_FAIL, f"Task aborted: {last_result.error}")
                 self.logger.finalize(False, last_result.error)
+                self._generate_and_save_report(
+                    goal=goal,
+                    success=False,
+                    total_duration_ms=duration,
+                    step_count=len(step_results),
+                    skill_name=skill_name,
+                )
                 return ExecutionResult(
                     success=False,
                     message=f"Task aborted: {last_result.error}",
@@ -651,9 +962,12 @@ class AutomationAgent:
 
             # Success
             slog.info(
-                "🏁 Task completed",
+                "task_completed",
+                duration_ms=duration,
                 duration_s=round(duration / 1000, 1),
                 iterations=iterations,
+                steps_executed=len(step_results),
+                llm_calls=len(self._llm_calls),
             )
             observations = await self._maybe_learn_skill_run(
                 goal=goal,
@@ -676,6 +990,16 @@ class AutomationAgent:
             )
             self.logger.log_event(EventType.TASK_COMPLETE, "Task completed successfully")
             self.logger.finalize(True, f"Goal achieved: {goal}")
+
+            # Generate run report
+            self._generate_and_save_report(
+                goal=goal,
+                success=True,
+                total_duration_ms=duration,
+                step_count=len(step_results),
+                skill_name=skill_name,
+            )
+
             return ExecutionResult(
                 success=True,
                 message="Task completed",
@@ -688,8 +1012,24 @@ class AutomationAgent:
 
         except Exception as e:
             duration = int((time.monotonic() - start) * 1000)
+            slog.error(
+                "task_exception",
+                error=str(e),
+                duration_ms=duration,
+                steps_executed=len(step_results),
+            )
             self.logger.log_event(EventType.TASK_FAIL, f"Exception: {e}")
             self.logger.finalize(False, str(e))
+
+            # Generate run report even on failure
+            self._generate_and_save_report(
+                goal=goal,
+                success=False,
+                total_duration_ms=duration,
+                step_count=len(step_results),
+                skill_name=skill_name,
+            )
+
             return ExecutionResult(
                 success=False,
                 message=str(e),
@@ -700,6 +1040,112 @@ class AutomationAgent:
                 goal=goal,
                 run_id=self.logger.run_id,
             )
+
+    def _record_llm_call(
+        self,
+        purpose: str,
+        duration_ms: int,
+        input_chars: int = 0,
+    ) -> None:
+        """Record an LLM call for the run report."""
+        provider = getattr(self.config, "model_provider", "unknown")
+        if purpose in ("grounding", "screen_description", "verification"):
+            model = getattr(self.config, "vision_model", "unknown")
+        else:
+            model = getattr(self.config, "text_model", "unknown")
+        self._llm_calls.append(LLMCallRecord(
+            timestamp=datetime.now().strftime("%H:%M:%S"),
+            purpose=purpose,
+            provider=str(provider),
+            model=str(model),
+            duration_ms=duration_ms,
+            input_tokens_est=max(1, input_chars // 4),
+        ))
+
+    def _record_state_change(self, app: str, url: str) -> None:
+        """Record an app/URL state change for the run report."""
+        ts = datetime.now().strftime("%H:%M:%S")
+        # Deduplicate: skip if identical to the last entry
+        if self._state_changes:
+            last = self._state_changes[-1]
+            if last.get("app") == app and last.get("url", "") == url:
+                return
+        self._state_changes.append({
+            "timestamp": ts,
+            "app": app,
+            "url": url or "-",
+        })
+
+    def _reset_run_tracking(self) -> None:
+        """Reset per-run tracking state for report generation."""
+        self._llm_calls = []
+        self._step_timeline = []
+        self._verification_stats = VerificationStats()
+        self._issues = []
+        self._state_changes = []
+        self._replan_count = 0
+
+    def _generate_and_save_report(
+        self,
+        *,
+        goal: str,
+        success: bool,
+        total_duration_ms: int,
+        step_count: int,
+        skill_name: Optional[str],
+    ) -> None:
+        """Generate run report markdown and save to logs/runs/{run_id}/report.md."""
+        try:
+            report_md = _generate_run_report(
+                run_id=self.logger.run_id,
+                goal=goal,
+                success=success,
+                total_duration_ms=total_duration_ms,
+                step_count=step_count,
+                replan_count=self._replan_count,
+                skill_name=skill_name,
+                llm_calls=self._llm_calls,
+                step_timeline=self._step_timeline,
+                verification_stats=self._verification_stats,
+                issues=self._issues,
+                state_changes=self._state_changes,
+            )
+            report_path = self.logger.run_dir / "report.md"
+            self.logger._ensure_dirs()
+            report_path.write_text(report_md, encoding="utf-8")
+            slog.info(
+                "run_report_saved",
+                path=str(report_path),
+                llm_calls=len(self._llm_calls),
+                steps=len(self._step_timeline),
+            )
+
+            # Log TASK_SUMMARY event with structured data
+            summary_data = _build_report_data_dict(
+                run_id=self.logger.run_id,
+                goal=goal,
+                success=success,
+                total_duration_ms=total_duration_ms,
+                step_count=step_count,
+                replan_count=self._replan_count,
+                skill_name=skill_name,
+                llm_calls=self._llm_calls,
+                step_timeline=self._step_timeline,
+                verification_stats=self._verification_stats,
+                issues=self._issues,
+                state_changes=self._state_changes,
+            )
+            result_str = "SUCCESS" if success else "FAILED"
+            self.logger.log_event(
+                EventType.TASK_SUMMARY,
+                f"Run {self.logger.run_id}: {result_str}"
+                f" in {total_duration_ms}ms"
+                f" ({step_count} steps,"
+                f" {len(self._llm_calls)} LLM calls)",
+                data=summary_data,
+            )
+        except Exception as exc:
+            slog.warning("run_report_generation_failed", error=str(exc))
 
     def _snapshot_state(self) -> tuple:
         """Return (app_name, browser_url) from the actuator."""
@@ -734,6 +1180,14 @@ class AutomationAgent:
         result.pre_state_url = _pre_url
         result.post_state_app = _post_app
         result.post_state_url = _post_url
+
+        # Update step timeline entry with post state
+        if self._step_timeline and self._step_timeline[-1].index == index:
+            self._step_timeline[-1].pre_app = _pre_app
+            self._step_timeline[-1].post_app = _post_app
+            if _pre_app != _post_app:
+                self._record_state_change(_post_app, _post_url)
+
         return result, tf
 
     async def _execute_step_inner(
@@ -745,27 +1199,51 @@ class AutomationAgent:
         plan: ActionPlan,
     ) -> Tuple[StepResult, bool]:
         """Inner step execution (wrapped by _execute_step for state capture)."""
-        slog.info("🎯 Executing step", step_index=index, action=step.action, params=step.params)
+        _step_start = time.monotonic()
+        slog.info(
+            "step_start",
+            step_index=index,
+            action=step.action,
+            params=step.params,
+            verify=step.verify[:80] if step.verify else "",
+            precondition=getattr(step, "precondition", "")[:80],
+        )
         self.logger.log_event(
             EventType.STEP_START,
             f"Step {index}: {step.action}",
             step_index=index,
-            data={"action": step.action, "params": step.params},
+            data={
+                "action": step.action,
+                "params": step.params,
+                "verify": step.verify[:120] if step.verify else "",
+                "precondition": getattr(step, "precondition", "")[:120],
+            },
         )
 
         # Precondition check: assert what must be true before this step
         precondition = getattr(step, "precondition", "")
         if precondition and step.action not in ("done", "observe"):
-            slog.info("🔍 Checking precondition", condition=precondition)
+            _pre_start = time.monotonic()
+            slog.info(
+                "precondition_check",
+                step_index=index,
+                condition=precondition,
+            )
             pre_step = ActionStep(action="observe", params={}, verify=precondition)
             pre_result = await self.verifier.verify(
                 pre_step, {}, self.actuator, self.coordinator,
             )
+            _pre_dur = int((time.monotonic() - _pre_start) * 1000)
             if not pre_result.success:
                 slog.warning(
-                    "Precondition not met",
+                    "precondition_failed",
                     condition=precondition,
                     evidence=pre_result.evidence,
+                    duration_ms=_pre_dur,
+                )
+                self._issues.append(
+                    f"Step {index}: precondition \"{precondition[:60]}\""
+                    f" failed. {pre_result.evidence[:80]}"
                 )
                 return StepResult(
                     step=step,
@@ -775,6 +1253,12 @@ class AutomationAgent:
                     f"{pre_result.evidence}",
                     error=f"precondition_failed:{precondition[:60]}",
                 ), False
+            else:
+                slog.info(
+                    "precondition_passed",
+                    condition=precondition,
+                    duration_ms=_pre_dur,
+                )
 
         if step.action == "done":
             # AC-6: Graceful abort via done + abort_reason
@@ -1232,10 +1716,12 @@ class AutomationAgent:
             await asyncio.sleep(self.config.action_delay)
 
         # Verify
+        _verify_start = time.monotonic()
         self.logger.log_event(
             EventType.VERIFY_START, f"Verifying: {step.verify}", step_index=index
         )
         verification = await self.verifier.verify(step, actuator_result)
+        _verify_dur = int((time.monotonic() - _verify_start) * 1000)
         if (
             not verification.success
             and visible_effect
@@ -1243,10 +1729,64 @@ class AutomationAgent:
         ):
             verification = await self._reflect_failed_action(step, actuator_result, verification)
 
+        # Track verification stats
+        _method = verification.verification_method or ""
+        _tier1_actions = {"click", "type_text", "open_url", "activate_app", "scroll"}
+        if _method == "accessibility":
+            self._verification_stats.tier0_count += 1
+            if verification.success:
+                self._verification_stats.tier0_pass += 1
+        elif _method == "actuator_state":
+            self._verification_stats.tier1_count += 1
+            if verification.success:
+                self._verification_stats.tier1_pass += 1
+        elif _method == "vision":
+            self._verification_stats.tier2_count += 1
+            if verification.success:
+                self._verification_stats.tier2_pass += 1
+            # Count as escalation if tier1 would normally handle this action
+            if step.action in _tier1_actions:
+                self._verification_stats.escalations += 1
+            # Track vision verification as an LLM call
+            self._record_llm_call(
+                "verification",
+                _verify_dur,
+                len(step.verify) if step.verify else 0,
+            )
+
+        slog.info(
+            "step_verified",
+            step_index=index,
+            action=step.action,
+            passed=verification.success,
+            tier=_method,
+            duration_ms=_verify_dur,
+            evidence=verification.evidence[:120] if verification.evidence else "",
+        )
+
+        # Track step in timeline
+        _step_dur = time.monotonic() - _step_start
+        _pre_app, _pre_url = self._snapshot_state()
+        _result_str = "PASS" if verification.success else "FAIL"
+        self._step_timeline.append(StepTimeline(
+            index=index,
+            action=step.action,
+            precondition=getattr(step, "precondition", "") or "",
+            result=_result_str,
+            verify_tier=_method,
+            pre_app=_pre_app,
+            post_app=_pre_app,  # will be updated by _execute_step wrapper
+            duration_s=round(_step_dur, 1),
+        ))
+
+        # Record state change
+        self._record_state_change(_pre_app, _pre_url)
+
         step_complete_data = {
             "success": verification.success,
             "method": verification.verification_method,
             "evidence": verification.evidence,
+            "verify_duration_ms": _verify_dur,
         }
         if verification.reflection_hint:
             step_complete_data["reflection_hint"] = verification.reflection_hint
@@ -1256,7 +1796,8 @@ class AutomationAgent:
             step_complete_data["reflection_observed"] = verification.reflection_observed
         self.logger.log_event(
             EventType.STEP_COMPLETE,
-            f"Step {index}: {'PASS' if verification.success else 'FAIL'} -- {verification.evidence}",
+            f"Step {index}: {'PASS' if verification.success else 'FAIL'}"
+            f" [{_method}] ({_verify_dur}ms) -- {verification.evidence}",
             step_index=index,
             data=step_complete_data,
         )
@@ -2398,19 +2939,48 @@ class AutomationAgent:
             if action == "click":
                 # If element description given, find it first
                 if "element" in params:
+                    _find_start = time.monotonic()
+                    _find_method = (
+                        "pre_resolved" if _pre_resolved_location else "search"
+                    )
                     location = (
                         _pre_resolved_location
                         or await self._find_element(params["element"])
                     )
+                    _find_dur = int((time.monotonic() - _find_start) * 1000)
                     if location is None:
+                        slog.info(
+                            "element_not_found",
+                            element=params["element"],
+                            method=_find_method,
+                            duration_ms=_find_dur,
+                        )
                         self.logger.log_event(
                             EventType.ELEMENT_NOT_FOUND,
-                            f"Element not found: {params['element']}",
+                            f"Element not found: {params['element']}"
+                            f" ({_find_dur}ms)",
                         )
                         return {
                             "success": False,
                             "error": f"Element not found: {params['element']}",
                         }
+                    else:
+                        slog.info(
+                            "element_found",
+                            element=params["element"],
+                            x=location.x,
+                            y=location.y,
+                            confidence=round(location.confidence, 2),
+                            source=location.source,
+                            method=_find_method,
+                            duration_ms=_find_dur,
+                        )
+                        if location.source in ("grounding", "vision"):
+                            self._record_llm_call(
+                                "grounding",
+                                _find_dur,
+                                len(params["element"]),
+                            )
 
                     # Keyboard shortcut fast path: press keys instead of clicking
                     if location.source == "keyboard_shortcut":
@@ -4014,6 +4584,17 @@ class AutomationAgent:
         expanded_steps_for_distiller: Optional[str] = None,
     ):
         """Replan and attempt execution with new plan."""
+        self._replan_count += 1
+        _failed_steps = [
+            f"step {sr.step.action}: {sr.error or sr.evidence[:60]}"
+            for sr in step_results if not sr.success
+        ]
+        slog.info(
+            "replan_triggered",
+            replan_number=self._replan_count,
+            failed_steps=_failed_steps[-3:],
+            total_steps_so_far=len(step_results),
+        )
         screen_desc = await self.coordinator.describe_screen()
         retry_strategies = []
         for sr in step_results:
@@ -4044,7 +4625,15 @@ class AutomationAgent:
                 if absent_desc and absent_desc not in absent_elements:
                     absent_elements.append(absent_desc)
 
+        _replan_input_chars = (
+            len(goal)
+            + len(screen_desc)
+            + (len(replan_ctx) if replan_ctx else 0)
+            + len(desktop_context)
+            + sum(len(str(sr.evidence)) for sr in step_results)
+        )
         self.logger.log_event(EventType.REPLAN_START, "Replanning...")
+        _replan_start = time.monotonic()
         new_plan = await self.planner.replan(
             goal,
             screen_desc,
@@ -4054,7 +4643,14 @@ class AutomationAgent:
             skill_context=replan_ctx,
             absent_elements=absent_elements,
         )
-        replan_data = {"step_count": len(new_plan.steps)}
+        _replan_dur = int((time.monotonic() - _replan_start) * 1000)
+        self._record_llm_call("replan", _replan_dur, _replan_input_chars)
+        slog.info(
+            "replan_completed",
+            new_step_count=len(new_plan.steps),
+            duration_ms=_replan_dur,
+        )
+        replan_data = {"step_count": len(new_plan.steps), "duration_ms": _replan_dur}
         if new_plan.raw_llm_response:
             replan_data["llm_response"] = new_plan.raw_llm_response
         replan_data["steps_summary"] = [
@@ -4062,7 +4658,7 @@ class AutomationAgent:
         ]
         self.logger.log_event(
             EventType.REPLAN_COMPLETE,
-            f"New plan: {len(new_plan.steps)} steps",
+            f"New plan: {len(new_plan.steps)} steps ({_replan_dur}ms)",
             data=replan_data,
         )
 
@@ -4215,6 +4811,16 @@ class AutomationAgent:
             success=success,
         )
         self.logger.finalize(success, f"Replanned: {goal}")
+
+        # Generate run report after replan
+        self._generate_and_save_report(
+            goal=goal,
+            success=success,
+            total_duration_ms=duration,
+            step_count=len(step_results),
+            skill_name=skill_name,
+        )
+
         if abort_error:
             return ExecutionResult(
                 success=False,
