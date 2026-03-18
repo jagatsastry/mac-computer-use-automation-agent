@@ -693,9 +693,13 @@ class AutomationAgent:
         frustration = FrustrationScore()
 
         try:
-            # 1. Check for matching skill
+            # 1. Check for matching skill (gated by config)
             _skill_start = time.monotonic()
-            skill_match = await self.skill_registry.match(goal)
+            if self.config.skill_matching_enabled:
+                skill_match = await self.skill_registry.match(goal)
+            else:
+                skill_match = None
+                slog.info("skill_matching_disabled")
             _skill_dur = int((time.monotonic() - _skill_start) * 1000)
             if skill_match:
                 skill_name = skill_match["skill_name"]

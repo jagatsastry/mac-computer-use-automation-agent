@@ -458,6 +458,11 @@ class AgentConfig(BaseSettings):
     )
 
     # Gap 3: Embedding-Based Skill Retrieval
+    skill_matching_enabled: bool = Field(
+        default=False,
+        description="Enable skill template matching. When False, the planner generates "
+        "steps purely from the LLM without skill priors.",
+    )
     skill_embedding_enabled: bool = Field(
         default=False,
         description="Enable embedding-based skill retrieval",
