@@ -753,6 +753,29 @@ class AutomationAgent:
             data={"action": step.action, "params": step.params},
         )
 
+        # Precondition check: assert what must be true before this step
+        precondition = getattr(step, "precondition", "")
+        if precondition and step.action not in ("done", "observe"):
+            slog.info("🔍 Checking precondition", condition=precondition)
+            pre_step = ActionStep(action="observe", params={}, verify=precondition)
+            pre_result = await self.verifier.verify(
+                pre_step, {}, self.actuator, self.coordinator,
+            )
+            if not pre_result.success:
+                slog.warning(
+                    "Precondition not met",
+                    condition=precondition,
+                    evidence=pre_result.evidence,
+                )
+                return StepResult(
+                    step=step,
+                    success=False,
+                    verification_method=pre_result.verification_method,
+                    evidence=f"Precondition failed: {precondition}. "
+                    f"{pre_result.evidence}",
+                    error=f"precondition_failed:{precondition[:60]}",
+                ), False
+
         if step.action == "done":
             # AC-6: Graceful abort via done + abort_reason
             abort_reason = step.params.get("abort_reason")

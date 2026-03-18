@@ -22,6 +22,7 @@ class ModelProvider(str, Enum):
     LOCAL = "local"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    OPENAI = "openai"
 
 
 class ConfirmMode(str, Enum):
@@ -145,6 +146,53 @@ class AgentConfig(BaseSettings):
     gemini_model: str = Field(
         default="gemini-2.5-flash",
         description="Gemini model to use for text and vision tasks",
+    )
+
+    # OpenAI (GPT) Configuration
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key (required if model_provider is openai). "
+        "Also checks OPENAI_API_KEY env var.",
+    )
+
+    @field_validator("openai_api_key", mode="before")
+    @classmethod
+    def get_openai_key(cls, v: Optional[str]) -> Optional[str]:
+        """Check multiple env vars for OpenAI API key."""
+        import os
+
+        if v:
+            return v
+        return os.environ.get("OPENAI_API_KEY")
+
+    openai_model: str = Field(
+        default="gpt-4.1",
+        description="OpenAI model to use for text, vision, and grounding tasks",
+    )
+
+    # Per-step model routing — override model_provider for specific steps.
+    # Each accepts "provider:model" (e.g., "openai:gpt-5.4", "gemini:gemini-2.5-flash")
+    # or just a provider name (uses that provider's default model).
+    # If unset, falls back to the global model_provider.
+    planning_model: Optional[str] = Field(
+        default=None,
+        description="Model for plan generation (e.g., 'gemini:gemini-2.5-flash')",
+    )
+    grounding_model_provider: Optional[str] = Field(
+        default=None,
+        description="Model for element grounding (e.g., 'openai:gpt-5.4')",
+    )
+    verification_model: Optional[str] = Field(
+        default=None,
+        description="Model for visual verification (e.g., 'gemini:gemini-2.5-flash')",
+    )
+    screen_description_model: Optional[str] = Field(
+        default=None,
+        description="Model for screen description (e.g., 'local:molmo')",
+    )
+    reflection_model: Optional[str] = Field(
+        default=None,
+        description="Model for async post-run reflection (e.g., 'anthropic:claude-opus-4-20250514')",
     )
 
     # Molmo/OpenRouter configuration
@@ -493,6 +541,46 @@ class AgentConfig(BaseSettings):
         if not v.startswith(("http://", "https://")):
             raise ValueError("grounding_server_url must start with http:// or https://")
         return v.rstrip("/")
+
+    def resolve_step_model(self, step: str) -> Tuple[str, str]:
+        """Resolve the provider and model for a specific step.
+
+        Args:
+            step: One of 'planning', 'grounding', 'verification',
+                  'screen_description', 'reflection'.
+
+        Returns:
+            (provider_name, model_name) tuple. Falls back to global
+            model_provider and its default model if no per-step override.
+        """
+        step_field_map = {
+            "planning": self.planning_model,
+            "grounding": self.grounding_model_provider,
+            "verification": self.verification_model,
+            "screen_description": self.screen_description_model,
+            "reflection": self.reflection_model,
+        }
+        override = step_field_map.get(step)
+        if override:
+            if ":" in override:
+                provider, model = override.split(":", 1)
+                return provider.strip(), model.strip()
+            # Just a provider name — use its default model
+            return override.strip(), self._default_model_for(override.strip())
+
+        # Fall back to global provider
+        provider = self.model_provider.value
+        return provider, self._default_model_for(provider)
+
+    def _default_model_for(self, provider: str) -> str:
+        """Return the default model name for a provider."""
+        defaults = {
+            "local": self.vision_model,
+            "anthropic": self.anthropic_model,
+            "gemini": self.gemini_model,
+            "openai": self.openai_model,
+        }
+        return defaults.get(provider, self.vision_model)
 
     def get_log_file_path(self) -> Path:
         """Get the current log file path."""

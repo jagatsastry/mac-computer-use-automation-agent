@@ -120,7 +120,8 @@ class ActionStep:
 
     action: str  # "click", "type_text", "press_key", "open_url", "activate_app", "scroll", "observe", "wait_for_user", "done"
     params: Dict[str, Any] = field(default_factory=dict)
-    verify: str = ""  # MANDATORY — what must be true after this step
+    precondition: str = ""  # What must be true BEFORE this step (asserted pre-action)
+    verify: str = ""  # MANDATORY — what must be true AFTER this step (post-action verification)
     expected_observation: str = ""  # Optional stronger visual expectation for Tier 2 verification
     on_fail: str = "retry_different"  # "retry_different" | "replan" | "abort" | "wait_for_user"
     max_retries: int = 3

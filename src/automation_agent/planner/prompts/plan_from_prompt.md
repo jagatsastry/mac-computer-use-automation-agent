@@ -64,6 +64,8 @@ making a payment), set `"destructive": true` on the step. This triggers user con
     step count unless the current screen state shows the task is partially complete.
 
 ## Response Format
+Each step has three phases: precondition (what must be true before), action, and verify (what must be true after).
+
 Respond with ONLY valid JSON (no markdown, no explanation):
 ```json
 {
@@ -71,8 +73,18 @@ Respond with ONLY valid JSON (no markdown, no explanation):
     {
       "action": "open_url",
       "params": {"url": "https://example.com"},
-      "verify": "The page loaded successfully in the browser",
+      "precondition": "A browser is available on the system",
+      "verify": "The page loaded successfully and the URL contains example.com",
       "expected_observation": "Browser shows the target page",
+      "on_fail": "retry_different",
+      "max_retries": 3
+    },
+    {
+      "action": "click",
+      "params": {"element": "Sign In button"},
+      "precondition": "The example.com homepage is visible with a Sign In button",
+      "verify": "A sign-in form or login page is now displayed",
+      "expected_observation": "Login form visible with email and password fields",
       "on_fail": "retry_different",
       "max_retries": 3
     },
@@ -80,9 +92,17 @@ Respond with ONLY valid JSON (no markdown, no explanation):
     {
       "action": "done",
       "params": {},
-      "verify": "",  // done is exempt from the non-empty verify requirement
+      "precondition": "",
+      "verify": "",
       "on_fail": "abort"
     }
   ]
 }
 ```
+
+**Precondition rules:**
+- The precondition describes what must be true on screen BEFORE the action executes
+- If the precondition is not met, the agent will replan instead of blindly executing
+- For the first step, the precondition can describe the expected starting state
+- For subsequent steps, the precondition should match the verify of the previous step
+- This creates a chain: step N's verify → step N+1's precondition
