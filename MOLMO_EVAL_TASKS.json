@@ -1,0 +1,146 @@
+{
+  "version": "1.0",
+  "description": "20-task benchmark for restaurant automation with Molmo vs baseline",
+  "tasks": [
+    {
+      "id": "T01",
+      "provider": "OpenTable",
+      "difficulty": "easy",
+      "prompt": "Find Italian restaurants in San Jose for 2 people tonight around 7pm.",
+      "expected_milestones": ["search results visible", "party/date/time controls identified"]
+    },
+    {
+      "id": "T02",
+      "provider": "OpenTable",
+      "difficulty": "easy",
+      "prompt": "Find sushi near Palo Alto for 2 tomorrow at 7:30pm.",
+      "expected_milestones": ["results visible", "time options visible"]
+    },
+    {
+      "id": "T03",
+      "provider": "OpenTable",
+      "difficulty": "medium",
+      "prompt": "Find a reservation for 4 in Mountain View on Friday at 8pm.",
+      "expected_milestones": ["results visible", "party size set to 4", "time near 8pm selected"]
+    },
+    {
+      "id": "T04",
+      "provider": "OpenTable",
+      "difficulty": "medium",
+      "prompt": "Find vegan-friendly dinner options in San Francisco for 2 this Saturday at 6:30pm.",
+      "expected_milestones": ["results visible", "relevant cuisine options shown"]
+    },
+    {
+      "id": "T05",
+      "provider": "OpenTable",
+      "difficulty": "hard",
+      "prompt": "Find the closest available time to 7pm for 2 at a steakhouse in San Jose tonight.",
+      "expected_milestones": ["time slot list visible", "closest-after time selected"]
+    },
+    {
+      "id": "T06",
+      "provider": "OpenTable",
+      "difficulty": "hard",
+      "prompt": "Find Korean BBQ reservations in Sunnyvale for 6 on next Tuesday at 7:15pm.",
+      "expected_milestones": ["party/date/time filters applied", "matching restaurants shown"]
+    },
+    {
+      "id": "T07",
+      "provider": "Yelp",
+      "difficulty": "easy",
+      "prompt": "Find top rated Thai restaurants in Santa Clara for dinner tonight.",
+      "expected_milestones": ["search results visible", "ratings visible"]
+    },
+    {
+      "id": "T08",
+      "provider": "Yelp",
+      "difficulty": "easy",
+      "prompt": "Find Mexican restaurants near Cupertino open now.",
+      "expected_milestones": ["results visible", "open status visible"]
+    },
+    {
+      "id": "T09",
+      "provider": "Yelp",
+      "difficulty": "medium",
+      "prompt": "Find date-night restaurants in Palo Alto and open the highest rated option.",
+      "expected_milestones": ["results sorted/visually identifiable", "top option details opened"]
+    },
+    {
+      "id": "T10",
+      "provider": "Yelp",
+      "difficulty": "medium",
+      "prompt": "Find Japanese restaurants in San Jose and open one with reservation link.",
+      "expected_milestones": ["results visible", "restaurant page opened", "reservation CTA detected"]
+    },
+    {
+      "id": "T11",
+      "provider": "Yelp",
+      "difficulty": "hard",
+      "prompt": "Find a restaurant in San Francisco with 4+ stars and $$ price level, then open booking option.",
+      "expected_milestones": ["filters/find criteria satisfied", "booking path visible"]
+    },
+    {
+      "id": "T12",
+      "provider": "Yelp",
+      "difficulty": "hard",
+      "prompt": "Find Mediterranean restaurants near San Mateo and navigate to reserve a table flow.",
+      "expected_milestones": ["restaurant chosen", "reservation flow initiated"]
+    },
+    {
+      "id": "T13",
+      "provider": "Google",
+      "difficulty": "easy",
+      "prompt": "Search Google for best Italian restaurants in San Jose for dinner tonight.",
+      "expected_milestones": ["search results visible", "local pack/restaurant list visible"]
+    },
+    {
+      "id": "T14",
+      "provider": "Google",
+      "difficulty": "easy",
+      "prompt": "Search Google for sushi reservations in Palo Alto tomorrow 7pm.",
+      "expected_milestones": ["restaurant options visible", "reservation-related links visible"]
+    },
+    {
+      "id": "T15",
+      "provider": "Google",
+      "difficulty": "medium",
+      "prompt": "Find top 3 Thai restaurants in Santa Clara and open the first one with reservation options.",
+      "expected_milestones": ["three options identifiable", "one details page opened"]
+    },
+    {
+      "id": "T16",
+      "provider": "Google",
+      "difficulty": "medium",
+      "prompt": "Search for vegan restaurants in San Francisco and navigate to reserve table for 2 at 7pm.",
+      "expected_milestones": ["results visible", "reservation path opened"]
+    },
+    {
+      "id": "T17",
+      "provider": "Google",
+      "difficulty": "hard",
+      "prompt": "Find a restaurant in Mountain View for 4 this Friday at 8pm and open available booking times.",
+      "expected_milestones": ["restaurant selected", "booking times visible"]
+    },
+    {
+      "id": "T18",
+      "provider": "Google",
+      "difficulty": "hard",
+      "prompt": "Find steakhouses in San Jose and choose an option with earliest time after 7pm.",
+      "expected_milestones": ["time choices visible", "closest-after selection made"]
+    },
+    {
+      "id": "T19",
+      "provider": "CrossProvider",
+      "difficulty": "hard",
+      "prompt": "Compare options from OpenTable and Yelp for sushi in Palo Alto tonight, then proceed with preferred reservation.",
+      "expected_milestones": ["both provider summaries captured", "provider selected", "reservation flow resumed"]
+    },
+    {
+      "id": "T20",
+      "provider": "CrossProvider",
+      "difficulty": "hard",
+      "prompt": "Find date-night restaurant in San Francisco for 2 at 7:30pm, handle login pause if needed, then continue.",
+      "expected_milestones": ["login pause detected when present", "resume completed", "reservation milestone reached"]
+    }
+  ]
+}

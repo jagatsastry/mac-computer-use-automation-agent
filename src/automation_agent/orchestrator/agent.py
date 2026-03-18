@@ -8,7 +8,7 @@ import re
 import time
 import unicodedata
 import urllib.parse
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass, field, field as dataclass_field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
@@ -55,6 +55,44 @@ class LLMCallRecord:
     model: str = ""
     duration_ms: int = 0
     input_tokens_est: int = 0  # char count / 4 as rough token estimate
+    prompt_summary: str = ""  # first ~200 chars of prompt or description
+    response_summary: str = ""  # first ~200 chars of response
+
+
+@dataclass
+class PlanRecord:
+    """Records a plan generated during a run."""
+
+    timestamp: str = ""
+    is_replan: bool = False
+    replan_reason: str = ""  # what failed to trigger this replan
+    steps: List[Dict[str, Any]] = field(default_factory=list)  # step dicts
+    raw_llm_response: str = ""  # first ~500 chars of LLM response
+
+
+@dataclass
+class DetailedStepRecord:
+    """Records the full narrative of a step execution."""
+
+    index: int = 0
+    action: str = ""
+    params: Dict[str, Any] = field(default_factory=dict)
+    precondition: str = ""
+    verify: str = ""
+    pre_state: Dict[str, str] = field(default_factory=dict)  # app, url
+    post_state: Dict[str, str] = field(default_factory=dict)
+    element_finding: str = ""  # how element was found (AX/vision/shortcut)
+    element_confidence: float = 0.0
+    element_duration_ms: int = 0
+    action_result: str = ""  # success/fail + output
+    precondition_result: str = ""  # pass/fail/skipped
+    verification_tier: str = ""
+    verification_result: str = ""  # pass/fail + evidence
+    verification_duration_ms: int = 0
+    retry_strategies: List[str] = field(default_factory=list)
+    narration_intent: str = ""
+    narration_observe: str = ""
+    total_duration_ms: int = 0
 
 
 @dataclass
@@ -98,6 +136,8 @@ def _generate_run_report(
     verification_stats: VerificationStats,
     issues: List[str],
     state_changes: List[Dict[str, str]],
+    plans: Optional[List[PlanRecord]] = None,
+    detailed_steps: Optional[List[DetailedStepRecord]] = None,
 ) -> str:
     """Generate a markdown run report."""
     result_str = "SUCCESS" if success else "FAILED"
@@ -202,6 +242,98 @@ def _generate_run_report(
     else:
         lines.append("No state changes recorded.")
     lines.append("")
+
+    # ---------- Detailed Plans ----------
+    if plans:
+        lines.append("## Plans Generated")
+        for pi, plan in enumerate(plans):
+            label = "Initial Plan" if not plan.is_replan else f"Replan #{pi}"
+            lines.append(f"### {label}")
+            lines.append(f"- **Timestamp:** {plan.timestamp}")
+            if plan.is_replan and plan.replan_reason:
+                lines.append(f"- **Replan reason:** {plan.replan_reason}")
+            if plan.steps:
+                lines.append(f"- **Steps ({len(plan.steps)}):**")
+                for si, s in enumerate(plan.steps):
+                    act = s.get("action", "?")
+                    params = s.get("params", {})
+                    pre = s.get("precondition", "")
+                    verify = s.get("verify", "")
+                    lines.append(f"  {si}. **{act}** {params}")
+                    if pre:
+                        lines.append(f"     - precondition: {pre}")
+                    if verify:
+                        lines.append(f"     - verify: {verify}")
+            if plan.raw_llm_response:
+                lines.append("")
+                lines.append(
+                    "<details><summary>LLM Response (truncated)</summary>"
+                )
+                lines.append("")
+                lines.append("```")
+                lines.append(plan.raw_llm_response[:2000])
+                lines.append("```")
+                lines.append("</details>")
+            lines.append("")
+
+    # ---------- Detailed Step Narrative ----------
+    if detailed_steps:
+        lines.append("## Detailed Step Narrative")
+        lines.append("")
+        for ds in detailed_steps:
+            lines.append(f"### Step {ds.index}: {ds.action}")
+            lines.append(f"- **Params:** {ds.params}")
+            if ds.precondition:
+                lines.append(f"- **Precondition:** {ds.precondition}")
+                lines.append(f"  - Result: {ds.precondition_result}")
+            if ds.verify:
+                lines.append(f"- **Verify:** {ds.verify}")
+            lines.append(
+                f"- **Pre-state:** app={ds.pre_state.get('app', '?')},"
+                f" url={ds.pre_state.get('url', '-')}"
+            )
+            if ds.narration_intent:
+                lines.append(f"- **Intent:** {ds.narration_intent}")
+            if ds.element_finding:
+                lines.append(
+                    f"- **Element finding:** {ds.element_finding}"
+                    f" (conf={ds.element_confidence:.2f},"
+                    f" {ds.element_duration_ms}ms)"
+                )
+            lines.append(f"- **Action result:** {ds.action_result}")
+            lines.append(
+                f"- **Post-state:** app={ds.post_state.get('app', '?')},"
+                f" url={ds.post_state.get('url', '-')}"
+            )
+            if ds.narration_observe:
+                lines.append(f"- **Observation:** {ds.narration_observe}")
+            if ds.verification_tier:
+                lines.append(
+                    f"- **Verification:** {ds.verification_tier}"
+                    f" — {ds.verification_result}"
+                    f" ({ds.verification_duration_ms}ms)"
+                )
+            if ds.retry_strategies:
+                lines.append(
+                    f"- **Retries:** {', '.join(ds.retry_strategies)}"
+                )
+            lines.append(f"- **Duration:** {ds.total_duration_ms}ms")
+            lines.append("")
+
+    # ---------- LLM Prompts & Responses ----------
+    if llm_calls and any(c.prompt_summary for c in llm_calls):
+        lines.append("## LLM Call Details")
+        for i, call in enumerate(llm_calls, 1):
+            lines.append(f"### Call {i}: {call.purpose}")
+            lines.append(
+                f"- **Provider:** {call.provider} | **Model:** {call.model}"
+                f" | **Duration:** {call.duration_ms}ms"
+            )
+            if call.prompt_summary:
+                lines.append(f"- **Prompt:** {call.prompt_summary}")
+            if call.response_summary:
+                lines.append(f"- **Response:** {call.response_summary}")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -475,6 +607,8 @@ class AutomationAgent:
         self._issues: List[str] = []
         self._state_changes: List[Dict[str, str]] = []
         self._replan_count: int = 0
+        self._plans: List[PlanRecord] = []
+        self._detailed_steps: List[DetailedStepRecord] = []
 
     async def execute(self, goal: str) -> ExecutionResult:
         """Execute a natural language goal end-to-end."""
@@ -663,6 +797,22 @@ class AutomationAgent:
                 f"Plan: {len(plan.steps)} steps ({_plan_dur}ms)",
                 data=plan_data,
             )
+
+            # Record plan for detailed report
+            self._plans.append(PlanRecord(
+                timestamp=datetime.now().strftime("%H:%M:%S"),
+                is_replan=False,
+                steps=[
+                    {
+                        "action": s.action,
+                        "params": dict(s.params),
+                        "precondition": getattr(s, "precondition", ""),
+                        "verify": s.verify,
+                    }
+                    for s in plan.steps
+                ],
+                raw_llm_response=(plan.raw_llm_response or "")[:2000],
+            ))
 
             # BUG 5 FIX: Validate plan before execution — reject empty verify fields
             validation_errors = plan.validate()
@@ -1045,6 +1195,8 @@ class AutomationAgent:
         purpose: str,
         duration_ms: int,
         input_chars: int = 0,
+        prompt_summary: str = "",
+        response_summary: str = "",
     ) -> None:
         """Record an LLM call for the run report."""
         provider = getattr(self.config, "model_provider", "unknown")
@@ -1059,6 +1211,8 @@ class AutomationAgent:
             model=str(model),
             duration_ms=duration_ms,
             input_tokens_est=max(1, input_chars // 4),
+            prompt_summary=prompt_summary[:300] if prompt_summary else "",
+            response_summary=response_summary[:300] if response_summary else "",
         ))
 
     def _record_state_change(self, app: str, url: str) -> None:
@@ -1077,12 +1231,14 @@ class AutomationAgent:
 
     def _reset_run_tracking(self) -> None:
         """Reset per-run tracking state for report generation."""
-        self._llm_calls = []
-        self._step_timeline = []
+        self._llm_calls: List[LLMCallRecord] = []
+        self._step_timeline: List[StepTimeline] = []
         self._verification_stats = VerificationStats()
-        self._issues = []
-        self._state_changes = []
+        self._issues: List[str] = []
+        self._state_changes: List[Dict[str, str]] = []
         self._replan_count = 0
+        self._plans: List[PlanRecord] = []
+        self._detailed_steps: List[DetailedStepRecord] = []
 
     def _generate_and_save_report(
         self,
@@ -1108,6 +1264,8 @@ class AutomationAgent:
                 verification_stats=self._verification_stats,
                 issues=self._issues,
                 state_changes=self._state_changes,
+                plans=self._plans,
+                detailed_steps=self._detailed_steps,
             )
             report_path = self.logger.run_dir / "report.md"
             self.logger._ensure_dirs()
@@ -1184,8 +1342,32 @@ class AutomationAgent:
         if self._step_timeline and self._step_timeline[-1].index == index:
             self._step_timeline[-1].pre_app = _pre_app
             self._step_timeline[-1].post_app = _post_app
-            if _pre_app != _post_app:
-                self._record_state_change(_post_app, _post_url)
+
+        # Record detailed step for narrative report
+        _step_dur = int(result.duration_ms) if result.duration_ms else 0
+        ds = DetailedStepRecord(
+            index=index,
+            action=step.action,
+            params=dict(step.params),
+            precondition=getattr(step, "precondition", ""),
+            verify=step.verify,
+            pre_state={"app": _pre_app, "url": _pre_url},
+            post_state={"app": _post_app, "url": _post_url},
+            action_result="PASS" if result.success else f"FAIL: {result.error or result.evidence[:80]}",
+            precondition_result=(
+                "skipped" if not getattr(step, "precondition", "")
+                else ("PASS" if result.success or "precondition" not in (result.error or "")
+                      else "FAIL")
+            ),
+            verification_tier=result.verification_method or "-",
+            verification_result=result.evidence[:200] if result.evidence else "-",
+            verification_duration_ms=result.duration_ms,
+            retry_strategies=list(result.retry_strategies_used),
+            total_duration_ms=_step_dur,
+        )
+        self._detailed_steps.append(ds)
+        if _pre_app != _post_app:
+            self._record_state_change(_post_app, _post_url)
 
         return result, tf
 
@@ -4662,6 +4844,23 @@ class AutomationAgent:
             f"New plan: {len(new_plan.steps)} steps ({_replan_dur}ms)",
             data=replan_data,
         )
+
+        # Record replan for detailed report
+        self._plans.append(PlanRecord(
+            timestamp=datetime.now().strftime("%H:%M:%S"),
+            is_replan=True,
+            replan_reason="; ".join(_failed_steps[-3:]),
+            steps=[
+                {
+                    "action": s.action,
+                    "params": dict(s.params),
+                    "precondition": getattr(s, "precondition", ""),
+                    "verify": s.verify,
+                }
+                for s in new_plan.steps
+            ],
+            raw_llm_response=(new_plan.raw_llm_response or "")[:2000],
+        ))
 
         # Apply replan patch to derived session if present
         if derived_session and new_plan.replan_patch:

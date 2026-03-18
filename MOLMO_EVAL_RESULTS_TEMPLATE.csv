@@ -1,0 +1,2 @@
+task_id,variant,provider,prompt,timestamp_start,timestamp_end,task_success,first_click_correct,end_to_end_time_s,actions_total,retries_total,manual_interventions,element_not_found_count,wrong_click_count,login_pause_detected,login_resume_success,confidence_mean,failure_reason,notes
+T01,V0,OpenTable,"",,,,,,,,,,,,,,,
