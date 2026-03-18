@@ -3289,8 +3289,10 @@ class AutomationAgent:
                 # Click-to-focus: if an element is specified, find and click it first
                 element_desc = params.pop("element", None)
                 if element_desc and not params.pop("_skip_focus", False):
+                    _focus_start = time.monotonic()
                     try:
                         location = await self._find_element(element_desc)
+                        _focus_dur = int((time.monotonic() - _focus_start) * 1000)
                         if location is not None:
                             # Keyboard shortcut path (e.g., Cmd+L for address bar)
                             if location.source == "keyboard_shortcut":
@@ -3301,6 +3303,12 @@ class AutomationAgent:
                                     keys = [location.raw_response]
                                 for kc in keys:
                                     self.actuator.press_key(kc.replace("+", " ").split())
+                                slog.info(
+                                    "type_text_focus_via_shortcut",
+                                    element=element_desc,
+                                    keys=keys,
+                                    duration_ms=_focus_dur,
+                                )
                             else:
                                 sx = (
                                     location.screen_x
@@ -3313,6 +3321,21 @@ class AutomationAgent:
                                     else location.y
                                 )
                                 self.actuator.click(sx, sy)
+                                slog.info(
+                                    "type_text_focus_click",
+                                    element=element_desc,
+                                    x=sx, y=sy,
+                                    source=location.source,
+                                    confidence=location.confidence,
+                                    duration_ms=_focus_dur,
+                                )
+                            self.logger.log_event(
+                                EventType.ELEMENT_FOUND,
+                                f"type_text click-to-focus: '{element_desc}' "
+                                f"at ({location.x},{location.y}) "
+                                f"conf={location.confidence:.2f} "
+                                f"via {location.source} ({_focus_dur}ms)",
+                            )
                             await asyncio.sleep(
                                 max(self.config.action_delay, 0.3)
                             )
@@ -3321,6 +3344,12 @@ class AutomationAgent:
                                 "type_text element not found,"
                                 " typing to current focus",
                                 element=element_desc,
+                                duration_ms=_focus_dur,
+                            )
+                            self.logger.log_event(
+                                EventType.ELEMENT_NOT_FOUND,
+                                f"type_text click-to-focus: '{element_desc}' "
+                                f"not found ({_focus_dur}ms), typing to current focus",
                             )
                     except Exception as exc:
                         slog.warning(
