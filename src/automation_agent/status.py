@@ -60,8 +60,20 @@ def format_status_event(
         )
 
     line = f"{prefix} {message}"
+
+    # Always show plan steps in overlay (not just verbose mode)
+    data = event.get("data") or {}
+    if event_type in ("plan_complete", "replan_complete"):
+        steps = data.get("steps_summary")
+        if steps:
+            label = "PLAN" if event_type == "plan_complete" else "REPLAN"
+            line += f"\n  ── {label} ──"
+            for i, s in enumerate(steps):
+                line += f"\n  {i}. {s}"
+            line += "\n  ──────────"
+
     if verbose:
-        detail = _verbose_detail(event_type, event.get("data") or {})
+        detail = _verbose_detail(event_type, data)
         if detail:
             line = f"{line}\n{detail}"
 
