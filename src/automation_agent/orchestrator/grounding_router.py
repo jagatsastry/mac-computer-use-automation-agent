@@ -107,12 +107,41 @@ class GroundingRouter:
             return False
         return True
 
+    _BROWSER_NAMES = frozenset({
+        "safari", "chrome", "google chrome", "firefox", "arc",
+        "microsoft edge", "edge", "brave", "opera",
+    })
+
+    def _is_frontmost_a_browser(self) -> bool:
+        """Return True if the frontmost app is a known browser.
+
+        Uses the accessibility bridge when available, otherwise returns False
+        (caller should fall through to normal grounding).
+        """
+        if self.accessibility:
+            try:
+                getter = getattr(self.accessibility, "get_frontmost_app", None)
+                if callable(getter):
+                    info = getter()
+                    if info:
+                        name = (info.get("name") or "").lower()
+                        return name in self._BROWSER_NAMES or any(
+                            b in name for b in ("safari", "chrome", "firefox", "arc", "edge")
+                        )
+            except Exception:
+                pass
+        return False
+
     def _check_keyboard_shortcut(self, description: str) -> Optional[GroundingResult]:
         """Check if element can be reached via keyboard shortcut instead of clicking.
 
         Returns a GroundingResult with keyboard_shortcut set if the description
         matches a known browser chrome element with a shortcut. The agent should
         use press_key instead of click when this field is set.
+
+        Only returns a shortcut when the frontmost app is a known browser.
+        If no accessibility bridge is available or the frontmost app is not a
+        browser, returns None so the caller falls through to normal grounding.
         """
         from automation_agent.perception.accessibility import BROWSER_KEYBOARD_SHORTCUTS
         desc_lower = description.lower().strip()
@@ -120,6 +149,14 @@ class GroundingRouter:
         for candidate in [desc_lower, desc_lower.replace(" button", "")]:
             shortcuts = BROWSER_KEYBOARD_SHORTCUTS.get(candidate)
             if shortcuts:
+                # Guard: only fire browser shortcuts when a browser is frontmost
+                if not self._is_frontmost_a_browser():
+                    logger.info(
+                        "keyboard_shortcut_skipped: '%s' matched %s but "
+                        "frontmost app is not a browser",
+                        description, shortcuts,
+                    )
+                    return None
                 logger.info(
                     "keyboard_shortcut_match: '%s' → %s (skipping vision)",
                     description, shortcuts,

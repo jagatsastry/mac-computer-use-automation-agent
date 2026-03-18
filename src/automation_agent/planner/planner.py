@@ -131,14 +131,14 @@ class ActionPlannerImpl:
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
         """
-        provider, _model = self.config.resolve_step_model("planning")
+        provider, model = self.config.resolve_step_model("planning")
         if provider == "local":
-            return await self._call_local_llm(prompt)
+            return await self._call_local_llm(prompt, model=model)
         if provider == "gemini":
-            return await self._call_gemini_llm(prompt)
+            return await self._call_gemini_llm(prompt, model=model)
         if provider == "openai":
-            return await self._call_openai_llm(prompt)
-        return await self._call_anthropic_llm(prompt)
+            return await self._call_openai_llm(prompt, model=model)
+        return await self._call_anthropic_llm(prompt, model=model)
 
     # Ollama structured output schema — guarantees valid JSON via GBNF grammar.
     _OLLAMA_FORMAT_SCHEMA = {
@@ -168,7 +168,7 @@ class ActionPlannerImpl:
         """Heuristic: detect Ollama by port 11434."""
         return "11434" in url
 
-    async def _call_local_llm(self, prompt: str) -> dict:
+    async def _call_local_llm(self, prompt: str, model: str = "") -> dict:
         """Call a local LLM endpoint.
 
         Uses Ollama native /api/chat with structured output (format schema) when
@@ -178,16 +178,16 @@ class ActionPlannerImpl:
         import httpx
 
         if self._is_ollama(self.config.text_server_url):
-            return await self._call_ollama_native(prompt)
-        return await self._call_openai_compat(prompt)
+            return await self._call_ollama_native(prompt, model=model)
+        return await self._call_openai_compat(prompt, model=model)
 
-    async def _call_ollama_native(self, prompt: str) -> dict:
+    async def _call_ollama_native(self, prompt: str, model: str = "") -> dict:
         """Call Ollama native /api/chat with grammar-constrained JSON output."""
         import httpx
 
         url = f"{self.config.text_server_url}/api/chat"
         payload = {
-            "model": self.config.text_model,
+            "model": model or self.config.text_model,
             "messages": [{"role": "user", "content": prompt}],
             "format": self._OLLAMA_FORMAT_SCHEMA,
             "stream": False,
@@ -205,13 +205,13 @@ class ActionPlannerImpl:
                 },
             }
 
-    async def _call_openai_compat(self, prompt: str) -> dict:
+    async def _call_openai_compat(self, prompt: str, model: str = "") -> dict:
         """Call an OpenAI-compatible /v1/chat/completions endpoint (e.g. llama.cpp)."""
         import httpx
 
         url = f"{self.config.text_server_url}/v1/chat/completions"
         payload = {
-            "model": self.config.text_model,
+            "model": model or self.config.text_model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 4096,
             "temperature": 0.0,
@@ -231,7 +231,7 @@ class ActionPlannerImpl:
                 },
             }
 
-    async def _call_gemini_llm(self, prompt: str) -> dict:
+    async def _call_gemini_llm(self, prompt: str, model: str = "") -> dict:
         """Call Google Gemini API."""
         import asyncio
 
@@ -241,12 +241,13 @@ class ActionPlannerImpl:
 
         max_retries = 4
         base_delay = 1.0
+        resolved_model = model or self.config.gemini_model
 
         for attempt in range(max_retries + 1):
             try:
                 response = await asyncio.to_thread(
                     client.models.generate_content,
-                    model=self.config.gemini_model,
+                    model=resolved_model,
                     contents=prompt,
                     config=genai.types.GenerateContentConfig(
                         max_output_tokens=8192,
@@ -269,18 +270,18 @@ class ActionPlannerImpl:
                     continue
                 raise
 
-    async def _call_openai_llm(self, prompt: str) -> dict:
+    async def _call_openai_llm(self, prompt: str, model: str = "") -> dict:
         """Call OpenAI GPT API via Responses API with retry."""
         from automation_agent.llm.openai_client import OpenAIClient
 
         client = OpenAIClient(
             api_key=self.config.openai_api_key or "",
-            model=self.config.openai_model,
+            model=model or self.config.openai_model,
             timeout=self.config.vision_server_timeout,
         )
         return await client.generate_text(prompt)
 
-    async def _call_anthropic_llm(self, prompt: str) -> dict:
+    async def _call_anthropic_llm(self, prompt: str, model: str = "") -> dict:
         """Call Anthropic Claude API with retry and exponential backoff."""
         import asyncio
 
@@ -290,11 +291,12 @@ class ActionPlannerImpl:
 
         max_retries = 4
         base_delay = 1.0
+        resolved_model = model or self.config.anthropic_model
 
         for attempt in range(max_retries + 1):
             try:
                 message = await client.messages.create(
-                    model=self.config.anthropic_model,
+                    model=resolved_model,
                     max_tokens=4096,
                     messages=[{"role": "user", "content": prompt}],
                 )

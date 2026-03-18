@@ -76,11 +76,11 @@ class AppleScriptActuator:
             return ActuatorResult(success=False, error=str(e)).to_dict()
 
     def _activate_browser(self) -> None:
-        """Bring the frontmost browser to the front before a click.
+        """Re-activate the frontmost browser before a click, if one is already active.
 
-        Checks running processes for known browsers (Chrome, Safari, Firefox,
-        Arc, Edge) and activates whichever was most recently active — avoids
-        hard-coding a single browser.
+        Only activates a browser that is already the frontmost app. This prevents
+        stealing focus from non-browser apps (e.g., Finder, Calculator) where the
+        agent may be clicking on native UI elements.
         """
         _BROWSERS = ("Google Chrome", "Safari", "Firefox", "Arc", "Microsoft Edge")
         try:
@@ -99,22 +99,7 @@ class AppleScriptActuator:
                      f'tell application "{frontmost}" to activate'],
                     capture_output=True, timeout=2,
                 )
-                return
-            # Frontmost app is not a browser — find and activate a running one
-            for browser in _BROWSERS:
-                chk = subprocess.run(
-                    ["osascript", "-e",
-                     f'tell application "System Events" to '
-                     f'(name of processes) contains "{browser}"'],
-                    capture_output=True, text=True, timeout=2,
-                )
-                if chk.stdout.strip() == "true":
-                    subprocess.run(
-                        ["osascript", "-e",
-                         f'tell application "{browser}" to activate'],
-                        capture_output=True, timeout=2,
-                    )
-                    return
+            # If frontmost is NOT a browser, do nothing — don't steal focus
         except Exception:
             pass
 

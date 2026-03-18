@@ -285,24 +285,28 @@ class ScreenCoordinatorImpl:
                 instead of the global ``model_provider``.
         """
         if step:
-            provider, _model = self.config.resolve_step_model(step)
+            provider, model = self.config.resolve_step_model(step)
         else:
             provider = self.config.model_provider.value
+            model = ""
         if provider == "anthropic":
-            return await self._call_anthropic_vision(prompt, screenshots_b64)
+            return await self._call_anthropic_vision(prompt, screenshots_b64, model=model)
         elif provider == "gemini":
-            return await self._call_gemini_vision(prompt, screenshots_b64)
+            return await self._call_gemini_vision(prompt, screenshots_b64, model=model)
         elif provider == "openai":
-            return await self._call_openai_vision(prompt, screenshots_b64)
+            return await self._call_openai_vision(prompt, screenshots_b64, model=model)
         else:
-            return await self._call_local_vision(prompt, screenshots_b64)
+            return await self._call_local_vision(prompt, screenshots_b64, model=model)
 
-    async def _call_local_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+    async def _call_local_vision(
+        self, prompt: str, screenshots_b64: Sequence[str], model: str = "",
+    ) -> str:
         """Call local vision model via OpenAI-compatible API (e.g. llama.cpp server).
 
         Args:
             prompt: The text prompt.
             screenshots_b64: Base64-encoded screenshots.
+            model: Resolved model name. Falls back to config.vision_model.
 
         Returns:
             The model's text response.
@@ -326,7 +330,7 @@ class ScreenCoordinatorImpl:
             }
         )
         payload = {
-            "model": self.config.vision_model,
+            "model": model or self.config.vision_model,
             "messages": [
                 {
                     "role": "user",
@@ -342,12 +346,15 @@ class ScreenCoordinatorImpl:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
-    async def _call_gemini_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+    async def _call_gemini_vision(
+        self, prompt: str, screenshots_b64: Sequence[str], model: str = "",
+    ) -> str:
         """Call Google Gemini vision model with retry on overloaded errors.
 
         Args:
             prompt: The text prompt.
             screenshots_b64: Base64-encoded screenshots.
+            model: Resolved model name. Falls back to config.gemini_model.
 
         Returns:
             The model's text response.
@@ -358,6 +365,7 @@ class ScreenCoordinatorImpl:
         from google import genai
 
         client = genai.Client(api_key=self.config.gemini_api_key)
+        resolved_model = model or self.config.gemini_model
 
         max_retries = 4
         base_delay = 1.0
@@ -372,7 +380,7 @@ class ScreenCoordinatorImpl:
             try:
                 response = await asyncio.to_thread(
                     client.models.generate_content,
-                    model=self.config.gemini_model,
+                    model=resolved_model,
                     contents=parts,
                     config=genai.types.GenerateContentConfig(
                         max_output_tokens=1024,
@@ -393,7 +401,9 @@ class ScreenCoordinatorImpl:
                     continue
                 raise
 
-    async def _call_anthropic_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+    async def _call_anthropic_vision(
+        self, prompt: str, screenshots_b64: Sequence[str], model: str = "",
+    ) -> str:
         """Call Anthropic vision model with retry on overloaded/rate-limit errors.
 
         Retries on 429/529 errors up to 4 times with exponential backoff.
@@ -401,6 +411,7 @@ class ScreenCoordinatorImpl:
         Args:
             prompt: The text prompt.
             screenshots_b64: Base64-encoded screenshots.
+            model: Resolved model name. Falls back to config.anthropic_vision_model.
 
         Returns:
             The model's text response.
@@ -410,6 +421,7 @@ class ScreenCoordinatorImpl:
         import anthropic
 
         client = anthropic.AsyncAnthropic(api_key=self.config.anthropic_api_key)
+        resolved_model = model or self.config.anthropic_vision_model
 
         max_retries = 4
         base_delay = 1.0
@@ -434,7 +446,7 @@ class ScreenCoordinatorImpl:
         for attempt in range(max_retries + 1):
             try:
                 message = await client.messages.create(
-                    model=self.config.anthropic_vision_model,
+                    model=resolved_model,
                     max_tokens=1024,
                     messages=[
                         {
@@ -458,12 +470,15 @@ class ScreenCoordinatorImpl:
                     continue
                 raise
 
-    async def _call_openai_vision(self, prompt: str, screenshots_b64: Sequence[str]) -> str:
+    async def _call_openai_vision(
+        self, prompt: str, screenshots_b64: Sequence[str], model: str = "",
+    ) -> str:
         """Call OpenAI GPT vision model via the Responses API.
 
         Args:
             prompt: The text prompt.
             screenshots_b64: Base64-encoded screenshots.
+            model: Resolved model name. Falls back to config.openai_model.
 
         Returns:
             The model's text response.
@@ -472,7 +487,7 @@ class ScreenCoordinatorImpl:
 
         client = OpenAIClient(
             api_key=self.config.openai_api_key or "",
-            model=self.config.openai_model,
+            model=model or self.config.openai_model,
             timeout=self.config.vision_server_timeout,
         )
 

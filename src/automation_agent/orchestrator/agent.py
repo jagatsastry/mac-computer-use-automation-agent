@@ -256,7 +256,7 @@ def _generate_run_report(
                 lines.append(f"- **Steps ({len(plan.steps)}):**")
                 for si, s in enumerate(plan.steps):
                     act = s.get("action", "?")
-                    params = s.get("params", {})
+                    params = _redact_params_for_log(s.get("params", {}))
                     pre = s.get("precondition", "")
                     verify = s.get("verify", "")
                     lines.append(f"  {si}. **{act}** {params}")
@@ -271,7 +271,7 @@ def _generate_run_report(
                 )
                 lines.append("")
                 lines.append("```")
-                lines.append(plan.raw_llm_response[:2000])
+                lines.append(_redact_for_report(plan.raw_llm_response[:500]))
                 lines.append("```")
                 lines.append("</details>")
             lines.append("")
@@ -282,7 +282,7 @@ def _generate_run_report(
         lines.append("")
         for ds in detailed_steps:
             lines.append(f"### Step {ds.index}: {ds.action}")
-            lines.append(f"- **Params:** {ds.params}")
+            lines.append(f"- **Params:** {_redact_params_for_log(ds.params)}")
             if ds.precondition:
                 lines.append(f"- **Precondition:** {ds.precondition}")
                 lines.append(f"  - Result: {ds.precondition_result}")
@@ -290,10 +290,10 @@ def _generate_run_report(
                 lines.append(f"- **Verify:** {ds.verify}")
             lines.append(
                 f"- **Pre-state:** app={ds.pre_state.get('app', '?')},"
-                f" url={ds.pre_state.get('url', '-')}"
+                f" url={_redact_for_report(ds.pre_state.get('url', '-'))}"
             )
             if ds.narration_intent:
-                lines.append(f"- **Intent:** {ds.narration_intent}")
+                lines.append(f"- **Intent:** {_redact_for_report(ds.narration_intent)}")
             if ds.element_finding:
                 lines.append(
                     f"- **Element finding:** {ds.element_finding}"
@@ -303,10 +303,10 @@ def _generate_run_report(
             lines.append(f"- **Action result:** {ds.action_result}")
             lines.append(
                 f"- **Post-state:** app={ds.post_state.get('app', '?')},"
-                f" url={ds.post_state.get('url', '-')}"
+                f" url={_redact_for_report(ds.post_state.get('url', '-'))}"
             )
             if ds.narration_observe:
-                lines.append(f"- **Observation:** {ds.narration_observe}")
+                lines.append(f"- **Observation:** {_redact_for_report(ds.narration_observe)}")
             if ds.verification_tier:
                 lines.append(
                     f"- **Verification:** {ds.verification_tier}"
@@ -330,9 +330,9 @@ def _generate_run_report(
                 f" | **Duration:** {call.duration_ms}ms"
             )
             if call.prompt_summary:
-                lines.append(f"- **Prompt:** {call.prompt_summary}")
+                lines.append(f"- **Prompt:** {_redact_for_report(call.prompt_summary)}")
             if call.response_summary:
-                lines.append(f"- **Response:** {call.response_summary}")
+                lines.append(f"- **Response:** {_redact_for_report(call.response_summary)}")
             lines.append("")
 
     return "\n".join(lines)
@@ -507,6 +507,60 @@ def _redact_params_for_log(params: dict) -> dict:
             sv = str(v)
             redacted[k] = sv[:50] + "[truncated]" if len(sv) > 50 else sv
     return redacted
+
+
+# Query-param key names that look like auth tokens and should be stripped.
+_TOKEN_QUERY_KEYS = frozenset({
+    "token", "key", "auth", "session", "api_key", "apikey",
+    "access_token", "secret", "password", "jwt", "bearer",
+})
+
+
+def _redact_for_report(text: str) -> str:
+    """Redact secrets and truncate verbose content before persisting to report/overlay.
+
+    Rules applied in order:
+    1. type_text actions: mask text payload (show first 3 chars + "***").
+    2. URLs with token-like query params: strip those param values.
+    3. Truncate to 500 chars to limit LLM response leakage.
+    """
+    if not isinstance(text, str):
+        return str(text)[:500]
+
+    # 1. Mask type_text payloads that look like: "I will type 'somepassword'"
+    #    or raw text= values in param dicts
+    import re as _re
+    text = _re.sub(
+        r"(I will type ')([^']{0,3})([^']*?)(')",
+        lambda m: f"{m.group(1)}{m.group(2)}***{m.group(4)}",
+        text,
+    )
+
+    # 2. Redact token-like query params in URLs
+    def _redact_url_tokens(m: "re.Match") -> str:
+        url = m.group(0)
+        try:
+            parsed = urllib.parse.urlparse(url)
+            if not parsed.query:
+                return url
+            params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            redacted_params = {}
+            for k, vals in params.items():
+                if k.lower() in _TOKEN_QUERY_KEYS:
+                    redacted_params[k] = ["[REDACTED]"]
+                else:
+                    redacted_params[k] = vals
+            new_query = urllib.parse.urlencode(redacted_params, doseq=True)
+            return urllib.parse.urlunparse(parsed._replace(query=new_query))
+        except Exception:
+            return url
+
+    text = _re.sub(r"https?://\S+", _redact_url_tokens, text)
+
+    # 3. Truncate to 500 chars
+    if len(text) > 500:
+        text = text[:500] + "...[truncated]"
+    return text
 
 
 class AutomationAgent:
@@ -928,6 +982,7 @@ class AutomationAgent:
                 if step.action == "done":
                     # Generalized success gate: if a skill has a success_condition,
                     # verify it before accepting "done". If not met, replan.
+                    _success_gate_failed = False
                     try:
                         if skill_name and iterations < self.config.infeasibility_replan_limit:
                             skill_obj = self.skill_registry.get_skill(skill_name)
@@ -964,11 +1019,26 @@ class AutomationAgent:
                                         f"Success condition not met: {sc}. "
                                         f"Evidence: {sc_result.evidence}. Replanning.",
                                     )
-                                    # Remove the premature "done" and replan
+                                    # Remove the premature "done" and trigger replan
                                     step_results.pop()
-                                    break  # Fall through to replan loop
+                                    _success_gate_failed = True
                     except Exception as exc:
                         slog.debug("success_condition_check_error", error=str(exc))
+                    if _success_gate_failed:
+                        # Explicitly trigger replan instead of falling through
+                        # to the normal success return path
+                        frustration.replan_count += 1
+                        replan_result = await self._replan_and_continue(
+                            goal,
+                            step_results,
+                            iterations,
+                            start,
+                            skill_name=skill_name,
+                            skill_context=skill_context,
+                            derived_session=derived_session,
+                            expanded_steps_for_distiller=expanded_steps_for_distiller,
+                        )
+                        return replan_result
                     break
 
                 if step.action == "wait_for_user":
@@ -1197,13 +1267,23 @@ class AutomationAgent:
         input_chars: int = 0,
         prompt_summary: str = "",
         response_summary: str = "",
+        actual_provider: str = "",
+        actual_model: str = "",
     ) -> None:
         """Record an LLM call for the run report."""
-        provider = getattr(self.config, "model_provider", "unknown")
-        if purpose in ("grounding", "screen_description", "verification"):
-            model = getattr(self.config, "vision_model", "unknown")
+        if actual_provider and actual_model:
+            provider = actual_provider
+            model = actual_model
         else:
-            model = getattr(self.config, "text_model", "unknown")
+            # Resolve via config for the step purpose
+            try:
+                provider, model = self.config.resolve_step_model(purpose)
+            except Exception:
+                provider = str(getattr(self.config, "model_provider", "unknown"))
+                if purpose in ("grounding", "screen_description", "verification"):
+                    model = str(getattr(self.config, "vision_model", "unknown"))
+                else:
+                    model = str(getattr(self.config, "text_model", "unknown"))
         self._llm_calls.append(LLMCallRecord(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             purpose=purpose,
@@ -1304,11 +1384,26 @@ class AutomationAgent:
         except Exception as exc:
             slog.warning("run_report_generation_failed", error=str(exc))
 
+    _BROWSER_APP_NAMES = frozenset({
+        "safari", "chrome", "google chrome", "firefox", "arc",
+        "microsoft edge", "edge", "brave", "opera",
+    })
+
+    @classmethod
+    def _is_browser_app(cls, app_name: str) -> bool:
+        """Return True if *app_name* looks like a browser."""
+        if not app_name:
+            return False
+        lowered = app_name.lower()
+        return lowered in cls._BROWSER_APP_NAMES or any(
+            b in lowered for b in ("safari", "chrome", "firefox", "arc", "edge")
+        )
+
     def _snapshot_state(self) -> tuple:
         """Return (app_name, browser_url) from the actuator."""
         try:
             s = self.actuator.get_state()
-            return s.get("app_name", ""), s.get("browser_url", "")
+            return str(s.get("app_name", "") or ""), str(s.get("browser_url", "") or "")
         except Exception:
             return "", ""
 
@@ -3090,9 +3185,10 @@ class AutomationAgent:
         if action == "click" and params.get("element"):
             intent_parts[0] = f"I will click '{params['element']}'"
         elif action == "type_text" and params.get("text"):
-            intent_parts[0] = f"I will type '{params['text'][:40]}'"
+            _masked = params["text"][:3] + "***" if len(params.get("text", "")) > 3 else "***"
+            intent_parts[0] = f"I will type '{_masked}'"
         elif action == "open_url" and params.get("url"):
-            intent_parts[0] = f"I will open {params['url'][:60]}"
+            intent_parts[0] = f"I will open {_redact_for_report(params['url'][:120])}"
         elif action == "press_key" and params.get("keys"):
             intent_parts[0] = f"I will press {params['keys']}"
         elif action == "activate_app" and params.get("app_name"):
@@ -3100,11 +3196,11 @@ class AutomationAgent:
         if _pre_app:
             intent_parts.append(f"Currently focused: {_pre_app}")
         if _pre_url:
-            intent_parts.append(f"URL: {_pre_url[:60]}")
+            intent_parts.append(f"URL: {_redact_for_report(_pre_url[:120])}")
         self.logger.log_event(
             EventType.NARRATE_INTENT,
-            " | ".join(intent_parts),
-            data={"app": _pre_app, "url": _pre_url},
+            _redact_for_report(" | ".join(intent_parts)),
+            data={"app": _pre_app, "url": _redact_for_report(_pre_url)},
         )
 
         slog.debug("🎯 Dispatching action", action=action, params=params)
@@ -3166,7 +3262,8 @@ class AutomationAgent:
                             )
 
                     # Keyboard shortcut fast path: press keys instead of clicking
-                    if location.source == "keyboard_shortcut":
+                    # Guard: only fire when the frontmost app is a browser
+                    if location.source == "keyboard_shortcut" and self._is_browser_app(_pre_app):
                         import ast
                         try:
                             keys = ast.literal_eval(location.raw_response)
@@ -3295,7 +3392,11 @@ class AutomationAgent:
                         _focus_dur = int((time.monotonic() - _focus_start) * 1000)
                         if location is not None:
                             # Keyboard shortcut path (e.g., Cmd+L for address bar)
-                            if location.source == "keyboard_shortcut":
+                            # Guard: only use shortcut if frontmost app is a browser
+                            if (
+                                location.source == "keyboard_shortcut"
+                                and self._is_browser_app(_pre_app)
+                            ):
                                 import ast
                                 try:
                                     keys = ast.literal_eval(location.raw_response)
@@ -3453,13 +3554,13 @@ class AutomationAgent:
             if _post_app:
                 obs_parts.append(f"Now focused: {_post_app}")
             if _post_url:
-                obs_parts.append(f"URL: {_post_url[:60]}")
+                obs_parts.append(f"URL: {_redact_for_report(_post_url[:120])}")
             if _pre_app and _post_app and _pre_app != _post_app:
                 obs_parts.append(f"Focus changed: {_pre_app} → {_post_app}")
             self.logger.log_event(
                 EventType.NARRATE_OBSERVE,
-                " | ".join(obs_parts),
-                data={"app": _post_app, "url": _post_url},
+                _redact_for_report(" | ".join(obs_parts)),
+                data={"app": _post_app, "url": _redact_for_report(_post_url)},
             )
 
             return result
