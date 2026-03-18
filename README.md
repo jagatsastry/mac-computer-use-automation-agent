@@ -2,11 +2,43 @@
 
 Vision-guided desktop automation for macOS. Give the agent a natural-language goal, it can match an optional skill, plan steps, execute them on the desktop, and verify progress after each action.
 
+## Quick Run
+
+```bash
+# With Gemini (recommended — fast planning + vision)
+AGENT_MODEL_PROVIDER=gemini AGENT_GEMINI_API_KEY=... \
+  automation-agent --status-ui overlay --verbose-overlay "return my listerine amazon order"
+
+# With OpenAI GPT
+AGENT_MODEL_PROVIDER=openai AGENT_OPENAI_API_KEY=... \
+  automation-agent --status-ui overlay "Open Calculator and compute 42 times 7"
+
+# With local Molmo vision + Gemini planning (hybrid)
+AGENT_PLANNING_MODEL=gemini:gemini-2.5-flash \
+AGENT_GROUNDING_MODEL_PROVIDER=local:mlx-community/Molmo-7B-D-0924-3bit \
+  automation-agent --status-ui overlay "search amazon for wireless mouse"
+
+# With Claude
+AGENT_MODEL_PROVIDER=anthropic AGENT_ANTHROPIC_API_KEY=... \
+  automation-agent --status-ui overlay "Open Safari and go to news.ycombinator.com"
+
+# Dry run (no execution)
+automation-agent --dry-run "Return my Amazon order"
+```
+
+After each run, a detailed report is saved to `logs/runs/{run_id}/report.md` with:
+- LLM calls (which model, prompt summary, response summary, duration)
+- Step timeline (precondition, action, verify tier, pre/post app state)
+- Plans generated (initial + replans with full step details)
+- Detailed step narrative (element finding, verification, retries)
+
 ## Current Reality
 
-- The runtime is now generic. There is no bespoke restaurant workflow path.
-- Planning still uses Anthropic Claude today. The project is not fully local yet.
-- The only active actuator backend is `AppleScriptActuator`. There is no live Hammerspoon backend in the current code.
+- **Multi-provider**: Supports Gemini, OpenAI/GPT, Anthropic/Claude, and local Molmo — configurable per step
+- **Per-step model routing**: Different LLM for planning vs grounding vs verification (e.g., `AGENT_PLANNING_MODEL=gemini:gemini-2.5-flash`)
+- **Browser-agnostic**: No hardcoded Safari/Chrome — uses system default browser, treats all browsers as interchangeable
+- **Precondition/Action/Verify**: Each step has three phases, chained (step N's verify = step N+1's precondition)
+- The only active actuator backend is `AppleScriptActuator`
 
 ## Architecture
 
@@ -20,9 +52,11 @@ user prompt
       -> lookahead prediction (destructive steps only, opt-in)
       -> destructive action confirmation (if classified as destructive)
       -> execute step
-      -> verify step (3-tier: AX state -> vision -> fallback)
+      -> precondition check (assert pre-state before action)
+      -> verify step (3-tier: AX state -> actuator/JS -> vision)
       -> infeasibility detection (frustration score -> planner advisory)
       -> replan on failure
+  -> success condition gate (verify skill goal before accepting "done")
 ```
 
 Core components:
@@ -52,8 +86,8 @@ Core components:
 - Python 3.9+
 - Accessibility permission for the terminal or IDE running the agent
 - Screen Recording permission for screenshot-based perception
-- `ANTHROPIC_API_KEY` or `AGENT_ANTHROPIC_API_KEY`
-- Optional: an OpenAI-compatible local vision server if you want local vision instead of Anthropic vision
+- At least one LLM API key: `AGENT_GEMINI_API_KEY`, `AGENT_OPENAI_API_KEY`, or `AGENT_ANTHROPIC_API_KEY`
+- Optional: a local OpenAI-compatible vision server (Molmo) for free local grounding
 
 ## Quick Start
 
@@ -75,32 +109,16 @@ Grant macOS permissions to the terminal app you are using:
 - Privacy & Security -> Accessibility
 - Privacy & Security -> Screen Recording
 
-Set the Anthropic key:
+Set at least one API key:
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Pick one (or more for per-step routing)
+export AGENT_GEMINI_API_KEY="..."      # Gemini (recommended)
+export AGENT_OPENAI_API_KEY="sk-..."   # GPT
+export AGENT_ANTHROPIC_API_KEY="sk-ant-..."  # Claude
 ```
 
-Fastest working path: use Claude for both planning and vision.
-
-```bash
-automation-agent --provider anthropic "Open Safari and go to news.ycombinator.com"
-```
-
-If you already have a local OpenAI-compatible vision server, point the agent at it. Planning still uses Anthropic in this mode.
-
-```bash
-AGENT_MODEL_PROVIDER=local \
-AGENT_VISION_SERVER_URL=http://localhost:8091 \
-AGENT_VISION_MODEL=mlx-community/Molmo-7B-D-0924-4bit \
-automation-agent "Open Safari and search for weather in San Francisco"
-```
-
-Dry run:
-
-```bash
-automation-agent --dry-run "Return my Amazon order"
-```
+See "Quick Run" section above for example commands.
 
 ## Runtime Notes
 
@@ -108,7 +126,9 @@ automation-agent --dry-run "Return my Amazon order"
 - App activation, URL opening, keypresses, typing, and window state queries go through `osascript`.
 - Coordinate clicks go through `pyautogui` inside the actuator.
 - If `AGENT_USE_ACCESSIBILITY=true`, the agent can use the macOS Accessibility API for faster structured grounding and verification.
-- `AGENT_MODEL_PROVIDER` currently changes the vision backend in practice. The planner still calls Anthropic directly.
+- `AGENT_MODEL_PROVIDER` sets the global LLM provider. Per-step overrides: `AGENT_PLANNING_MODEL`, `AGENT_GROUNDING_MODEL_PROVIDER`, `AGENT_VERIFICATION_MODEL`, `AGENT_SCREEN_DESCRIPTION_MODEL`, `AGENT_REFLECTION_MODEL` (each accepts `provider:model` syntax).
+- Keyboard shortcuts for browser chrome: clicking "address bar" sends `Cmd+L` instead of 29s vision grounding.
+- JS injection for browser state: `focused_value`, `page_title`, `page_heading` enable sub-100ms Tier 1 verification.
 
 ## Skills
 
@@ -151,16 +171,16 @@ Each run writes structured artifacts under `logs/runs/<run_id>/`:
 
 ```text
 logs/runs/<run_id>/
-  events.jsonl
-  trace.md
-  screenshots/
-  debug/
+  events.jsonl       # Machine-readable event stream
+  trace.md           # Readable execution trace
+  report.md          # Detailed run report (plans, steps, LLM calls, verification)
+  screenshots/       # Saved run screenshots
+  debug/             # Click-target overlays for grounding debug
 ```
 
-- `events.jsonl` is the machine-readable event stream
-- `trace.md` is the readable execution trace
-- `screenshots/` stores saved run screenshots
-- `debug/find_*.jpg` stores click-target overlays for grounding debug
+The `report.md` is the most useful for debugging — it shows the complete decision trail:
+which LLM was called with what prompt, what it returned, what plan was generated,
+what each step did, which verification tier was used, and any replanning that occurred.
 
 The rolling process log lives at `logs/automation_agent.log`.
 
