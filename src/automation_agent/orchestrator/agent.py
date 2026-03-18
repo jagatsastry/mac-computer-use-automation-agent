@@ -4,8 +4,6 @@ import asyncio
 import base64
 import inspect
 import io
-import json
-import os
 import re
 import time
 import unicodedata
@@ -13,7 +11,6 @@ import urllib.parse
 from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 import structlog
@@ -21,12 +18,12 @@ import structlog
 from automation_agent.config import AgentConfig, ConfirmMode
 from automation_agent.logging.event_logger import EventLogger
 from automation_agent.logging.models import EventType
-from automation_agent.protocols import CoordinatorCapability
 from automation_agent.orchestrator.confirmation import (
     ConsoleConfirmationHandler,
     _sanitize_for_display,
 )
 from automation_agent.orchestrator.verifier import StepVerifier
+from automation_agent.protocols import CoordinatorCapability
 from automation_agent.shared_models import (
     ActionPlan,
     ActionStep,
@@ -802,7 +799,9 @@ class AutomationAgent:
                                     verify=sc,
                                 )
                                 sc_result = await self.verifier.verify(
-                                    sc_step, {}, self.actuator, self.coordinator,
+                                    sc_step, {},
+                                    coordinator=self.coordinator,
+                                    actuator=self.actuator,
                                 )
                                 if not sc_result.success:
                                     slog.warning(
@@ -1231,7 +1230,9 @@ class AutomationAgent:
             )
             pre_step = ActionStep(action="observe", params={}, verify=precondition)
             pre_result = await self.verifier.verify(
-                pre_step, {}, self.actuator, self.coordinator,
+                pre_step, {},
+                coordinator=self.coordinator,
+                actuator=self.actuator,
             )
             _pre_dur = int((time.monotonic() - _pre_start) * 1000)
             if not pre_result.success:

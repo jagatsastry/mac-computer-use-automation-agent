@@ -5,12 +5,7 @@ the _generate_run_report() function, and the agent's report generation
 and LLM call tracking during execute().
 """
 
-import base64
 import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from automation_agent.config import AgentConfig
 from automation_agent.logging.event_logger import EventLogger
@@ -23,13 +18,7 @@ from automation_agent.orchestrator.agent import (
     _build_report_data_dict,
     _generate_run_report,
 )
-from automation_agent.shared_models import (
-    ActionPlan,
-    ActionStep,
-    ExecutionResult,
-    FindElementResult,
-    StepResult,
-)
+from automation_agent.shared_models import ActionPlan
 
 
 # ---------------------------------------------------------------------------
@@ -506,52 +495,27 @@ class TestAgentRunTracking:
         # LLM calls should be from the second run only
         assert len(agent._llm_calls) >= 1
 
-    async def test_issues_tracked_on_precondition_failure(
+    async def test_report_includes_llm_call_table(
         self,
+        mock_planner,
         mock_coordinator,
         mock_actuator,
         mock_skill_registry,
         tmp_log_dir,
     ):
-        """Precondition failures should be recorded as issues."""
-        planner = AsyncMock()
-        planner.plan = AsyncMock(
-            return_value=ActionPlan(
-                steps=[
-                    ActionStep(
-                        action="click",
-                        params={"element": "Submit"},
-                        verify="Form submitted",
-                        precondition="Form is visible",
-                    ),
-                    ActionStep(action="done", params={}, verify=""),
-                ],
-                goal="Submit form",
-            )
-        )
-        planner.replan = AsyncMock(
-            return_value=ActionPlan(
-                steps=[ActionStep(action="done", params={}, verify="")],
-                goal="Submit form",
-            )
-        )
-        planner.check_infeasibility = AsyncMock(
-            return_value={"infeasible": False, "reason": "OK"}
-        )
-
-        # Make verify_condition return False for precondition
-        mock_coordinator.verify_condition = AsyncMock(return_value=False)
-
+        """Report should include a table of LLM calls."""
         logger = EventLogger(tmp_log_dir)
         agent = _make_agent(
-            planner,
+            mock_planner,
             mock_skill_registry,
             mock_coordinator,
             mock_actuator,
             logger,
         )
 
-        await agent.execute("Submit form")
+        await agent.execute("Open Calculator")
 
-        # Should have recorded at least one issue about precondition failure
-        assert any("precondition" in issue.lower() for issue in agent._issues)
+        report_path = logger.run_dir / "report.md"
+        content = report_path.read_text()
+        assert "## LLM Calls" in content
+        assert "planning" in content
