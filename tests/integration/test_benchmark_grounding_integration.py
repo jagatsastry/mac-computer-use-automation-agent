@@ -299,6 +299,12 @@ class TestCoordinateNormalizationRoundTrip:
         assert x == pytest.approx(0.5)
         assert y == pytest.approx(0.5)
 
+    def test_gpt_round_trip(self, bg):
+        """gpt-5.4 uses pixel coordinates in the analyzed image space."""
+        x, y = bg.normalize_prediction(480, 270, "gpt-5.4", 960, 540)
+        assert x == pytest.approx(0.5)
+        assert y == pytest.approx(0.5)
+
     def test_point_in_bbox_after_normalization(self, bg):
         """After normalization, point_in_bbox correctly evaluates a hit."""
         # qwen returns (500, 400), normalize for bbox center at (0.5, 0.5)

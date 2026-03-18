@@ -5,6 +5,13 @@ Measures how accurately different vision models can locate UI elements on screen
 given a natural language description. Uses the ScreenSpot dataset (1,272 samples)
 with point-in-bounding-box accuracy as the primary metric.
 
+Important implementation details:
+- Dataset images are sent as-is. The benchmark does not resize or re-aspect them
+  before inference, so pixel-space backends are evaluated against the original
+  image dimensions from ScreenSpot.
+- GPT-5.4 uses the Responses API with the `computer` tool for grounding rather
+  than Chat Completions.
+
 Usage:
     python scripts/benchmark_grounding.py
     python scripts/benchmark_grounding.py --backends claude-sonnet qwen2.5-vl-ollama
@@ -363,7 +370,7 @@ BACKENDS: Dict[str, Dict[str, str]] = {
         "model": "gpt-4o",
     },
     "gpt-5.4": {
-        "type": "openai",
+        "type": "openai_computer_use",
         "model": "gpt-5.4",
     },
 }
@@ -439,7 +446,7 @@ def check_backend(name: str, cfg: Dict[str, str]) -> bool:
     cfg_type = cfg["type"]
     if cfg_type in ("anthropic", "anthropic_computer_use"):
         return check_anthropic_backend()
-    elif cfg_type == "openai":
+    elif cfg_type in ("openai", "openai_computer_use"):
         return check_openai_backend()
     elif cfg_type == "openai_compat":
         return check_openai_compat_backend(cfg["url"])
@@ -564,6 +571,138 @@ def call_openai_backend(
 
     content = result["choices"][0]["message"]["content"]
     return content, elapsed
+
+
+def _extract_openai_responses_text(response: dict) -> str:
+    """Extract plain text from an OpenAI Responses API payload."""
+    output_text = response.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    parts = []
+    for item in response.get("output", []) or []:
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+        if isinstance(item, dict) and isinstance(item.get("content"), list):
+            for block in item["content"]:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+    return "\n".join(parts)
+
+
+def _extract_openai_computer_call_id(response: dict) -> Optional[str]:
+    """Return the first computer_call id from a Responses API payload."""
+    for item in response.get("output", []) or []:
+        if isinstance(item, dict) and item.get("type") == "computer_call":
+            call_id = item.get("call_id")
+            if isinstance(call_id, str):
+                return call_id
+    return None
+
+
+def _extract_openai_computer_point(response: dict) -> Optional[Tuple[float, float]]:
+    """Return the first grounded point from a Responses API computer_call."""
+    for item in response.get("output", []) or []:
+        if not isinstance(item, dict) or item.get("type") != "computer_call":
+            continue
+        actions = item.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            if action.get("type") not in ("click", "double_click", "move", "drag"):
+                continue
+            x = action.get("x")
+            y = action.get("y")
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                return float(x), float(y)
+            coordinate = action.get("coordinate")
+            if (
+                isinstance(coordinate, list)
+                and len(coordinate) >= 2
+                and isinstance(coordinate[0], (int, float))
+                and isinstance(coordinate[1], (int, float))
+            ):
+                return float(coordinate[0]), float(coordinate[1])
+    return None
+
+
+def call_openai_computer_use_backend(
+    model: str,
+    image_b64: str,
+    instruction: str,
+    image_width: int,
+    image_height: int,
+    media_type: str = "image/png",
+) -> Tuple[str, float]:
+    """Call GPT computer use via the Responses API and return FOUND/NOT_FOUND text."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY not set")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    image_url = f"data:{media_type};base64,{image_b64}"
+
+    def _post(payload: Dict[str, object]) -> dict:
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(payload).encode(),
+            headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return json.loads(resp.read())
+
+    start = time.perf_counter()
+    response = _post({
+        "model": model,
+        "tools": [{"type": "computer"}],
+        "input": (
+            "Point to the exact center of the UI element described below. "
+            f"Target: {instruction}. "
+            "Use the computer tool for grounding. "
+            "Do not scroll, type, or open anything. "
+            "After the screenshot is provided, emit one pointer action on the target. "
+            "If you cannot find it, reply with NOT_FOUND."
+        ),
+    })
+
+    for _ in range(3):
+        point = _extract_openai_computer_point(response)
+        if point is not None:
+            elapsed = time.perf_counter() - start
+            return f"FOUND: x={point[0]}, y={point[1]}", elapsed
+
+        response_id = response.get("id")
+        call_id = _extract_openai_computer_call_id(response)
+        if not isinstance(response_id, str) or not isinstance(call_id, str):
+            break
+
+        response = _post({
+            "model": model,
+            "tools": [{"type": "computer"}],
+            "previous_response_id": response_id,
+            "input": [
+                {
+                    "type": "computer_call_output",
+                    "call_id": call_id,
+                    "output": {
+                        "type": "computer_screenshot",
+                        "image_url": image_url,
+                        "detail": "original",
+                    },
+                }
+            ],
+        })
+
+    elapsed = time.perf_counter() - start
+    fallback_text = _extract_openai_responses_text(response).strip()
+    if fallback_text:
+        return fallback_text, elapsed
+    return "NOT_FOUND", elapsed
 
 
 def call_ollama_native_backend(
@@ -975,6 +1114,12 @@ def run_sample(
         elif cfg["type"] == "openai":
             raw_response, latency = call_openai_backend(
                 cfg["model"], image_b64, prompt,
+                media_type=media_type,
+            )
+        elif cfg["type"] == "openai_computer_use":
+            raw_response, latency = call_openai_computer_use_backend(
+                cfg["model"], image_b64, sample.instruction,
+                sample.image_width, sample.image_height,
                 media_type=media_type,
             )
         elif cfg["type"] == "ollama_native":

@@ -1739,6 +1739,38 @@ class TestScreenToImageCoords:
         assert ix <= 1023
         assert iy <= 767
 
+    def test_screen_to_image_accounts_for_letterboxing(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """16:9 screen into 4:3 image should preserve aspect ratio with top/bottom padding."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        with patch.object(agent, "_get_logical_screen_size", return_value=(1920, 1080)):
+            ix, iy = agent._screen_to_image_coords(0, 0, 1024, 768)
+            cx, cy = agent._screen_to_image_coords(960, 540, 1024, 768)
+        assert ix == 0
+        assert iy == 96
+        assert cx == 512
+        assert cy == 384
+
+    def test_image_to_screen_accounts_for_letterboxing(
+        self, mock_planner, mock_coordinator, mock_actuator, mock_skill_registry, tmp_log_dir
+    ):
+        """Image points inside the padded screenshot should map back to logical screen space."""
+        logger = EventLogger(tmp_log_dir)
+        agent = _make_agent(
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+        )
+        with patch.object(agent, "_get_logical_screen_size", return_value=(1920, 1080)):
+            sx, sy = agent._image_to_screen_coords(512, 384, 1024, 768)
+            top_x, top_y = agent._image_to_screen_coords(0, 0, 1024, 768)
+        assert sx == 960
+        assert sy == 540
+        assert top_x == 0
+        assert top_y == 0
+
 
 class TestClearFirstAndSlowType:
     """Tests for _clear_first and _slow_type params on type_text."""

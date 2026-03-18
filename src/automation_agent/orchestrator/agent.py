@@ -34,6 +34,7 @@ from automation_agent.shared_models import (
     TEXT_INPUT_KEYWORDS,
 )
 from automation_agent.skills.derived_skill import DerivedSkillSession
+from automation_agent.vision.geometry import image_to_screen_coords, screen_to_image_coords
 
 slog = structlog.get_logger(__name__)
 
@@ -474,6 +475,47 @@ class AutomationAgent:
                     self._record_context(step, result)
 
                 if step.action == "done":
+                    # Generalized success gate: if a skill has a success_condition,
+                    # verify it before accepting "done". If not met, replan.
+                    try:
+                        if skill_name and iterations < self.config.infeasibility_replan_limit:
+                            skill_obj = self.skill_registry.get_skill(skill_name)
+                            sc = (
+                                skill_obj.success_condition
+                                if skill_obj and isinstance(
+                                    getattr(skill_obj, "success_condition", None), str
+                                )
+                                else ""
+                            )
+                            if sc:
+                                slog.info(
+                                    "🎯 Checking success condition before accepting done",
+                                    condition=sc,
+                                )
+                                sc_step = ActionStep(
+                                    action="done",
+                                    params={},
+                                    verify=sc,
+                                )
+                                sc_result = await self.verifier.verify(
+                                    sc_step, {}, self.actuator, self.coordinator,
+                                )
+                                if not sc_result.success:
+                                    slog.warning(
+                                        "Success condition not met, replanning",
+                                        condition=sc,
+                                        evidence=sc_result.evidence,
+                                    )
+                                    self.logger.log_event(
+                                        EventType.STEP_REPLAN,
+                                        f"Success condition not met: {sc}. "
+                                        f"Evidence: {sc_result.evidence}. Replanning.",
+                                    )
+                                    # Remove the premature "done" and replan
+                                    step_results.pop()
+                                    break  # Fall through to replan loop
+                    except Exception as exc:
+                        slog.debug("success_condition_check_error", error=str(exc))
                     break
 
                 if step.action == "wait_for_user":
@@ -3240,11 +3282,11 @@ class AutomationAgent:
         if screen_width <= 0 or screen_height <= 0:
             return image_x, image_y
 
-        screen_x = round(image_x * screen_width / image_width)
-        screen_y = round(image_y * screen_height / image_height)
-        return (
-            max(0, min(screen_x, screen_width - 1)),
-            max(0, min(screen_y, screen_height - 1)),
+        return image_to_screen_coords(
+            image_x,
+            image_y,
+            (screen_width, screen_height),
+            (image_width, image_height),
         )
 
     def _screen_to_image_coords(
@@ -3259,11 +3301,11 @@ class AutomationAgent:
         if image_width <= 0 or image_height <= 0 or screen_width <= 0 or screen_height <= 0:
             return screen_x, screen_y
 
-        image_x = round(screen_x * image_width / screen_width)
-        image_y = round(screen_y * image_height / screen_height)
-        return (
-            max(0, min(image_x, image_width - 1)),
-            max(0, min(image_y, image_height - 1)),
+        return screen_to_image_coords(
+            screen_x,
+            screen_y,
+            (screen_width, screen_height),
+            (image_width, image_height),
         )
 
     def _normalize_find_result(

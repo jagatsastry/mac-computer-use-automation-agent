@@ -28,6 +28,8 @@ COORDINATE_SPACES: Dict[str, str] = {
     "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
     "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
     "claude-sonnet-4-20250514": "pixel",  # Claude returns pixel coords
+    "gpt-5.4": "pixel",  # GPT computer-use returns pixel coords
+    "gpt-4o": "pixel",
 }
 
 # Directory containing prompt template files

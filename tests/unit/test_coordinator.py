@@ -335,16 +335,21 @@ def test_screen_capture_returns_jpeg_bytes():
          patch("automation_agent.vision.capture.Image") as mock_image_module:
 
         # Set up mock image
+        mock_opened = MagicMock()
         mock_img = MagicMock()
-        mock_image_module.open.return_value = mock_img
+        mock_canvas = MagicMock()
+        mock_image_module.open.return_value = mock_opened
+        mock_opened.convert.return_value = mock_img
+        mock_img.size = (2048, 1536)  # same 4:3 aspect as target
         mock_img.resize.return_value = mock_img
+        mock_image_module.new.return_value = mock_canvas
         mock_image_module.LANCZOS = 1
 
         # Make save write JPEG header bytes
         def mock_save(buf, format=None, quality=None):
             buf.write(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
 
-        mock_img.save.side_effect = mock_save
+        mock_canvas.save.side_effect = mock_save
 
         capture = ScreenCapture(target_resolution=(1024, 768))
         result = capture.capture()
@@ -359,7 +364,7 @@ def test_screen_capture_returns_jpeg_bytes():
         assert isinstance(result, bytes)
         assert result[:2] == b"\xff\xd8"
 
-        # Verify resize was called with target resolution
+        # Verify resize still fits into the target resolution.
         mock_img.resize.assert_called_once_with((1024, 768), 1)
 
 
@@ -494,6 +499,7 @@ class TestCoordinateSpacesRegistry:
         assert "molmo" in COORDINATE_SPACES
         assert "qwen3-vl" in COORDINATE_SPACES
         assert "claude-sonnet-4-20250514" in COORDINATE_SPACES
+        assert "gpt-5.4" in COORDINATE_SPACES
 
     def test_coordinate_space_values(self):
         """Each model maps to a valid coordinate space type."""
@@ -707,11 +713,17 @@ def test_capture_size_enforcement():
     with patch("automation_agent.vision.capture.subprocess.run") as mock_run, \
          patch("automation_agent.vision.capture.Image") as mock_image_module:
 
+        mock_opened = MagicMock()
         mock_img = MagicMock()
-        mock_image_module.open.return_value = mock_img
+        mock_canvas = MagicMock()
+        mock_image_module.open.return_value = mock_opened
+        mock_opened.convert.return_value = mock_img
+        mock_img.size = (2048, 1536)
         mock_img.resize.return_value = mock_img
-        mock_img.mode = "RGB"
-        mock_img.size = (1024, 768)
+        mock_canvas.resize.return_value = mock_canvas
+        mock_canvas.mode = "RGB"
+        mock_canvas.size = (1024, 768)
+        mock_image_module.new.return_value = mock_canvas
         mock_image_module.LANCZOS = 1
 
         call_count = 0
@@ -726,7 +738,7 @@ def test_capture_size_enforcement():
                 # At quality=50, produce something within limits
                 buf.write(b"\xff\xd8" + b"\x00" * 100)
 
-        mock_img.save.side_effect = mock_save
+        mock_canvas.save.side_effect = mock_save
 
         capture = ScreenCapture(target_resolution=(1024, 768))
         result = capture.capture()

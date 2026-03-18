@@ -10,6 +10,8 @@ from typing import Tuple
 
 from PIL import Image
 
+from automation_agent.vision.geometry import fit_screen_into_image
+
 logger = logging.getLogger(__name__)
 
 # Maximum allowed JPEG size: 4.5 MB (4,718,592 bytes)
@@ -74,8 +76,9 @@ class ScreenCapture:
         """Capture screenshot, downscale to target resolution, return JPEG bytes.
 
         Uses macOS screencapture command to capture the screen, then
-        downscales to the configured target resolution using Lanczos
-        resampling for high quality. Enforces a 4.5MB size limit.
+        fits the full screen into the configured target resolution while
+        preserving aspect ratio. Empty space is letterboxed instead of
+        stretching the image. Enforces a 4.5MB size limit.
 
         Returns:
             JPEG-encoded bytes of the downscaled screenshot.
@@ -86,13 +89,13 @@ class ScreenCapture:
         try:
             subprocess.run(["screencapture", "-x", tmp_path], check=True)
 
-            img = Image.open(tmp_path)
-            img = img.resize(self.target_resolution, Image.LANCZOS)
-            # Convert non-RGB modes to RGB for JPEG compatibility
-            if img.mode in ("RGBA", "P", "LA", "CMYK", "I"):
-                img = img.convert("RGB")
+            img = Image.open(tmp_path).convert("RGB")
+            rect = fit_screen_into_image(img.size, self.target_resolution)
+            resized = img.resize((max(round(rect.width), 1), max(round(rect.height), 1)), Image.LANCZOS)
+            canvas = Image.new("RGB", self.target_resolution, (0, 0, 0))
+            canvas.paste(resized, (round(rect.left), round(rect.top)))
 
-            return self._enforce_size_limit(img)
+            return self._enforce_size_limit(canvas)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 

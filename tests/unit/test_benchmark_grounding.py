@@ -719,6 +719,7 @@ class TestBackendsDict:
     def test_backends_has_expected_keys(self, bg):
         """BACKENDS dict should contain at least the documented backends."""
         assert "claude-sonnet" in bg.BACKENDS
+        assert "gpt-5.4" in bg.BACKENDS
         assert "qwen3-vl-ollama" in bg.BACKENDS
         assert "molmo-mlx" in bg.BACKENDS
         assert "molmo2-mlx" in bg.BACKENDS
@@ -742,6 +743,12 @@ class TestBackendsDict:
         assert "11434" in qwen3["url"]
         assert "/api/chat" in qwen3["url"]
 
+    def test_gpt_backend_uses_computer_use(self, bg):
+        """gpt-5.4 should benchmark via Responses API computer use, not chat completions."""
+        gpt = bg.BACKENDS["gpt-5.4"]
+        assert gpt["type"] == "openai_computer_use"
+        assert gpt["model"] == "gpt-5.4"
+
 
 # ---------------------------------------------------------------------------
 # 13. COORDINATE_SPACES dict  (2 tests)
@@ -753,7 +760,15 @@ class TestCoordinateSpaces:
 
     def test_has_expected_models(self, bg):
         """COORDINATE_SPACES should have all models from the spec."""
-        expected = {"molmo2", "molmo", "qwen3-vl", "qwen2.5-vl", "qwen2-vl", "claude-sonnet-4-20250514"}
+        expected = {
+            "molmo2",
+            "molmo",
+            "qwen3-vl",
+            "qwen2.5-vl",
+            "qwen2-vl",
+            "claude-sonnet-4-20250514",
+            "gpt-5.4",
+        }
         actual = set(bg.COORDINATE_SPACES.keys())
         assert expected.issubset(actual), f"Missing models: {expected - actual}"
 
@@ -987,3 +1002,72 @@ class TestOllamaNativeBackend:
             )
             assert content == "FOUND: x=42, y=99"
             assert latency > 0
+
+
+class TestOpenAIComputerUseBackend:
+    """Tests for call_openai_computer_use_backend."""
+
+    def test_call_openai_computer_use_backend_exists(self, bg):
+        assert hasattr(bg, "call_openai_computer_use_backend")
+        assert callable(bg.call_openai_computer_use_backend)
+
+    def test_call_openai_computer_use_returns_found_from_action(self, bg):
+        first = MagicMock()
+        first.read.return_value = json.dumps({
+            "id": "resp_1",
+            "output": [{"type": "computer_call", "call_id": "call_1", "actions": []}],
+        }).encode()
+        first.__enter__ = MagicMock(return_value=first)
+        first.__exit__ = MagicMock(return_value=False)
+
+        second = MagicMock()
+        second.read.return_value = json.dumps({
+            "id": "resp_2",
+            "output": [
+                {
+                    "type": "computer_call",
+                    "call_id": "call_1",
+                    "actions": [{"type": "click", "x": 320, "y": 180}],
+                }
+            ],
+        }).encode()
+        second.__enter__ = MagicMock(return_value=second)
+        second.__exit__ = MagicMock(return_value=False)
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+            with patch("urllib.request.urlopen", side_effect=[first, second]) as mock_urlopen:
+                text, _ = bg.call_openai_computer_use_backend(
+                    "gpt-5.4",
+                    "dGVzdA==",
+                    "search bar",
+                    1024,
+                    768,
+                )
+
+        assert text == "FOUND: x=320.0, y=180.0"
+        assert mock_urlopen.call_count == 2
+        second_req = mock_urlopen.call_args_list[1][0][0]
+        second_body = json.loads(second_req.data)
+        assert second_body["input"][0]["output"]["detail"] == "original"
+
+    def test_call_openai_computer_use_falls_back_to_text(self, bg):
+        response = MagicMock()
+        response.read.return_value = json.dumps({
+            "id": "resp_1",
+            "output_text": "NOT_FOUND",
+            "output": [],
+        }).encode()
+        response.__enter__ = MagicMock(return_value=response)
+        response.__exit__ = MagicMock(return_value=False)
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+            with patch("urllib.request.urlopen", return_value=response):
+                text, _ = bg.call_openai_computer_use_backend(
+                    "gpt-5.4",
+                    "dGVzdA==",
+                    "search bar",
+                    1024,
+                    768,
+                )
+
+        assert text == "NOT_FOUND"

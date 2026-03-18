@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Tuple
 
 from PIL import Image, ImageDraw
 
+from automation_agent.vision.geometry import screen_to_image_coords
+
 
 def annotate_screenshot(
     screenshot_b64: str,
@@ -31,26 +33,29 @@ def annotate_screenshot(
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
     img_w, img_h = img.size
-    screen_w, screen_h = screen_size
-
-    # Scale factors: screen coords -> image coords
-    sx = img_w / screen_w
-    sy = img_h / screen_h
 
     for idx, el in enumerate(elements[:max_labels]):
         cx, cy, w, h = _extract_element_bounds(el)
 
         # Map to image space
-        ix = int(cx * sx)
-        iy = int(cy * sy)
-        iw = int(w * sx)
-        ih = int(h * sy)
+        left, top = screen_to_image_coords(
+            int(cx - w / 2),
+            int(cy - h / 2),
+            screen_size,
+            (img_w, img_h),
+        )
+        right, bottom = screen_to_image_coords(
+            int(cx + w / 2),
+            int(cy + h / 2),
+            screen_size,
+            (img_w, img_h),
+        )
 
         # Draw bounding box
-        left = max(0, ix - iw // 2)
-        top = max(0, iy - ih // 2)
-        right = min(img_w - 1, ix + iw // 2)
-        bottom = min(img_h - 1, iy + ih // 2)
+        left = max(0, left)
+        top = max(0, top)
+        right = min(img_w - 1, right)
+        bottom = min(img_h - 1, bottom)
 
         # Skip degenerate boxes
         if right <= left or bottom <= top:
