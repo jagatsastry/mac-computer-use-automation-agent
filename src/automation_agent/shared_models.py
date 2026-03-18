@@ -269,6 +269,7 @@ class ActionPlan:
     planning_duration_ms: int = 0
     token_usage: Optional[Dict[str, int]] = None
     replan_patch: Optional["ReplanPatch"] = None
+    resume_from_step: Optional[int] = None  # For replans: index in original plan where new steps begin
 
     def validate(self) -> List[str]:
         """Validate the plan. Returns list of error messages (empty if valid)."""

@@ -1043,5 +1043,6 @@ class TestPromptTemplateIntegrity:
         template = planner._load_prompt("replan_from_state.md")
         assert "{{goal}}" in template
         assert "{{screen_description}}" in template
-        assert "{{history}}" in template
+        assert "{{annotated_plan}}" in template
+        assert "{{current_step_index}}" in template
         assert "{{retry_strategies}}" in template

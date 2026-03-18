@@ -77,16 +77,27 @@ class ActionPlannerImpl:
         desktop_context: str = "",
         skill_context: Optional[str] = None,
         absent_elements: Optional[List[str]] = None,
+        original_steps: Optional[List[ActionStep]] = None,
+        current_step_index: int = 0,
+        screenshot_b64: Optional[str] = None,
     ) -> ActionPlan:
-        """Replan with history. Must produce DIFFERENT approach than what was tried.
+        """Replan with annotated original plan context.
+
+        When ``original_steps`` and ``current_step_index`` are provided, the
+        prompt shows the original plan with pass/fail annotations and asks the
+        LLM to generate replacement steps from the failed position forward.
 
         Args:
             goal: Original goal.
-            screen_description: Current screen state.
+            screen_description: Current screen state (fallback for non-vision providers).
             history: Results of previously executed steps.
             retry_strategies_used: Strategies already attempted.
             desktop_context: Structured desktop state from ContextMonitor.
             skill_context: Optional expanded skill template for context.
+            absent_elements: Confirmed absent UI elements.
+            original_steps: Steps from the original plan (for annotated display).
+            current_step_index: Index in original plan where failure occurred.
+            screenshot_b64: Optional base64 JPEG screenshot for vision-capable providers.
 
         Returns:
             ActionPlan with a different approach.
@@ -97,18 +108,25 @@ class ActionPlannerImpl:
         prompt = self._build_replan_prompt(
             goal, screen_description, history, retry_strategies_used,
             desktop_context, skill_context, absent_elements,
+            original_steps=original_steps,
+            current_step_index=current_step_index,
         )
-        logger.info("🔄 Replanning started", goal=goal)
+        logger.info("🔄 Replanning started", goal=goal, current_step_index=current_step_index)
         start = time.monotonic()
-        response = await self._call_llm(prompt)
+        response = await self._call_llm(prompt, image_b64=screenshot_b64)
         duration_ms = int((time.monotonic() - start) * 1000)
 
-        plan = self._parse_plan_response(response, goal)
+        plan = self._parse_replan_response(
+            response, goal,
+            original_steps=original_steps or [],
+            current_step_index=current_step_index,
+        )
         plan.planning_duration_ms = duration_ms
 
         logger.info(
             "🔄 Replanning complete",
             duration_ms=duration_ms,
+            resume_from=plan.resume_from_step,
             input_tokens=response.get("usage", {}).get("input_tokens"),
             output_tokens=response.get("usage", {}).get("output_tokens"),
         )
@@ -119,7 +137,7 @@ class ActionPlannerImpl:
 
         return plan
 
-    async def _call_llm(self, prompt: str) -> dict:
+    async def _call_llm(self, prompt: str, *, image_b64: Optional[str] = None) -> dict:
         """Call LLM for planning — routes based on per-step model config.
 
         Uses ``config.resolve_step_model("planning")`` so the user can
@@ -127,6 +145,7 @@ class ActionPlannerImpl:
 
         Args:
             prompt: The prompt to send to the LLM.
+            image_b64: Optional base64-encoded JPEG image to include (vision providers only).
 
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
@@ -135,10 +154,10 @@ class ActionPlannerImpl:
         if provider == "local":
             return await self._call_local_llm(prompt, model=model)
         if provider == "gemini":
-            return await self._call_gemini_llm(prompt, model=model)
+            return await self._call_gemini_llm(prompt, model=model, image_b64=image_b64)
         if provider == "openai":
             return await self._call_openai_llm(prompt, model=model)
-        return await self._call_anthropic_llm(prompt, model=model)
+        return await self._call_anthropic_llm(prompt, model=model, image_b64=image_b64)
 
     # Ollama structured output schema — guarantees valid JSON via GBNF grammar.
     _OLLAMA_FORMAT_SCHEMA = {
@@ -231,9 +250,12 @@ class ActionPlannerImpl:
                 },
             }
 
-    async def _call_gemini_llm(self, prompt: str, model: str = "") -> dict:
-        """Call Google Gemini API."""
+    async def _call_gemini_llm(
+        self, prompt: str, model: str = "", *, image_b64: Optional[str] = None,
+    ) -> dict:
+        """Call Google Gemini API, optionally with an image."""
         import asyncio
+        import base64
 
         from google import genai
 
@@ -243,12 +265,23 @@ class ActionPlannerImpl:
         base_delay = 1.0
         resolved_model = model or self.config.gemini_model
 
+        # Build contents: text-only or multimodal
+        if image_b64:
+            contents = [
+                genai.types.Part.from_bytes(
+                    data=base64.b64decode(image_b64), mime_type="image/jpeg",
+                ),
+                prompt,
+            ]
+        else:
+            contents = prompt
+
         for attempt in range(max_retries + 1):
             try:
                 response = await asyncio.to_thread(
                     client.models.generate_content,
                     model=resolved_model,
-                    contents=prompt,
+                    contents=contents,
                     config=genai.types.GenerateContentConfig(
                         max_output_tokens=8192,
                         temperature=0.0,
@@ -281,7 +314,9 @@ class ActionPlannerImpl:
         )
         return await client.generate_text(prompt)
 
-    async def _call_anthropic_llm(self, prompt: str, model: str = "") -> dict:
+    async def _call_anthropic_llm(
+        self, prompt: str, model: str = "", *, image_b64: Optional[str] = None,
+    ) -> dict:
         """Call Anthropic Claude API with retry and exponential backoff."""
         import asyncio
 
@@ -293,12 +328,28 @@ class ActionPlannerImpl:
         base_delay = 1.0
         resolved_model = model or self.config.anthropic_model
 
+        # Build message content: text-only or multimodal
+        if image_b64:
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": image_b64,
+                    },
+                },
+                {"type": "text", "text": prompt},
+            ]
+        else:
+            content = prompt
+
         for attempt in range(max_retries + 1):
             try:
                 message = await client.messages.create(
                     model=resolved_model,
                     max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": content}],
                 )
                 return {
                     "content": message.content[0].text,
@@ -343,6 +394,52 @@ class ActionPlannerImpl:
         )
         return prompt
 
+    def _build_annotated_plan(
+        self,
+        original_steps: List[ActionStep],
+        step_results: List[StepResult],
+        failed_step_index: int,
+    ) -> str:
+        """Build annotated plan text showing pass/fail status for each step.
+
+        Args:
+            original_steps: Steps from the original plan.
+            step_results: Execution results collected so far.
+            failed_step_index: Index in original plan where failure occurred.
+
+        Returns:
+            Multi-line annotated plan string with checkmarks/crosses.
+        """
+        # Build a result map: for each original step index, find the best matching result.
+        # step_results may contain retries and bypasses, so we match by step identity.
+        result_for_step: Dict[int, StepResult] = {}
+        for sr in step_results:
+            for j, orig_step in enumerate(original_steps):
+                if sr.step is orig_step or (
+                    sr.step.action == orig_step.action
+                    and sr.step.params == orig_step.params
+                ):
+                    result_for_step[j] = sr  # last result for this step wins
+                    break
+
+        lines = []
+        for j, step in enumerate(original_steps):
+            params_str = ", ".join(f"{k}={v!r}" for k, v in step.params.items())
+            step_desc = f"{step.action}({params_str})"
+
+            if j < failed_step_index:
+                sr = result_for_step.get(j)
+                evidence = sr.evidence[:80] if sr else "completed"
+                lines.append(f"Step {j}: {step_desc} \u2713 \u2014 {evidence}")
+            elif j == failed_step_index:
+                sr = result_for_step.get(j)
+                evidence = sr.evidence[:80] if sr else "failed"
+                lines.append(f"Step {j}: {step_desc} \u2717 \u2014 {evidence}")
+            else:
+                lines.append(f"Step {j}: {step_desc} \u2014 (not attempted)")
+
+        return "\n".join(lines)
+
     def _build_replan_prompt(
         self,
         goal: str,
@@ -352,8 +449,13 @@ class ActionPlannerImpl:
         desktop_context: str = "",
         skill_context: Optional[str] = None,
         absent_elements: Optional[List[str]] = None,
+        original_steps: Optional[List[ActionStep]] = None,
+        current_step_index: int = 0,
     ) -> str:
         """Build the replanning prompt from the template.
+
+        Uses the annotated-plan approach when ``original_steps`` is provided,
+        falling back to flat history formatting otherwise.
 
         Args:
             goal: The original goal.
@@ -362,18 +464,28 @@ class ActionPlannerImpl:
             retry_strategies: List of strategies already tried.
             desktop_context: Structured desktop state from ContextMonitor.
             skill_context: Optional expanded skill template for context.
+            absent_elements: Confirmed absent UI elements.
+            original_steps: Steps from the original plan (for annotated display).
+            current_step_index: Index in original plan where failure occurred.
 
         Returns:
             Formatted prompt string.
         """
         template = self._load_prompt("replan_from_state.md")
-        history_text = "\n".join(
-            [
-                f"- Step {i}: {sr.step.action}({sr.step.params}) -> "
+
+        # Build annotated plan or fall back to flat history
+        if original_steps:
+            annotated_plan = self._build_annotated_plan(
+                original_steps, history, current_step_index,
+            )
+        else:
+            # Fallback: format as flat history (backwards compat)
+            annotated_plan = "\n".join(
+                f"Step {i}: {sr.step.action}({sr.step.params}) -> "
                 f"{'SUCCESS' if sr.success else 'FAILED'}: {sr.evidence}"
                 for i, sr in enumerate(history)
-            ]
-        )
+            )
+
         strategies_text = (
             ", ".join(retry_strategies) if retry_strategies else "None yet"
         )
@@ -396,7 +508,10 @@ class ActionPlannerImpl:
             "{{skill_context}}", skill_context or "No skill context available"
         )
         prompt = prompt.replace("{{screen_description}}", screen_description)
-        prompt = prompt.replace("{{history}}", history_text)
+        prompt = prompt.replace("{{annotated_plan}}", annotated_plan)
+        prompt = prompt.replace(
+            "{{current_step_index}}", str(current_step_index)
+        )
         prompt = prompt.replace("{{retry_strategies}}", strategies_text)
         prompt = prompt.replace("{{absent_elements}}", absent_text)
         return prompt
@@ -539,6 +654,53 @@ class ActionPlannerImpl:
             token_usage=response.get("usage"),
             replan_patch=replan_patch,
         )
+
+    def _parse_replan_response(
+        self,
+        response: dict,
+        goal: str,
+        original_steps: List[ActionStep],
+        current_step_index: int,
+    ) -> ActionPlan:
+        """Parse a replan LLM response, extracting ``resume_from_step``.
+
+        The returned plan's ``steps`` contain ONLY the new steps generated
+        by the LLM — completed original steps are NOT prepended, since they
+        have already been executed and their preconditions may be stale.
+        ``resume_from_step`` is set for informational/materialization use.
+
+        Falls back to ``_parse_plan_response`` when ``resume_from_step`` is
+        absent or ``original_steps`` is empty.
+        """
+        plan = self._parse_plan_response(response, goal)
+
+        # Extract resume_from_step from raw JSON
+        content = response["content"]
+        json_str = content
+        if "```json" in content:
+            json_str = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            json_str = content.split("```")[1].split("```")[0]
+
+        try:
+            data = json.loads(json_str.strip())
+        except json.JSONDecodeError:
+            data = {}
+
+        resume_from = data.get("resume_from_step")
+        if resume_from is not None and original_steps:
+            resume_from = max(0, min(int(resume_from), len(original_steps)))
+            plan.resume_from_step = resume_from
+            logger.info(
+                "Replan: resume_from_step=%d, %d new steps (completed steps NOT re-included)",
+                resume_from,
+                len(plan.steps),
+            )
+        else:
+            # No resume_from_step — use current_step_index as hint
+            plan.resume_from_step = current_step_index
+
+        return plan
 
     async def check_infeasibility(
         self,

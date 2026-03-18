@@ -4,6 +4,7 @@ import asyncio
 import base64
 import inspect
 import io
+import json
 import re
 import time
 import unicodedata
@@ -63,11 +64,14 @@ class LLMCallRecord:
 class PlanRecord:
     """Records a plan generated during a run."""
 
+    version: int = 0  # 0 = initial plan, 1+ = replans
     timestamp: str = ""
     is_replan: bool = False
     replan_reason: str = ""  # what failed to trigger this replan
+    resume_from_step: Optional[int] = None  # for replans: index where new steps begin
+    completed_steps: List[Dict[str, Any]] = field(default_factory=list)
     steps: List[Dict[str, Any]] = field(default_factory=list)  # step dicts
-    raw_llm_response: str = ""  # first ~500 chars of LLM response
+    raw_llm_response: str = ""  # first ~2000 chars of LLM response
 
 
 @dataclass
@@ -856,8 +860,9 @@ class AutomationAgent:
                 data=plan_data,
             )
 
-            # Record plan for detailed report
-            self._plans.append(PlanRecord(
+            # Record plan for detailed report and materialize to file
+            _plan_record = PlanRecord(
+                version=0,
                 timestamp=datetime.now().strftime("%H:%M:%S"),
                 is_replan=False,
                 steps=[
@@ -870,7 +875,9 @@ class AutomationAgent:
                     for s in plan.steps
                 ],
                 raw_llm_response=(plan.raw_llm_response or "")[:2000],
-            ))
+            )
+            self._plans.append(_plan_record)
+            self._materialize_plan(_plan_record)
 
             # BUG 5 FIX: Validate plan before execution — reject empty verify fields
             validation_errors = plan.validate()
@@ -1041,6 +1048,8 @@ class AutomationAgent:
                             skill_context=skill_context,
                             derived_session=derived_session,
                             expanded_steps_for_distiller=expanded_steps_for_distiller,
+                            original_plan=plan,
+                            failed_step_index=i,
                         )
                         return replan_result
                     break
@@ -1128,6 +1137,8 @@ class AutomationAgent:
                             skill_context=skill_context,
                             derived_session=derived_session,
                             expanded_steps_for_distiller=expanded_steps_for_distiller,
+                            original_plan=plan,
+                            failed_step_index=i,
                         )
                         return replan_result
                     else:
@@ -4888,6 +4899,39 @@ class AutomationAgent:
             params["_pre_delay"] = 0.5 * attempt
             return (f"generic_retry_with_delay_{attempt}", _retry_step(step.action, params))
 
+    def _materialize_plan(
+        self,
+        plan_record: "PlanRecord",
+    ) -> None:
+        """Save a plan to a timestamped JSON file in the run directory.
+
+        Creates ``{run_dir}/plans/plan_v{version}_{timestamp}.json``.
+        Non-fatal — logs a warning on any error.
+        """
+        try:
+            plans_dir = self.logger.run_dir / "plans"
+            plans_dir.mkdir(parents=True, exist_ok=True)
+
+            ts = datetime.now().strftime("%Y%m%dT%H%M%S")
+            filename = f"plan_v{plan_record.version}_{ts}.json"
+
+            plan_data: Dict[str, Any] = {
+                "version": plan_record.version,
+                "timestamp": datetime.now().isoformat(),
+                "is_replan": plan_record.is_replan,
+                "trigger": plan_record.replan_reason or None,
+                "resume_from_step": plan_record.resume_from_step,
+                "completed_steps": plan_record.completed_steps,
+                "steps": plan_record.steps,
+                "raw_llm_response": plan_record.raw_llm_response,
+            }
+
+            with open(plans_dir / filename, "w") as f:
+                json.dump(plan_data, f, indent=2, default=str)
+            slog.debug("plan_materialized", path=str(plans_dir / filename))
+        except Exception:
+            slog.debug("plan_materialize_skipped", exc_info=True)
+
     async def _replan_and_continue(
         self,
         goal,
@@ -4899,8 +4943,15 @@ class AutomationAgent:
         skill_context: Optional[str] = None,
         derived_session: Optional[DerivedSkillSession] = None,
         expanded_steps_for_distiller: Optional[str] = None,
+        original_plan: Optional[ActionPlan] = None,
+        failed_step_index: int = 0,
     ):
-        """Replan and attempt execution with new plan."""
+        """Replan and attempt execution with new plan.
+
+        When ``original_plan`` is provided, uses the plan-patch approach:
+        captures a screenshot, shows the original plan with pass/fail annotations,
+        and asks the LLM to generate replacement steps from the failure point.
+        """
         self._replan_count += 1
         _failed_steps = [
             f"step {sr.step.action}: {sr.error or sr.evidence[:60]}"
@@ -4911,8 +4962,25 @@ class AutomationAgent:
             replan_number=self._replan_count,
             failed_steps=_failed_steps[-3:],
             total_steps_so_far=len(step_results),
+            failed_step_index=failed_step_index,
         )
-        screen_desc = await self.coordinator.describe_screen()
+
+        # Capture screenshot for vision-capable planning providers
+        screenshot_b64: Optional[str] = None
+        provider, _ = self.config.resolve_step_model("planning")
+        if provider in ("gemini", "anthropic", "openai"):
+            try:
+                screenshot_b64 = await self.coordinator.capture_screenshot()
+                screen_desc = (
+                    "[Screenshot attached as image — look at it directly to understand "
+                    "the current state. Do NOT rely on text descriptions.]"
+                )
+            except Exception:
+                slog.warning("screenshot_capture_failed_for_replan", exc_info=True)
+                screen_desc = await self.coordinator.describe_screen()
+        else:
+            screen_desc = await self.coordinator.describe_screen()
+
         retry_strategies = []
         for sr in step_results:
             retry_strategies.extend(sr.retry_strategies_used)
@@ -4951,6 +5019,9 @@ class AutomationAgent:
         )
         self.logger.log_event(EventType.REPLAN_START, "Replanning...")
         _replan_start = time.monotonic()
+
+        # Pass original plan context for annotated plan-patch approach
+        original_steps = original_plan.steps if original_plan else None
         new_plan = await self.planner.replan(
             goal,
             screen_desc,
@@ -4959,12 +5030,16 @@ class AutomationAgent:
             desktop_context=desktop_context,
             skill_context=replan_ctx,
             absent_elements=absent_elements,
+            original_steps=original_steps,
+            current_step_index=failed_step_index,
+            screenshot_b64=screenshot_b64,
         )
         _replan_dur = int((time.monotonic() - _replan_start) * 1000)
         self._record_llm_call("replan", _replan_dur, _replan_input_chars)
         slog.info(
             "replan_completed",
             new_step_count=len(new_plan.steps),
+            resume_from_step=new_plan.resume_from_step,
             duration_ms=_replan_dur,
         )
         replan_data = {"step_count": len(new_plan.steps), "duration_ms": _replan_dur}
@@ -4973,17 +5048,41 @@ class AutomationAgent:
         replan_data["steps_summary"] = [
             f"{s.action}({s.params})" for s in new_plan.steps
         ]
+        replan_data["resume_from_step"] = new_plan.resume_from_step
         self.logger.log_event(
             EventType.REPLAN_COMPLETE,
             f"New plan: {len(new_plan.steps)} steps ({_replan_dur}ms)",
             data=replan_data,
         )
 
-        # Record replan for detailed report
-        self._plans.append(PlanRecord(
+        # Build completed steps summary for the plan record.
+        # Use the LAST matching result for each step (final retry outcome,
+        # not the first attempt which may have failed before a successful retry).
+        _completed_steps = []
+        if original_steps:
+            for idx in range(min(failed_step_index, len(original_steps))):
+                s = original_steps[idx]
+                sr_match = None
+                for sr in step_results:
+                    if sr.step is s or (
+                        sr.step.action == s.action and sr.step.params == s.params
+                    ):
+                        sr_match = sr  # keep scanning — last match wins
+                _completed_steps.append({
+                    "index": idx,
+                    "action": s.action,
+                    "result": "PASS" if (sr_match and sr_match.success) else "UNKNOWN",
+                    "evidence": (sr_match.evidence[:80] if sr_match else ""),
+                })
+
+        # Record replan for detailed report and materialize to file
+        _replan_record = PlanRecord(
+            version=self._replan_count,
             timestamp=datetime.now().strftime("%H:%M:%S"),
             is_replan=True,
             replan_reason="; ".join(_failed_steps[-3:]),
+            resume_from_step=new_plan.resume_from_step,
+            completed_steps=_completed_steps,
             steps=[
                 {
                     "action": s.action,
@@ -4994,7 +5093,9 @@ class AutomationAgent:
                 for s in new_plan.steps
             ],
             raw_llm_response=(new_plan.raw_llm_response or "")[:2000],
-        ))
+        )
+        self._plans.append(_replan_record)
+        self._materialize_plan(_replan_record)
 
         # Apply replan patch to derived session if present
         if derived_session and new_plan.replan_patch:

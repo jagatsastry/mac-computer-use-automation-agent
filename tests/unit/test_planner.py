@@ -353,7 +353,8 @@ class TestPromptFiles:
         assert "{{skill_context}}" in plan_prompt
 
         assert "{{goal}}" in replan_prompt
-        assert "{{history}}" in replan_prompt
+        assert "{{annotated_plan}}" in replan_prompt
+        assert "{{current_step_index}}" in replan_prompt
         assert "{{retry_strategies}}" in replan_prompt
 
     def test_missing_prompt_file_raises_error(self, planner):
@@ -423,7 +424,8 @@ class TestPlannerIntegration:
         # All placeholders should be replaced
         assert "{{goal}}" not in prompt
         assert "{{screen_description}}" not in prompt
-        assert "{{history}}" not in prompt
+        assert "{{annotated_plan}}" not in prompt
+        assert "{{current_step_index}}" not in prompt
         assert "{{retry_strategies}}" not in prompt
         # Content should be present
         assert "Open Safari" in prompt

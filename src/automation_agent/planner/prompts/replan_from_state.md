@@ -1,4 +1,4 @@
-You are replanning a macOS desktop automation task. The previous attempt had failures.
+You are continuing a macOS desktop automation task. Some steps succeeded, some failed.
 
 ## Original Goal
 {{goal}}
@@ -8,22 +8,32 @@ You are replanning a macOS desktop automation task. The previous attempt had fai
 ## Skill Priors and Derived Procedure (if available)
 {{skill_context}}
 
-## Current Screen State
+## Original Plan (with outcomes)
+{{annotated_plan}}
+
+Steps marked ✓ succeeded. Steps marked ✗ failed. Steps marked — were not attempted.
+You are currently at step {{current_step_index}}.
+
+## Current Screen
 {{screen_description}}
-
-**IMPORTANT**: When a skill template specifies navigation steps (open_url, activate_app),
-you MUST include them in the plan even if the screen appears to already show the target page.
-The current screen state may be stale from a previous task. Skill navigation steps are a
-contract, not a suggestion. Always navigate fresh.
-
-## Execution History
-{{history}}
 
 ## Strategies Already Tried
 {{retry_strategies}}
 
 ## Confirmed Absent Elements
 {{absent_elements}}
+
+**IMPORTANT**: When a skill template specifies navigation steps (open_url, activate_app),
+you MUST include them in the plan even if the screen appears to already show the target page.
+The current screen state may be stale from a previous task. Skill navigation steps are a
+contract, not a suggestion. Always navigate fresh.
+
+## What to do
+Generate the remaining steps FROM STEP {{current_step_index}} ONWARDS.
+- Keep all ✓ steps as-is (they already executed successfully)
+- Replace the ✗ step and everything after it with a new approach
+- The verify condition for type_text should only check the field contains the text,
+  NOT that results appeared (submission requires a separate press_key or click step)
 
 ## Available Actions
 - `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps (Calculator, Finder, etc). Do NOT use before `open_url` — `open_url` already activates the default browser.
@@ -56,7 +66,7 @@ Do NOT repeat the same actions that failed. Consider:
 
 ## Response Format
 Respond with ONLY valid JSON (no markdown, no explanation).
-The "steps" key is REQUIRED. Every step MUST have a non-empty "verify" field.
+Every step MUST have a non-empty "verify" field.
 For visual or UI-changing actions, include `expected_observation` with the expected immediate visible result.
 
 If the previous attempt failed because a UI label, element name, or assumption from the skill was wrong, you MUST include a "derived_skill_patch" in your response. Specifically:
@@ -68,6 +78,7 @@ Only omit "derived_skill_patch" if the failure was purely execution-related (tim
 
 ```json
 {
+  "resume_from_step": {{current_step_index}},
   "steps": [
     {
       "action": "...",
