@@ -569,7 +569,7 @@ class AgentConfig(BaseSettings):
             return override.strip(), self._default_model_for(override.strip())
 
         # Fall back to global provider
-        provider = self.model_provider.value
+        provider = getattr(self.model_provider, "value", self.model_provider)
         return provider, self._default_model_for(provider)
 
     def _default_model_for(self, provider: str) -> str:
