@@ -15,6 +15,7 @@ from automation_agent.logging.models import EventType
 from automation_agent.protocols import CoordinatorCapability
 from automation_agent.shared_models import FindElementResult
 from automation_agent.vision.capture import ScreenCapture
+from automation_agent.vision.geometry import fit_screen_into_image
 
 logger = structlog.get_logger(__name__)
 
@@ -875,6 +876,23 @@ class ScreenCoordinatorImpl:
             prompt = candidate_prefix + base_prompt
         else:
             prompt = base_prompt
+
+        # Log letterbox geometry for GPT grounding debugging
+        try:
+            _screen_size = self.capture.get_screen_size()
+            _letterbox = fit_screen_into_image(_screen_size, self.config.screenshot_resolution)
+            logger.debug(
+                "grounding_letterbox",
+                screen_size=_screen_size,
+                target_resolution=self.config.screenshot_resolution,
+                content_left=round(_letterbox.left, 1),
+                content_top=round(_letterbox.top, 1),
+                content_width=round(_letterbox.width, 1),
+                content_height=round(_letterbox.height, 1),
+                scale=round(_letterbox.scale, 4),
+            )
+        except Exception:
+            pass  # non-fatal debug logging
 
         # Try grounding model first if configured
         if self._grounding_enabled:

@@ -598,3 +598,68 @@ def test_coordinator_skips_model_validation_for_openai():
     # Should not raise ValueError
     coord = ScreenCoordinatorImpl(config, capture=capture)
     assert coord._get_active_model() == "gpt-4.1"
+
+
+# ---------------------------------------------------------------------------
+# GPT grounding offset fix: detail parameter tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_find_element_computer_screenshot_has_detail_original():
+    """The computer_screenshot output must include detail:'original' to
+    preserve coordinate accuracy per OpenAI computer-use guide."""
+    client = OpenAIClient(api_key="sk-test")
+
+    # First call: computer_call requesting screenshot
+    first_resp = {
+        "id": "resp_1",
+        "output": [
+            {
+                "type": "computer_call",
+                "call_id": "call_ss",
+                "actions": [{"type": "screenshot"}],
+            }
+        ],
+    }
+    # Second call: returns a click
+    second_resp = {
+        "id": "resp_2",
+        "output": [
+            {
+                "type": "computer_call",
+                "call_id": "call_c",
+                "actions": [{"type": "click", "x": 100, "y": 200}],
+            }
+        ],
+    }
+    client._post = AsyncMock(side_effect=[first_resp, second_resp])
+
+    await client.find_element("Button", "fakeimg", 1024, 768)
+
+    # Check the screenshot submission payload
+    screenshot_payload = client._post.call_args_list[1][0][0]
+    output_block = screenshot_payload["input"][0]["output"]
+    assert output_block["type"] == "computer_screenshot"
+    assert output_block.get("detail") == "original", (
+        "computer_screenshot must set detail:'original' to prevent coordinate offset"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_vision_has_detail_high():
+    """generate_vision must include detail:'high' on input_image to prevent
+    OpenAI from downscaling and misaligning coordinates."""
+    client = OpenAIClient(api_key="sk-test")
+    mock_resp = {"output_text": "Found element at (300, 400)"}
+    client._post = AsyncMock(return_value=mock_resp)
+
+    await client.generate_vision("Find the button", ["img_b64"])
+
+    payload = client._post.call_args[0][0]
+    content = payload["input"][0]["content"]
+    image_items = [c for c in content if c.get("type") == "input_image"]
+    assert len(image_items) == 1
+    assert image_items[0].get("detail") == "high", (
+        "input_image must set detail:'high' to prevent coordinate offset"
+    )

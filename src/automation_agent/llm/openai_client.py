@@ -236,7 +236,9 @@ class OpenAIClient:
                     return fallback[0], fallback[1], 0.5
                 return None
 
-            # Feed screenshot back for the computer call
+            # Feed screenshot back for the computer call.
+            # detail:"original" preserves coordinate accuracy per OpenAI docs —
+            # without it, the API may downscale and return offset coordinates.
             payload = {
                 "input": [
                     {
@@ -245,6 +247,7 @@ class OpenAIClient:
                         "output": {
                             "type": "computer_screenshot",
                             "image_url": _to_data_url(screenshot_b64),
+                            "detail": "original",
                         },
                     }
                 ],
@@ -371,10 +374,13 @@ class OpenAIClient:
             {"type": "input_text", "text": prompt},
         ]
         for img in screenshots_b64:
+            # detail:"high" prevents OpenAI from downscaling the image,
+            # preserving coordinate accuracy for grounding tasks.
             content.append(
                 {
                     "type": "input_image",
                     "image_url": _to_data_url(img),
+                    "detail": "high",
                 }
             )
 
