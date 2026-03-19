@@ -550,17 +550,33 @@ class StepVerifier:
 
         if step.action == "type_text" and step.params.get("text"):
             expected_text = step.params["text"]
-            any_populated = False
-            for key in ("focused_value", "focused_text", "selected_text"):
-                actual_value = state.get(key)
-                if actual_value is None:
-                    continue
-                any_populated = True
-                if expected_text in str(actual_value):
-                    return (True, f"Actuator state {key} contains '{expected_text}'")
-            # Only fail if at least one field was populated and none matched
-            if any_populated:
-                return (False, f"No actuator text field contains '{expected_text}'")
+            # Only use the field-contents shortcut when step.verify is
+            # actually about the field containing the typed text.  If the
+            # verify asks for something else (e.g. "orders filtered") we
+            # must NOT pass early — let Tier 2 evaluate the real condition.
+            verify_lower = (step.verify or "").lower()
+            text_lower = expected_text.lower()
+            _verify_is_about_field = (
+                not step.verify  # empty verify → shortcut is fine
+                or text_lower in verify_lower  # verify mentions the text
+                or "field" in verify_lower
+                or "input" in verify_lower
+                or "contains" in verify_lower
+                or "typed" in verify_lower
+                or "entered" in verify_lower
+            )
+            if _verify_is_about_field:
+                any_populated = False
+                for key in ("focused_value", "focused_text", "selected_text"):
+                    actual_value = state.get(key)
+                    if actual_value is None:
+                        continue
+                    any_populated = True
+                    if expected_text in str(actual_value):
+                        return (True, f"Actuator state {key} contains '{expected_text}'")
+                # Only fail if at least one field was populated and none matched
+                if any_populated:
+                    return (False, f"No actuator text field contains '{expected_text}'")
 
         # P1-3 + AC-6: Scroll verification via tiered signals (axis-parametric)
         if step.action == "scroll":
@@ -725,24 +741,38 @@ class StepVerifier:
                 if result is False:
                     any_denied = True
 
-            # Site 2: type_text special case
+            # Site 2: type_text special case — only use the field-contents
+            # shortcut when step.verify is actually about the field containing
+            # the typed text.  Otherwise fall through to the full verify check.
             if step.action == "type_text" and step.params.get("text"):
                 expected_text = step.params["text"]
-                focused_text_condition = f'The focused text field contains "{expected_text}"'
-                result = await coordinator.verify_condition(
-                    focused_text_condition,
-                    screenshot_b64=screenshot_b64,
+                verify_lower = (step.verify or "").lower()
+                text_lower = expected_text.lower()
+                _verify_is_about_field = (
+                    not step.verify
+                    or text_lower in verify_lower
+                    or "field" in verify_lower
+                    or "input" in verify_lower
+                    or "contains" in verify_lower
+                    or "typed" in verify_lower
+                    or "entered" in verify_lower
                 )
-                if result is True:
-                    return (
-                        (
-                            True,
-                            f"Vision confirms focused field contains '{expected_text}'",
-                        ),
-                        screenshot_b64,
+                if _verify_is_about_field:
+                    focused_text_condition = f'The focused text field contains "{expected_text}"'
+                    result = await coordinator.verify_condition(
+                        focused_text_condition,
+                        screenshot_b64=screenshot_b64,
                     )
-                if result is False:
-                    any_denied = True
+                    if result is True:
+                        return (
+                            (
+                                True,
+                                f"Vision confirms focused field contains '{expected_text}'",
+                            ),
+                            screenshot_b64,
+                        )
+                    if result is False:
+                        any_denied = True
 
             # Site 3: open_url special case
             if step.action == "open_url" and step.params.get("url"):

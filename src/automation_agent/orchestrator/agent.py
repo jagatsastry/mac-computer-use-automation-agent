@@ -3376,14 +3376,11 @@ class AutomationAgent:
                             "error": f"low_confidence:{confidence:.2f}",
                         }
 
-                    # Rec 3: pre-click validation (skip for high confidence or
-                    # dedicated grounding/vision model results — those are purpose-built
-                    # for element finding). AX results use calibrated confidence so
-                    # partial matches (conf < 0.9) go through crop validation.
-                    skip_validation = (
-                        location.source in ("grounding", "vision")
-                        or confidence >= 0.9
-                    )
+                    # Rec 3: pre-click validation. Skip only for high-confidence
+                    # results (>= 0.9). Previously skipped all grounding/vision
+                    # sources, but low-confidence vision results can be hallucinated
+                    # (e.g. clicking in whitespace) and need crop validation.
+                    skip_validation = confidence >= 0.9
                     if not skip_validation:
                         try:
                             is_valid = await self._validate_candidate(
@@ -4749,6 +4746,22 @@ class AutomationAgent:
         approach rather than blind repetition.  BUG 4 FIX: This now loops
         through ALL available retries rather than returning after just one.
         """
+        # Precondition failures should immediately trigger replan — the required
+        # world state is not present, so retrying the same action won't help.
+        if result.error and result.error.startswith("precondition_failed:"):
+            slog.info(
+                "precondition_failed_forces_replan",
+                step_index=index,
+                precondition=result.error,
+            )
+            self.logger.log_event(
+                EventType.STEP_REPLAN,
+                f"Precondition failed at step {index} — forcing replan "
+                f"(not retrying)",
+                step_index=index,
+            )
+            return None  # signal replan
+
         if step.on_fail == "retry_different":
             current_result = result
             # AC-4: Track element-not-found count for absence detection.

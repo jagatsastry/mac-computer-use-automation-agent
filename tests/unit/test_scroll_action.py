@@ -613,4 +613,10 @@ class TestScrollPrompts:
 
         plan_actions = _extract_actions_section(plan_text)
         replan_actions = _extract_actions_section(replan_text)
-        assert plan_actions == replan_actions
+        # Replan may have extra guidance (e.g., type_text verify clarification)
+        # so check that all plan action names are present in replan
+        for line in plan_actions.strip().split("\n"):
+            action_name = line.split("`")[1] if "`" in line else line[:30]
+            assert action_name in replan_actions, (
+                f"Plan action '{action_name}' missing from replan actions"
+            )
