@@ -3,7 +3,7 @@
 **Date**: 2026-03-12
 **Author**: PM (expert-verification-fixes team)
 **Status**: Draft
-**Inputs**: [SOTA Research](verification-fixes-sota.md), [Codebase Analysis](verification-fixes-codebase.md), [Customer Report](amazon-return-customer-report.md)
+**Inputs**: [SOTA Research](verification-fixes-sota.md), [Codebase Analysis](verification-fixes-codebase.md), [Customer Report](../../reports/amazon-return/)
 
 ---
 

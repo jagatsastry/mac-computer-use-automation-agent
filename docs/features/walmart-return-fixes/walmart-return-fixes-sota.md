@@ -1,7 +1,7 @@
 # SOTA Research: Walmart Return Fixes
 
 **Date**: 2026-03-13
-**Context**: Customer testing of "return an order on Walmart" revealed 6 bugs (0/3 scenarios passed). This document surveys state-of-the-art approaches to the 4 bug categories identified in `docs/walmart-return-customer-report.md`.
+**Context**: Customer testing of "return an order on Walmart" revealed 6 bugs (0/3 scenarios passed). This document surveys state-of-the-art approaches to the 4 bug categories identified in `docs/reports/walmart-return/`.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-13
 **Status**: Draft
-**Input docs**: [Customer Report](walmart-return-customer-report.md) | [SOTA Research](walmart-return-fixes-sota.md) | [Codebase Analysis](walmart-return-fixes-codebase.md)
+**Input docs**: [Customer Report](../../reports/walmart-return/) | [SOTA Research](walmart-return-fixes-sota.md) | [Codebase Analysis](walmart-return-fixes-codebase.md)
 
 ---
 

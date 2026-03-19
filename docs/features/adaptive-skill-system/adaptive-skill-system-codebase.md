@@ -1,6 +1,6 @@
 # Adaptive Skill System: Codebase Analysis
 
-This document is a complete analysis of the existing codebase relevant to implementing the Adaptive Skill System MVP described in `docs/adaptive-skill-system.md`.
+This document is a complete analysis of the existing codebase relevant to implementing the Adaptive Skill System MVP described in `docs/features/adaptive-skill-system/adaptive-skill-system.md`.
 
 ---
 

@@ -22,6 +22,7 @@ class ActionPlannerImpl:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self._prompts_dir = Path(__file__).parent / "prompts"
+        self.last_prompt: str = ""  # set by _call_llm for debugging
 
     async def plan(
         self,
@@ -150,6 +151,7 @@ class ActionPlannerImpl:
         Returns:
             Dict with 'content' (str) and 'usage' (dict with token counts).
         """
+        self.last_prompt = prompt
         provider, model = self.config.resolve_step_model("planning")
         if provider == "local":
             return await self._call_local_llm(prompt, model=model)

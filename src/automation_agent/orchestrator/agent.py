@@ -56,6 +56,12 @@ def _params_match_ignoring_retry(actual: Dict, expected: Dict) -> bool:
     return a == b
 
 
+def _safe_str_attr(obj: Any, attr: str) -> str:
+    """Get a string attribute, returning '' if missing or non-string (e.g. Mock)."""
+    val = getattr(obj, attr, "")
+    return val if isinstance(val, str) else ""
+
+
 # ---------------------------------------------------------------------------
 # LLM Call Tracking & Run Report
 # ---------------------------------------------------------------------------
@@ -71,8 +77,10 @@ class LLMCallRecord:
     model: str = ""
     duration_ms: int = 0
     input_tokens_est: int = 0  # char count / 4 as rough token estimate
-    prompt_summary: str = ""  # first ~200 chars of prompt or description
-    response_summary: str = ""  # first ~200 chars of response
+    prompt_summary: str = ""  # first ~300 chars of prompt or description
+    response_summary: str = ""  # first ~300 chars of response
+    prompt_full: str = ""  # full prompt text (saved to file)
+    response_full: str = ""  # full response text (saved to file)
 
 
 @dataclass
@@ -340,19 +348,37 @@ def _generate_run_report(
             lines.append("")
 
     # ---------- LLM Prompts & Responses ----------
-    if llm_calls and any(c.prompt_summary for c in llm_calls):
-        lines.append("## LLM Call Details")
+    lines.append("## LLM Prompts & Responses")
+    lines.append("")
+    if llm_calls:
         for i, call in enumerate(llm_calls, 1):
             lines.append(f"### Call {i}: {call.purpose}")
             lines.append(
                 f"- **Provider:** {call.provider} | **Model:** {call.model}"
                 f" | **Duration:** {call.duration_ms}ms"
             )
-            if call.prompt_summary:
-                lines.append(f"- **Prompt:** {_redact_for_report(call.prompt_summary)}")
-            if call.response_summary:
-                lines.append(f"- **Response:** {_redact_for_report(call.response_summary)}")
             lines.append("")
+            if call.prompt_full:
+                lines.append("**Prompt:**")
+                lines.append("````")
+                lines.append(call.prompt_full)
+                lines.append("````")
+            elif call.prompt_summary:
+                lines.append(f"**Prompt (truncated):** {_redact_for_report(call.prompt_summary)}")
+            lines.append("")
+            if call.response_full:
+                lines.append("**Response:**")
+                lines.append("````")
+                lines.append(call.response_full)
+                lines.append("````")
+            elif call.response_summary:
+                lines.append(f"**Response (truncated):** {_redact_for_report(call.response_summary)}")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+    else:
+        lines.append("No LLM calls recorded.")
+        lines.append("")
 
     return "\n".join(lines)
 
@@ -790,7 +816,9 @@ class AutomationAgent:
                         duration_ms=_desc_dur,
                     )
                     self._record_llm_call(
-                        "screen_description", _desc_dur, len(screen_desc)
+                        "screen_description", _desc_dur, len(screen_desc),
+                        prompt_full=_safe_str_attr(self.coordinator, "last_prompt"),
+                        response_full=screen_desc,
                     )
                     if self.context_monitor:
                         self.context_monitor.context.last_vision_description = screen_desc
@@ -831,7 +859,11 @@ class AutomationAgent:
             _plan_start = time.monotonic()
             plan = await self.planner.plan(goal, **plan_kwargs)
             _plan_dur = int((time.monotonic() - _plan_start) * 1000)
-            self._record_llm_call("planning", _plan_dur, _plan_input_chars)
+            self._record_llm_call(
+                "planning", _plan_dur, _plan_input_chars,
+                prompt_full=_safe_str_attr(self.planner, "last_prompt"),
+                response_full=plan.raw_llm_response or "",
+            )
             fallback_plan = self._build_skill_fallback_plan(goal, skill_context)
 
             # P2-3: Extract expected domain for single-site goals (before hardening)
@@ -1299,6 +1331,8 @@ class AutomationAgent:
         response_summary: str = "",
         actual_provider: str = "",
         actual_model: str = "",
+        prompt_full: str = "",
+        response_full: str = "",
     ) -> None:
         """Record an LLM call for the run report."""
         if actual_provider and actual_model:
@@ -1323,6 +1357,8 @@ class AutomationAgent:
             input_tokens_est=max(1, input_chars // 4),
             prompt_summary=prompt_summary[:300] if prompt_summary else "",
             response_summary=response_summary[:300] if response_summary else "",
+            prompt_full=prompt_full,
+            response_full=response_full,
         ))
 
     def _record_state_change(self, app: str, url: str) -> None:
@@ -2060,6 +2096,8 @@ class AutomationAgent:
                 "verification",
                 _verify_dur,
                 len(step.verify) if step.verify else 0,
+                prompt_full=_safe_str_attr(self.coordinator, "last_prompt"),
+                response_full=_safe_str_attr(self.coordinator, "last_response"),
             )
 
         slog.info(
@@ -3289,6 +3327,8 @@ class AutomationAgent:
                                 "grounding",
                                 _find_dur,
                                 len(params["element"]),
+                                prompt_full=_safe_str_attr(self.coordinator, "last_prompt"),
+                                response_full=_safe_str_attr(self.coordinator, "last_response"),
                             )
 
                     # Keyboard shortcut fast path: press keys instead of clicking
@@ -5052,7 +5092,11 @@ class AutomationAgent:
             screenshot_b64=screenshot_b64,
         )
         _replan_dur = int((time.monotonic() - _replan_start) * 1000)
-        self._record_llm_call("replan", _replan_dur, _replan_input_chars)
+        self._record_llm_call(
+            "replan", _replan_dur, _replan_input_chars,
+            prompt_full=_safe_str_attr(self.planner, "last_prompt"),
+            response_full=new_plan.raw_llm_response or "",
+        )
         slog.info(
             "replan_completed",
             new_step_count=len(new_plan.steps),

@@ -87,7 +87,7 @@ Tier 2 vision verification (gemini-2.5-flash: 6-18s per check) accounts for most
 
 2. **Replace C1 test prompt**: Use a task that requires UI-only interaction, not URL manipulation. Example: `"Search Amazon for USB-C hub and filter by 4+ stars"`.
 
-3. **Implement tier 1 verification for click/type_text**: The verification-fixes spec at `docs/features/verification-fixes/` proposes accessibility-based checks that would cut 6-18s per verification to ~50ms.
+3. **Implement tier 1 verification for click/type_text**: The verification-fixes spec at `docs/features/verification-fixes/verification-fixes-spec.md` proposes accessibility-based checks that would cut 6-18s per verification to ~50ms.
 
 4. **Run B2 to document no-match limitation**: B2 ("Find cheapest laptop on Best Buy") was planned to document the "no-match = no-learning" constraint. Complete this block.
 

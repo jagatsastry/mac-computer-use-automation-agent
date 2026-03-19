@@ -201,6 +201,6 @@ python -m automation_agent.actuator state
 ## More Docs
 
 - Current setup: `docs/guides/automation.md`
-- Current runbook: `docs/QUICKSTART.md`
+- Current runbook: `docs/guides/QUICKSTART.md`
 - Current repo status: `IMPLEMENTATION_STATUS.md`
 - Deep architecture walkthrough with stale sections clearly labeled: `docs/guides/LIFE_OF_A_PROMPT.md`

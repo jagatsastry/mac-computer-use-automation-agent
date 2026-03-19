@@ -2,7 +2,7 @@
 
 **Reviewer**: adversary agent
 **Date**: 2026-03-03
-**Spec file**: docs/restaurant-skills-spec.md
+**Spec file**: docs/features/restaurant-skills/restaurant-skills-spec.md
 
 ---
 

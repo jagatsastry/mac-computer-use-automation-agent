@@ -3,7 +3,7 @@
 **Date**: 2026-03-16
 **Author**: Tech Lead (Claude Opus 4.6)
 **Status**: Draft
-**Inputs**: `docs/speed-phase1-sota.md`, `docs/speed-phase1-codebase.md`, `docs/speed-phase1-prd.md`
+**Inputs**: `docs/features/speed-phase1/speed-phase1-sota.md`, `docs/features/speed-phase1/speed-phase1-codebase.md`, `docs/features/speed-phase1/speed-phase1-prd.md`
 **PRD ACs**: AC-1 through AC-15
 
 ---

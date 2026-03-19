@@ -1,7 +1,7 @@
 # Spec Review: Vision Architecture Improvements
 
 **Reviewer**: Adversary agent
-**Spec file**: `docs/vision-arch-improvements-spec.md`
+**Spec file**: `docs/features/vision-arch/vision-arch-improvements-spec.md`
 **Date**: 2026-03-03
 
 ## Verdict: APPROVED WITH NOTES

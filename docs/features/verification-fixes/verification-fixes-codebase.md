@@ -1,6 +1,6 @@
 # Codebase Research: Verification, Retry/Replan, and Skills Internals
 
-This document provides a deep technical analysis of the verification, retry/replan, and skills subsystems, written to support the P0 verification fixes identified in `docs/amazon-return-customer-report.md`.
+This document provides a deep technical analysis of the verification, retry/replan, and skills subsystems, written to support the P0 verification fixes identified in `docs/reports/amazon-return/`.
 
 ---
 

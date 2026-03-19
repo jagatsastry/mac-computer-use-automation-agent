@@ -24,7 +24,7 @@ Vy used a four-component architecture:
 
 | Component | Purpose | How It Worked |
 |-----------|---------|---------------|
-| **Intent Parser** | NLU layer | LLM-based; converts natural language to structured action specs |
+| **Intent Parser** | NLU layer | LLM-based; converts natural language → structured action specs |
 | **Frontier Agents** | Task execution | Modular routines per domain with conditional logic and branching |
 | **Context Monitor** | State tracking | Continuously tracks window states, selected elements, screen regions |
 | **Execution Engine** | Action dispatch | Pixel-level clicks/keystrokes with real-time error detection + retry |
@@ -80,27 +80,27 @@ Agent S2 uses a **Generalist-Specialist compositional framework**:
 
 ```
 User Instruction
-      |
-      v
-+-----------+
-|  Manager  | <-- Generalist LLM (high-level reasoning)
-| (Planner) |    Decomposes tasks into subgoals
-+-----+-----+    Proactive Hierarchical Planning
-      |
-      v
-+-----------+
-|  Worker   | <-- Tactical routing
-| (Router)  |    Maps subgoals to grounding specialists
-+-----+-----+
-      |
-      v
-+----------------------------------+
-|  Mixture-of-Grounding (MoG)     |
-| +------+ +------+ +-----------+ |
-| |Visual| | Text | |Structural | |
-| |Expert| |Expert| |  Expert   | |
-| +------+ +------+ +-----------+ |
-+----------------------------------+
+      │
+      ▼
+┌─────────────┐
+│   Manager   │ ← Generalist LLM (high-level reasoning)
+│  (Planner)  │   Decomposes tasks into subgoals
+└──────┬──────┘   Proactive Hierarchical Planning
+       │
+       ▼
+┌─────────────┐
+│   Worker    │ ← Tactical routing
+│  (Router)   │   Maps subgoals to grounding specialists
+└──────┬──────┘
+       │
+       ▼
+┌──────────────────────────────────┐
+│   Mixture-of-Grounding (MoG)    │ ← Multiple expert models
+│  ┌──────┐ ┌──────┐ ┌──────────┐ │
+│  │Visual│ │ Text │ │Structural│ │
+│  │Expert│ │Expert│ │  Expert  │ │
+│  └──────┘ └──────┘ └──────────┘ │
+└──────────────────────────────────┘
 ```
 
 **Key Innovations:**
@@ -117,7 +117,7 @@ User Instruction
 **Relevance to Us:**
 - Highest — their MoG approach directly addresses our biggest weakness (single-model grounding)
 - Their memory system is what our agent lacks
-- Manager-Worker pattern maps to our Planner + Agent split, but more sophisticated
+- Manager-Worker pattern maps to our IntentParser + Agent split, but more sophisticated
 
 ---
 
@@ -133,24 +133,24 @@ Electron desktop app with a purpose-built VLM:
 
 ```
 Natural Language Command
-        |
-        v
-+---------------+
-|  UI-TARS VLM  | <-- Custom model (2B/7B/72B)
-| (Screenshot   |    Trained for screen understanding
-|  --> Action)  |    + action prediction
-+-------+-------+
-        |
-        v
-+---------------+
-|  Execution    | <-- Mouse/keyboard control
-|   Engine      |    Screenshot feedback loop
-+---------------+
+        │
+        ▼
+┌───────────────┐
+│  UI-TARS VLM  │ ← Custom model (2B/7B/72B)
+│  (Screenshot  │   Trained for screen understanding
+│   → Action)   │   + action prediction
+└───────┬───────┘
+        │
+        ▼
+┌───────────────┐
+│  Execution    │ ← Mouse/keyboard control
+│   Engine      │   Screenshot feedback loop
+└───────────────┘
 ```
 
 **Key Features:**
 - **Purpose-built model family** (2B, 7B, 72B) trained specifically for computer control
-- **End-to-end:** Screenshot in, action out (no separate grounding step)
+- **End-to-end:** Screenshot in → action out (no separate grounding step)
 - **Cross-platform:** macOS + Windows
 - **Remote operator:** Can control remote computers and browsers
 - **Polished UX:** Most production-ready open-source desktop agent
@@ -179,20 +179,20 @@ Natural Language Command
 Infrastructure layer, not an agent — provides sandboxed environments:
 
 ```
-+-------------------------------------+
-|         Agent SDK (Python)          |
-|  (Model-agnostic via LiteLLM)      |
-+-------------------------------------+
-|         Computer SDK                |
-|  (Keyboard, mouse, screen capture)  |
-+-------------------------------------+
-|       Sandbox Environment           |
-|  +----------+  +----------------+  |
-|  | macOS VM |  | Linux Container|  |
-|  | (Apple   |  | (Docker)       |  |
-|  | Silicon) |  |                |  |
-|  +----------+  +----------------+  |
-+-------------------------------------+
+┌─────────────────────────────────────┐
+│         Agent SDK (Python)          │
+│  (Model-agnostic via LiteLLM)      │
+├─────────────────────────────────────┤
+│         Computer SDK                │
+│  (Keyboard, mouse, screen capture)  │
+├─────────────────────────────────────┤
+│       Sandbox Environment           │
+│  ┌──────────┐  ┌──────────────────┐ │
+│  │ macOS VM │  │ Linux Container  │ │
+│  │ (Apple   │  │ (Docker)         │ │
+│  │ Silicon) │  │                  │ │
+│  └──────────┘  └──────────────────┘ │
+└─────────────────────────────────────┘
 ```
 
 **Key Features:**
@@ -220,22 +220,22 @@ Lightweight, accessibility-API-first approach:
 
 ```
 Natural Language Command
-        |
-        v
-+---------------+
-|  VLM (any)    | <-- Supports OAI, Anthropic, Gemini, local MLX
-+-------+-------+
-        |
-        v
-+---------------+
-| Accessibility | <-- macOS AX APIs
-|   Bridge      |    Reads UI element tree
-+-------+-------+
-        |
-        v
-+---------------+
-| Action Layer  | <-- Mouse/keyboard/AppleScript
-+---------------+
+        │
+        ▼
+┌───────────────┐
+│   VLM (any)   │ ← Supports OAI, Anthropic, Gemini, local MLX
+└───────┬───────┘
+        │
+        ▼
+┌───────────────┐
+│  Accessibility│ ← macOS AX APIs
+│   Bridge      │   Reads UI element tree
+└───────┬───────┘
+        │
+        ▼
+┌───────────────┐
+│  Action Layer │ ← Mouse/keyboard/AppleScript
+└───────────────┘
 ```
 
 **Key Differentiator:**
@@ -257,7 +257,7 @@ Natural Language Command
 
 **Architecture:**
 - **Vision-Language-Action (VLA) model** — end-to-end
-- Takes screenshot, understands UI, predicts action (single model)
+- Takes screenshot → understands UI → predicts action (single model)
 - Academic research, open-source with weights
 
 **Relevance to Us:** Research reference for end-to-end VLA approaches.
@@ -279,7 +279,7 @@ Natural Language Command
 
 ## 4. Open-Source Grounding Models (VyUI Alternatives)
 
-These are the "eyes" — models that take a screenshot + text description and output pixel coordinates of the target element. This is what VyUI does, and where our agent is weakest.
+These are the "eyes" — models that take a screenshot + text description → output pixel coordinates of the target element. This is what VyUI does, and where our agent is weakest.
 
 ### Comparison Table
 
@@ -320,7 +320,7 @@ These are the "eyes" — models that take a screenshot + text description and ou
 
 #### UI-TARS 1.5-7B (ByteDance)
 
-**End-to-end: screenshot to action prediction.**
+**End-to-end: screenshot → action prediction.**
 
 - Doesn't just find elements — predicts the action too
 - Fine-tuned for computer control, screen detection, action prediction
@@ -333,6 +333,27 @@ These are the "eyes" — models that take a screenshot + text description and ou
 
 ## 5. Architectural Comparison: Our Agent vs. The Field
 
+### Our Current Architecture
+
+```
+User Command → IntentParser (LLM) → Sequential or Agentic
+                                            │
+                                    ┌───────┴───────┐
+                                    │  Observe      │ ← Qwen2-VL (generic)
+                                    │  (screenshot) │
+                                    ├───────────────┤
+                                    │  Think        │ ← Gemma2:9b
+                                    │  (plan next)  │
+                                    ├───────────────┤
+                                    │  Act          │ ← PyAutoGUI/AppleScript
+                                    │  (execute)    │
+                                    ├───────────────┤
+                                    │  Check        │ ← VLM condition check
+                                    │  (complete?)  │
+                                    └───────────────┘
+                                    Loop max 35 times
+```
+
 ### Gap Analysis
 
 | Capability | Our Agent | VyUI | Agent S2 | UI-TARS | macOS-use |
@@ -340,19 +361,22 @@ These are the "eyes" — models that take a screenshot + text description and ou
 | **Grounding Model** | Generic VLM (prompted) | Custom trained | Mixture-of-Grounding | Purpose-built VLM | Generic VLM |
 | **Grounding Accuracy** | ~40-60% | ~92% | ~80% | ~85% | ~40-60% |
 | **Accessibility API** | None | Hybrid | Structural expert | None | Primary |
-| **Context Persistence** | Per-plan | Continuous | Continual memory | Per-session | None |
-| **Error Recovery** | retry_different + replan | Real-time retry | Hierarchical replan | Built-in retry | None |
-| **Agent Architecture** | Planner + Verifier | Frontier Agents | Manager-Worker | Single model | Single loop |
-| **Action Verification** | Vision-based verify step | Immediate | Multi-scale | Screenshot diff | None |
-| **Learning** | Skill library | Unknown | Past task memory | None | None |
+| **Context Persistence** | Last 10 entries | Continuous | Continual memory | Per-session | None |
+| **Error Recovery** | LLM-dependent | Real-time retry | Hierarchical replan | Built-in retry | None |
+| **Agent Architecture** | Single loop | Frontier Agents | Manager-Worker | Single model | Single loop |
+| **Coordinate System** | Normalized→pixel→logical (3 transforms) | Native pixel | Model-dependent | Native | AX coordinates |
+| **Action Verification** | Next-cycle observation | Immediate | Multi-scale | Screenshot diff | None |
+| **Learning** | None | Unknown | Past task memory | None | None |
 | **Sandboxing** | None (runs on host) | None | None | None | None |
 
 ### Critical Gaps (Priority Order)
 
 1. **Grounding accuracy** — Our biggest problem. Going from ~40-60% to ~85% would transform reliability.
 2. **No accessibility API** — We're vision-only, missing free structural data.
-3. **No persistent context** — Each observation starts from scratch (though our verifier helps).
-4. **Single grounding strategy** — We use one model; Agent S2 proves multiple experts are better.
+3. **No action verification** — We don't check if an action succeeded before moving on.
+4. **No persistent context** — Each observation starts from scratch.
+5. **No error recovery** — Failed actions just get logged, no retry logic.
+6. **Single grounding strategy** — We use one model; Agent S2 proves multiple experts are better.
 
 ---
 
@@ -362,8 +386,8 @@ These are the "eyes" — models that take a screenshot + text description and ou
 
 1. **Swap Qwen2-VL for UGround-7B** as the grounding model
    - Same backbone, but fine-tuned for UI elements
-   - Expected improvement: 40-60% to ~80-85% accuracy
-   - Minimal code changes (same API interface)
+   - Expected improvement: 40-60% → ~80-85% accuracy
+   - Minimal code changes (same Ollama/HuggingFace interface)
 
 2. **Add macOS Accessibility API bridge**
    - Use AXUIElement to get UI element tree
@@ -372,29 +396,34 @@ These are the "eyes" — models that take a screenshot + text description and ou
 
 ### Short-term (Week 3-4)
 
-3. **Add persistent context tracking**
+3. **Add action verification**
+   - After each action, take a quick screenshot diff
+   - Check if the screen changed in the expected way
+   - Retry if no change detected (up to 3 times)
+
+4. **Add persistent context tracking**
    - Maintain a state model: frontmost app, window title, known elements
    - Update incrementally instead of full re-observation
    - Use accessibility API for cheap state polling
 
-4. **Implement Mixture-of-Grounding** (inspired by Agent S2)
+### Medium-term (Month 2)
+
+5. **Implement Mixture-of-Grounding** (inspired by Agent S2)
    - Visual expert: UGround/GUI-Actor for pixel grounding
    - Structural expert: Accessibility API for element tree
    - Text expert: OCR for text-based element finding
    - Router: Choose expert based on element type
 
-### Medium-term (Month 2)
-
-5. **Add continual learning memory**
+6. **Add continual learning memory**
    - Store successful task completions
    - Recall similar past tasks during planning
    - Build a library of reusable action sequences
 
 ### Long-term (Month 3+)
 
-6. **Explore fine-tuning** our own grounding model on macOS-specific data
-7. **Add Cua-based sandboxing** for safe development and testing
-8. **Consider UI-TARS-style end-to-end model** to simplify the pipeline
+7. **Explore fine-tuning** our own grounding model on macOS-specific data
+8. **Add Cua-based sandboxing** for safe development and testing
+9. **Consider UI-TARS-style end-to-end model** to simplify the pipeline
 
 ---
 
@@ -405,25 +434,28 @@ These are the "eyes" — models that take a screenshot + text description and ou
 - [GeekWire: Anthropic acquires Vercept](https://www.geekwire.com/2026/anthropic-acquires-vercept-in-early-exit-for-one-of-seattles-standout-ai-startups/)
 - [TechCrunch: Anthropic acquires Vercept](https://techcrunch.com/2026/02/25/anthropic-acquires-vercept-ai-startup-agents-computer-use-founders-investors/)
 - [Together AI + Vercept case study](https://www.together.ai/customers/vercept)
-- [Vercept Vy details](https://adviceofai.blogspot.com/2025/05/vercepts-vy.html)
-- [Vy by Vercept — SuperbCrew](https://www.superbcrew.com/vy-by-vercept-uses-advanced-ui-understanding-to-complete-tasks-on-your-mac-just-like-you-would/)
+- [Vercept's Vy details](https://adviceofai.blogspot.com/2025/05/vercepts-vy.html)
+- [Vy by Vercept – SuperbCrew](https://www.superbcrew.com/vy-by-vercept-uses-advanced-ui-understanding-to-complete-tasks-on-your-mac-just-like-you-would/)
 
 ### Open-Source Frameworks
-- [Agent S / S2 — Simular AI](https://github.com/simular-ai/Agent-S)
-- [UI-TARS Desktop — ByteDance](https://github.com/bytedance/UI-TARS-desktop)
-- [UI-TARS model — HuggingFace](https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B)
-- [Cua — Computer Use Agent Platform](https://github.com/trycua/cua)
-- [macOS-use — Browser Use](https://github.com/browser-use/macOS-use)
-- [ShowUI — CVPR 2025](https://github.com/showlab/ShowUI)
-- [OpenCUA — XLANG Lab](https://github.com/xlang-ai/OpenCUA)
+- [Agent S / S2 – Simular AI](https://github.com/simular-ai/Agent-S)
+- [Agent S2 Technical Review](https://www.simular.ai/articles/agent-s2-technical-review)
+- [Simular raises $21.5M – TechCrunch](https://techcrunch.com/2025/12/02/simular-releases-mac-os-ai-agent-raises-21-5m-from-felicis-with-windows-coming-soon/)
+- [UI-TARS Desktop – ByteDance](https://github.com/bytedance/UI-TARS-desktop)
+- [UI-TARS model – HuggingFace](https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B)
+- [Cua – Computer Use Agent Platform](https://github.com/trycua/cua)
+- [macOS-use – Browser Use](https://github.com/browser-use/macOS-use)
+- [ShowUI – CVPR 2025](https://github.com/showlab/ShowUI)
+- [OpenCUA – XLANG Lab](https://github.com/xlang-ai/OpenCUA)
 
 ### Grounding Models
-- [UGround — OSU NLP](https://github.com/OSU-NLP-Group/UGround)
-- [GUI-Actor — Microsoft](https://microsoft.github.io/GUI-Actor/)
+- [UGround – OSU NLP](https://github.com/OSU-NLP-Group/UGround)
+- [GUI-Actor – Microsoft](https://microsoft.github.io/GUI-Actor/)
 - [SeeClick](https://github.com/njucckevin/SeeClick)
-- [Molmo 2 — AI2](https://allenai.org/blog/molmo2)
+- [Molmo 2 – AI2](https://allenai.org/blog/molmo2)
 - [ScreenSpot-Pro benchmark](https://arxiv.org/html/2504.07981v1)
 
 ### Benchmarks
+- [ScreenSpot-Pro – HuggingFace](https://huggingface.co/blog/Ziyang/screenspot-pro)
 - [Awesome GUI Agent list](https://github.com/showlab/Awesome-GUI-Agent)
 - [GUI Agents Paper List](https://github.com/OSU-NLP-Group/GUI-Agents-Paper-List)

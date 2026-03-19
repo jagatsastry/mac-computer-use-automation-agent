@@ -2,8 +2,8 @@
 
 **Reviewer**: Distinguished Engineer (Claude Opus 4.6)
 **Date**: 2026-03-16
-**Spec reviewed**: `docs/speed-phase1-spec.md`
-**Supporting docs**: `docs/speed-phase1-prd.md`, `docs/speed-phase1-sota.md`, `docs/speed-phase1-codebase.md`
+**Spec reviewed**: `docs/features/speed-phase1/speed-phase1-spec.md`
+**Supporting docs**: `docs/features/speed-phase1/speed-phase1-prd.md`, `docs/features/speed-phase1/speed-phase1-sota.md`, `docs/features/speed-phase1/speed-phase1-codebase.md`
 **Source files verified**: `applescript_actuator.py`, `verifier.py`, `grounding_router.py`, `accessibility.py`, `agent.py`, `config.py`, `test_js_verification.py`
 
 ---

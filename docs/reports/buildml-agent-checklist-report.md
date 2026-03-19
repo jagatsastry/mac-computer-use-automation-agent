@@ -113,7 +113,7 @@ Checklist
 
 Repo assessment
 - Status: `partial`
-- Evidence: [pyproject.toml](pyproject.toml) defines `unit`, `integration`, `e2e`, and `manual` test layers; [TESTS.md](TESTS.md) records a large non-E2E baseline; scenario reports already exist under [docs/reports/](docs/reports/) and in [docs/speed-phase1-customer-report.md](docs/speed-phase1-customer-report.md).
+- Evidence: [pyproject.toml](pyproject.toml) defines `unit`, `integration`, `e2e`, and `manual` test layers; [TESTS.md](TESTS.md) records a large non-E2E baseline; scenario reports already exist under [docs/reports/](docs/reports/) and in [docs/features/speed-phase1/speed-phase1-customer-report.md](docs/features/speed-phase1/speed-phase1-customer-report.md).
 - Why this is partial: the repo has many tests and scenario docs, but not yet a single durable long-horizon benchmark harness that replays a fixed scenario set across builds.
 - Recommendation: create a small canonical agent-behavior benchmark suite with outcome and trajectory metrics, then run it regularly.
 

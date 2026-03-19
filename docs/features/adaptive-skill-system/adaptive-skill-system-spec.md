@@ -1,10 +1,10 @@
 # Adaptive Skill System: Architecture Specification
 
 **Status**: Draft — pending DE review and Short-Seller attack
-**PRD**: `docs/adaptive-skill-system-prd.md`
-**SOTA**: `docs/adaptive-skill-system-sota.md`
-**Codebase Analysis**: `docs/adaptive-skill-system-codebase.md`
-**Original Spec**: `docs/adaptive-skill-system.md`
+**PRD**: `docs/features/adaptive-skill-system/adaptive-skill-system-prd.md`
+**SOTA**: `docs/features/adaptive-skill-system/adaptive-skill-system-sota.md`
+**Codebase Analysis**: `docs/features/adaptive-skill-system/adaptive-skill-system-codebase.md`
+**Original Spec**: `docs/features/adaptive-skill-system/adaptive-skill-system.md`
 
 ---
 

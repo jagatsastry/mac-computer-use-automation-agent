@@ -1,7 +1,7 @@
 # Skill Librarian -- Architecture Spec
 
 **Status**: APPROVED (DE review complete, 5 rounds, 14 improvements)
-**PRD**: `docs/skill-librarian-prd.md` (30 ACs, approved after 3 review rounds)
+**PRD**: `docs/features/skill-librarian/skill-librarian-prd.md` (30 ACs, approved after 3 review rounds)
 **Branch**: `feature/skill-librarian`
 **Test command**: `.venv/bin/python -m pytest tests/unit/ -x -q`
 
@@ -726,8 +726,8 @@ Merge order: Engineer 1 first (provides `SkillLibrarian` class), then Engineer 2
 
 ## 11. References
 
-- **PRD**: `docs/skill-librarian-prd.md` (30 ACs)
-- **SOTA research**: `docs/skill-librarian-sota.md` (MACLA, ReMe, ExpeL, EvolveR, Voyager)
-- **Codebase analysis**: `docs/skill-librarian-codebase.md`
-- **Design doc**: `docs/adaptive-skill-system.md` (Layer 5: Librarian / Promotion Pipeline)
+- **PRD**: `docs/features/skill-librarian/skill-librarian-prd.md` (30 ACs)
+- **SOTA research**: `docs/features/skill-librarian/skill-librarian-sota.md` (MACLA, ReMe, ExpeL, EvolveR, Voyager)
+- **Codebase analysis**: `docs/features/skill-librarian/skill-librarian-codebase.md`
+- **Design doc**: `docs/features/adaptive-skill-system/adaptive-skill-system.md` (Layer 5: Librarian / Promotion Pipeline)
 - **Key source files**: experience.py, models.py, distiller.py, registry.py, loader.py, agent.py, derived_skill.py, protocols.py

@@ -22,7 +22,7 @@
 - 1 in `test_scroll_action.py` — scroll prompt action list mismatch
 
 ## Manual Findings
-- Manual test script at `docs/survey-gaps-manual-test.md` (not executed — requires live macOS desktop + vision server)
+- Manual test script at `docs/features/survey-gaps/ (no dedicated manual test script; see survey-gaps-customer-scenarios.md)` (not executed — requires live macOS desktop + vision server)
 
 ## Blocked Checks
 - E2E testing requires live macOS desktop with accessibility permissions and vision server running

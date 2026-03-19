@@ -3,7 +3,7 @@
 **Date**: 2026-03-16
 **Author**: Product Manager (Claude Opus 4.6)
 **Status**: Draft
-**Research inputs**: `docs/speed-phase1-sota.md`, `docs/speed-phase1-codebase.md`
+**Research inputs**: `docs/features/speed-phase1/speed-phase1-sota.md`, `docs/features/speed-phase1/speed-phase1-codebase.md`
 
 ---
 

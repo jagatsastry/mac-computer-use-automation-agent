@@ -1,1 +1,1 @@
-Read and display the contents of docs/QUICKSTART.md to the user. Show the full file contents as-is, without summarizing or omitting anything.
+Read and display the contents of docs/guides/QUICKSTART.md to the user. Show the full file contents as-is, without summarizing or omitting anything.

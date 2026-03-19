@@ -1,5 +1,5 @@
 > Historical running notes file.
-> It contains useful context, but it is not the current source of truth for runtime behavior. Use `README.md`, `docs/QUICKSTART.md`, and `IMPLEMENTATION_STATUS.md` for that.
+> It contains useful context, but it is not the current source of truth for runtime behavior. Use `README.md`, `docs/guides/QUICKSTART.md`, and `IMPLEMENTATION_STATUS.md` for that.
 
 # macOS Automation Agent - Session Summary
 

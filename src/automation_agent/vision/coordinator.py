@@ -59,6 +59,9 @@ class ScreenCoordinatorImpl:
         self._event_logger = event_logger
         self._validate_model()
         self._grounding_enabled = bool(config.grounding_model)
+        # Last call's full prompt/response — read by agent for report logging
+        self.last_prompt: str = ""
+        self.last_response: str = ""
 
         # Accessibility bridge: use provided instance, auto-create if enabled, or None.
         self.accessibility = accessibility
@@ -284,19 +287,22 @@ class ScreenCoordinatorImpl:
                 provider is resolved via ``config.resolve_step_model(step)``
                 instead of the global ``model_provider``.
         """
+        self.last_prompt = prompt
         if step:
             provider, model = self.config.resolve_step_model(step)
         else:
             provider = self.config.model_provider.value
             model = ""
         if provider == "anthropic":
-            return await self._call_anthropic_vision(prompt, screenshots_b64, model=model)
+            result = await self._call_anthropic_vision(prompt, screenshots_b64, model=model)
         elif provider == "gemini":
-            return await self._call_gemini_vision(prompt, screenshots_b64, model=model)
+            result = await self._call_gemini_vision(prompt, screenshots_b64, model=model)
         elif provider == "openai":
-            return await self._call_openai_vision(prompt, screenshots_b64, model=model)
+            result = await self._call_openai_vision(prompt, screenshots_b64, model=model)
         else:
-            return await self._call_local_vision(prompt, screenshots_b64, model=model)
+            result = await self._call_local_vision(prompt, screenshots_b64, model=model)
+        self.last_response = result
+        return result
 
     async def _call_local_vision(
         self, prompt: str, screenshots_b64: Sequence[str], model: str = "",
@@ -555,10 +561,13 @@ class ScreenCoordinatorImpl:
             "stream": False,
         }
 
+        self.last_prompt = prompt
         async with httpx.AsyncClient(timeout=self.config.vision_server_timeout) as client:
             response = await client.post(url, json=payload)
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            text = response.json()["choices"][0]["message"]["content"]
+            self.last_response = text
+            return text
 
     def _parse_coordinates(self, response: str) -> Optional[Tuple[float, float, float]]:
         """Parse coordinates and optional confidence from a vision model response.

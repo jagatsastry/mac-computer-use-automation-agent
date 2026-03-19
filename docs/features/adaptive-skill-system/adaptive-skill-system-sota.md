@@ -1,6 +1,6 @@
 # Adaptive Skill System: State-of-the-Art Research
 
-This document surveys state-of-the-art approaches relevant to the four core problems in our Adaptive Skill System design (`docs/adaptive-skill-system.md`):
+This document surveys state-of-the-art approaches relevant to the four core problems in our Adaptive Skill System design (`docs/features/adaptive-skill-system/adaptive-skill-system.md`):
 
 1. Analogical skill/plan transfer
 2. Run-local procedure correction / online plan repair
@@ -332,7 +332,7 @@ Our spec's skill card format with abstraction-first summaries is correct and wel
 
 ## Recommended Approach for Our Context
 
-Based on the SOTA research, the spec in `docs/adaptive-skill-system.md` is **well-aligned with current best practices**. The following refinements are recommended:
+Based on the SOTA research, the spec in `docs/features/adaptive-skill-system/adaptive-skill-system.md` is **well-aligned with current best practices**. The following refinements are recommended:
 
 ### MVP Refinements
 
@@ -414,7 +414,7 @@ Based on the SOTA research, the spec in `docs/adaptive-skill-system.md` is **wel
 
 **Verdict: The spec is sound and well-aligned with SOTA. Proceed with implementation.**
 
-The design in `docs/adaptive-skill-system.md` correctly captures the key patterns from the research literature:
+The design in `docs/features/adaptive-skill-system/adaptive-skill-system.md` correctly captures the key patterns from the research literature:
 
 1. **Abstraction-first skill cards** for analogical transfer (validated by Voyager, SkillWeaver, AgentTrek)
 2. **LLM-heavy top-k routing** over embedding-only retrieval (validated by RankRAG, Agent Skills survey)
