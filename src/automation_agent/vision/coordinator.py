@@ -28,6 +28,7 @@ COORDINATE_SPACES: Dict[str, str] = {
     "qwen3-vl": "normalized_0_1000",  # Qwen3-VL returns 0-1000 normalized
     "qwen2.5-vl": "normalized_0_1000",  # Qwen2.5-VL returns 0-1000 normalized
     "qwen2-vl": "normalized_0_1000",  # Qwen2-VL returns 0-1000 normalized
+    "gemini": "normalized_0_1000",  # Gemini returns 0-1000 normalized coords
     "claude-sonnet-4-20250514": "pixel",  # Claude returns pixel coords
     "gpt-4.1": "pixel",  # GPT computer-use returns pixel coords
     "gpt-4o": "pixel",
