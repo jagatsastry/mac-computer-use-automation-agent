@@ -352,6 +352,11 @@ class TestPromptNavigationInstruction:
         content = (planner._prompts_dir / "replan_from_state.md").read_text()
         assert "contract, not a suggestion" in content
 
+    def test_plan_from_prompt_separates_type_and_submit(self):
+        planner = ActionPlannerImpl(_make_config())
+        content = (planner._prompts_dir / "plan_from_prompt.md").read_text()
+        assert "Do NOT treat typing as submission" in content
+
 
 # ---------------------------------------------------------------------------
 # Fix 4: Navigation prepend safety net

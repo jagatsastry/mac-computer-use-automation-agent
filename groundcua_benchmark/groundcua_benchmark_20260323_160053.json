@@ -1,0 +1,920 @@
+{
+  "run_tag": "20260323_160053",
+  "n_samples": 50,
+  "n_platforms": 50,
+  "models": {
+    "molmo-point-gui": {
+      "model_id": "allenai/MolmoPoint-GUI-8B",
+      "accuracy": 68.0,
+      "hit_rate": 68.0,
+      "found_accuracy": 69.4,
+      "hits": 34,
+      "misses": 15,
+      "not_found": 1,
+      "errors": 0,
+      "total": 50
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo-point-gui",
+      "predicted_x": 138,
+      "predicted_y": 336,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": true,
+      "latency_s": 158.6243860721588,
+      "raw_response": "FOUND: x=138.9, y=336.4, confidence=1.0\nRAW: <points coords=\"<POINT_993><POINT_2759><POINT_2769>1<POINT_2758>\">CPU usage:</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo-point-gui",
+      "predicted_x": 1891,
+      "predicted_y": 499,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 39.05486488342285,
+      "raw_response": "FOUND: x=1891.1, y=499.2, confidence=1.0\nRAW: <points coords=\"<POINT_1415><POINT_2759><POINT_2765>1<POINT_2758>\">form settings</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo-point-gui",
+      "predicted_x": 61,
+      "predicted_y": 86,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 34.54720187187195,
+      "raw_response": "FOUND: x=61.2, y=86.9, confidence=1.0\nRAW: <points coords=\"<POINT_340><POINT_2542><POINT_2549>1<POINT_2539>\">create</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "molmo-point-gui",
+      "predicted_x": 44,
+      "predicted_y": 786,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 36.93931221961975,
+      "raw_response": "FOUND: x=44.5, y=786.4, confidence=1.0\nRAW: <points coords=\"<POINT_2027><POINT_2761><POINT_2769>1<POINT_2758>\">maximize</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "molmo-point-gui",
+      "predicted_x": 134,
+      "predicted_y": 35,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 23.474323987960815,
+      "raw_response": "FOUND: x=134.8, y=35.2, confidence=1.0\nRAW: <points coords=\"<POINT_253><POINT_1915><POINT_1917>1<POINT_1912>\">Insert</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "molmo-point-gui",
+      "predicted_x": 1885,
+      "predicted_y": 825,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": false,
+      "latency_s": 38.22328972816467,
+      "raw_response": "FOUND: x=1885.8, y=825.2, confidence=1.0\nRAW: <points coords=\"<POINT_2268><POINT_2762><POINT_2769>1<POINT_2758>\">zoom in</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "molmo-point-gui",
+      "predicted_x": 53,
+      "predicted_y": 14,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": true,
+      "latency_s": 24.12109088897705,
+      "raw_response": "FOUND: x=53.5, y=14.1, confidence=1.0\nRAW: <points coords=\"<POINT_197><POINT_1916><POINT_1923>1<POINT_1912>\">Maximize</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "molmo-point-gui",
+      "predicted_x": 1354,
+      "predicted_y": 382,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": true,
+      "latency_s": 27.0345139503479,
+      "raw_response": "FOUND: x=1354.9, y=382.1, confidence=1.0\nRAW: <points coords=\"<POINT_1131><POINT_1913><POINT_1918>1<POINT_1912>\">Toggle command panel</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "molmo-point-gui",
+      "predicted_x": 15,
+      "predicted_y": 544,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 74.07301783561707,
+      "raw_response": "FOUND: x=15.5, y=544.6, confidence=1.0\nRAW: <points coords=\"<POINT_1444><POINT_1916><POINT_1917>1<POINT_1912>\">Cutter tool</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "molmo-point-gui",
+      "predicted_x": 864,
+      "predicted_y": 93,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": true,
+      "latency_s": 33.974416732788086,
+      "raw_response": "FOUND: x=864.6, y=93.9, confidence=1.0\nRAW: <points coords=\"<POINT_440><POINT_2541><POINT_2547>1<POINT_2483><POINT_2541><POINT_2549>2",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "molmo-point-gui",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        4.2749999999999995,
+        256.1142857142857,
+        47.475,
+        284.9143371428571
+      ],
+      "hit": false,
+      "latency_s": 285.13743901252747,
+      "raw_response": "NOT_FOUND\nRAW: <points coords=\"<POINT_806>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "molmo-point-gui",
+      "predicted_x": 144,
+      "predicted_y": 184,
+      "bbox": [
+        96.66000366210938,
+        166.11428571428573,
+        195.06000366210938,
+        199.6285714285714
+      ],
+      "hit": true,
+      "latency_s": 35.57246685028076,
+      "raw_response": "FOUND: x=144.2, y=184.1, confidence=1.0\nRAW: <points coords=\"<POINT_627><POINT_2762><POINT_2763>1<POINT_2758>\">people</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "molmo-point-gui",
+      "predicted_x": 251,
+      "predicted_y": 80,
+      "bbox": [
+        328.8,
+        702.72,
+        364.8,
+        735.84
+      ],
+      "hit": false,
+      "latency_s": 32.9872567653656,
+      "raw_response": "FOUND: x=251.8, y=80.1, confidence=1.0\nRAW: <points coords=\"<POINT_347><POINT_2542><POINT_2547>1<POINT_2539>\">Header</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "molmo-point-gui",
+      "predicted_x": 97,
+      "predicted_y": 139,
+      "bbox": [
+        43.24577227290373,
+        10.105496627414977,
+        221.38241823563664,
+        36.35216920949128
+      ],
+      "hit": false,
+      "latency_s": 37.94416093826294,
+      "raw_response": "FOUND: x=97.0, y=139.6, confidence=1.0\nRAW: <points coords=\"<POINT_504><POINT_2761><POINT_2764>1<POINT_2758>\">board name</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "molmo-point-gui",
+      "predicted_x": 869,
+      "predicted_y": 156,
+      "bbox": [
+        845.4599853515625,
+        138.10285714285715,
+        891.0599853515625,
+        181.09714285714284
+      ],
+      "hit": true,
+      "latency_s": 34.49560880661011,
+      "raw_response": "FOUND: x=869.1, y=156.7, confidence=1.0\nRAW: <points coords=\"<POINT_582><POINT_2543><POINT_2550>1<POINT_2539>\">more options</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "molmo-point-gui",
+      "predicted_x": 320,
+      "predicted_y": 101,
+      "bbox": [
+        299.68861272448606,
+        87.39076773566565,
+        332.131112724486,
+        119.36505344995138
+      ],
+      "hit": true,
+      "latency_s": 25.557631969451904,
+      "raw_response": "FOUND: x=320.5, y=101.8, confidence=1.0\nRAW: <points coords=\"<POINT_416><POINT_1915><POINT_1917>1<POINT_1912>\">decrease size</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "molmo-point-gui",
+      "predicted_x": 415,
+      "predicted_y": 97,
+      "bbox": [
+        821.25,
+        128.54857142857142,
+        870.5250000000001,
+        180.77142857142854
+      ],
+      "hit": false,
+      "latency_s": 41.05569100379944,
+      "raw_response": "FOUND: x=415.8, y=97.5, confidence=1.0\nRAW: <points coords=\"<POINT_329><POINT_2762><POINT_2765>1<POINT_2758>\">expand/hide</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "molmo-point-gui",
+      "predicted_x": 128,
+      "predicted_y": 11,
+      "bbox": [
+        118.20937500000001,
+        1.2857142857142858,
+        147.009375,
+        21.857142857142858
+      ],
+      "hit": true,
+      "latency_s": 23.30938696861267,
+      "raw_response": "FOUND: x=128.1, y=11.4, confidence=1.0\nRAW: <points coords=\"<POINT_200><POINT_1914><POINT_1919>1<POINT_1912>\">File</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "molmo-point-gui",
+      "predicted_x": 264,
+      "predicted_y": 164,
+      "bbox": [
+        255.79984342463385,
+        150.38000457246935,
+        289.39984342463384,
+        182.50000457246935
+      ],
+      "hit": true,
+      "latency_s": 37.9002480506897,
+      "raw_response": "FOUND: x=264.8, y=164.2, confidence=1.0\nRAW: <points coords=\"<POINT_570><POINT_2761><POINT_2770>1<POINT_2758>\">font color</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "molmo-point-gui",
+      "predicted_x": 196,
+      "predicted_y": 44,
+      "bbox": [
+        176.7804314084002,
+        34.78159320413663,
+        224.78043140840023,
+        53.29587891842233
+      ],
+      "hit": true,
+      "latency_s": 36.0744891166687,
+      "raw_response": "FOUND: x=196.6, y=44.9, confidence=1.0\nRAW: <points coords=\"<POINT_263><POINT_2761><POINT_2767>1<POINT_2758>\">Plots</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "molmo-point-gui",
+      "predicted_x": 228,
+      "predicted_y": 34,
+      "bbox": [
+        633.0050946745305,
+        991.0315173816543,
+        671.4050946745305,
+        1020.5172316673686
+      ],
+      "hit": false,
+      "latency_s": 37.643949031829834,
+      "raw_response": "FOUND: x=228.1, y=34.7, confidence=1.0\nRAW: <points coords=\"<POINT_264><POINT_2759><POINT_2768>1<POINT_2758>\">Voice call</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "molmo-point-gui",
+      "predicted_x": 1638,
+      "predicted_y": 130,
+      "bbox": [
+        1573.17,
+        106.22571428571429,
+        1701.0700000000002,
+        158.29714285714286
+      ],
+      "hit": true,
+      "latency_s": 41.357118368148804,
+      "raw_response": "FOUND: x=1638.9, y=130.1, confidence=1.0\nRAW: <points coords=\"<POINT_418><POINT_2761><POINT_2764>1<POINT_2758>\">slot 1</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "molmo-point-gui",
+      "predicted_x": 228,
+      "predicted_y": 109,
+      "bbox": [
+        76.890756302521,
+        600.2881152460985,
+        117.22689075630254,
+        636.4054193105815
+      ],
+      "hit": false,
+      "latency_s": 41.12601113319397,
+      "raw_response": "FOUND: x=228.1, y=109.2, confidence=1.0\nRAW: <points coords=\"<POINT_447><POINT_2759><POINT_2767>1<POINT_2758>\">Add various raster map layers</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "molmo-point-gui",
+      "predicted_x": 89,
+      "predicted_y": 319,
+      "bbox": [
+        79.07899737508691,
+        290.28826130832925,
+        98.27899737508693,
+        404.45968987975783
+      ],
+      "hit": true,
+      "latency_s": 23.678274154663086,
+      "raw_response": "FOUND: x=89.0, y=319.3, confidence=1.0\nRAW: <points coords=\"<POINT_927><POINT_1914><POINT_1919>1<POINT_1912>\">History</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "molmo-point-gui",
+      "predicted_x": 218,
+      "predicted_y": 251,
+      "bbox": [
+        203.81274138190918,
+        240.8708561123953,
+        235.20774138190922,
+        261.045141826681
+      ],
+      "hit": true,
+      "latency_s": 19.206897258758545,
+      "raw_response": "FOUND: x=218.7, y=251.3, confidence=1.0\nRAW: <points coords=\"<POINT_582><POINT_1163><POINT_1175>1<POINT_1162>\">45</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "molmo-point-gui",
+      "predicted_x": 275,
+      "predicted_y": 31,
+      "bbox": [
+        263.63656862260507,
+        25.001250417318666,
+        298.83656862260506,
+        41.45839327446152
+      ],
+      "hit": true,
+      "latency_s": 33.250547885894775,
+      "raw_response": "FOUND: x=275.4, y=31.3, confidence=1.0\nRAW: <points coords=\"<POINT_259><POINT_1913><POINT_1919>1<POINT_1912>\">Tools</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "molmo-point-gui",
+      "predicted_x": 1901,
+      "predicted_y": 49,
+      "bbox": [
+        1892.2815219372508,
+        40.65567521204613,
+        1909.8932630980246,
+        56.60916801677309
+      ],
+      "hit": true,
+      "latency_s": 42.463505029678345,
+      "raw_response": "FOUND: x=1901.5, y=49.2, confidence=1.0\nRAW: <points coords=\"<POINT_317><POINT_2761><POINT_2771>1<POINT_2758>\">Close interface</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "molmo-point-gui",
+      "predicted_x": 1774,
+      "predicted_y": 451,
+      "bbox": [
+        1757.997421875,
+        423.37142857142857,
+        1812.9724218749998,
+        472.53714285714284
+      ],
+      "hit": true,
+      "latency_s": 28.655760049819946,
+      "raw_response": "FOUND: x=1774.2, y=451.3, confidence=1.0\nRAW: <points coords=\"<POINT_781><POINT_2762><POINT_2771>1<POINT_2758>\">delete</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "molmo-point-gui",
+      "predicted_x": 14,
+      "predicted_y": 462,
+      "bbox": [
+        6.361484375000001,
+        426.2057142857143,
+        27.288984375,
+        514.4257142857143
+      ],
+      "hit": true,
+      "latency_s": 25.377068996429443,
+      "raw_response": "FOUND: x=14.5, y=462.6, confidence=1.0\nRAW: <points coords=\"<POINT_1294><POINT_2213><POINT_2215>1<POINT_2209>\">File system</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "molmo-point-gui",
+      "predicted_x": 118,
+      "predicted_y": 337,
+      "bbox": [
+        1338.9,
+        938.4000000000001,
+        1478.1000000000001,
+        974.8285714285714
+      ],
+      "hit": false,
+      "latency_s": 28.39642906188965,
+      "raw_response": "FOUND: x=118.0, y=337.9, confidence=1.0\nRAW: <points coords=\"<POINT_992><POINT_2762><POINT_2768>1<POINT_2758>\">Collections</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "molmo-point-gui",
+      "predicted_x": 721,
+      "predicted_y": 553,
+      "bbox": [
+        394.655625,
+        264.89714285714285,
+        490.205625,
+        339.4542857142857
+      ],
+      "hit": false,
+      "latency_s": 15.725937843322754,
+      "raw_response": "FOUND: x=721.4, y=553.9, confidence=1.0\nRAW: <points coords=\"<POINT_1063><POINT_1166><POINT_1171>1<POINT_1162>\">Sticky notes</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "molmo-point-gui",
+      "predicted_x": 75,
+      "predicted_y": 79,
+      "bbox": [
+        57.075,
+        67.88571428571429,
+        102.675,
+        95.65714285714284
+      ],
+      "hit": true,
+      "latency_s": 29.171561002731323,
+      "raw_response": "FOUND: x=75.9, y=79.3, confidence=1.0\nRAW: <points coords=\"<POINT_381><POINT_2759><POINT_2769>1<POINT_2758>\">Edit</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "molmo-point-gui",
+      "predicted_x": 118,
+      "predicted_y": 815,
+      "bbox": [
+        5.460003662109375,
+        992.3142857142857,
+        245.4600036621094,
+        1020.0
+      ],
+      "hit": false,
+      "latency_s": 38.343897104263306,
+      "raw_response": "FOUND: x=118.0, y=815.6, confidence=1.0\nRAW: <points coords=\"<POINT_2212><POINT_2762><POINT_2766>1<POINT_2758>\">calibre 7.19 created by kovid goyal</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "molmo-point-gui",
+      "predicted_x": 576,
+      "predicted_y": 719,
+      "bbox": [
+        593.485546875,
+        433.67703125,
+        617.935546875,
+        454.11703125
+      ],
+      "hit": false,
+      "latency_s": 34.12780976295471,
+      "raw_response": "FOUND: x=576.7, y=719.8, confidence=1.0\nRAW: <points coords=\"<POINT_1986><POINT_2762><POINT_2763>1<POINT_2758>\">change whether spiro is active or not</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "molmo-point-gui",
+      "predicted_x": 262,
+      "predicted_y": 16,
+      "bbox": [
+        249.76456510543824,
+        2.0628571428571427,
+        292.45206510543824,
+        31.974285714285713
+      ],
+      "hit": true,
+      "latency_s": 19.645928859710693,
+      "raw_response": "FOUND: x=262.9, y=16.6, confidence=1.0\nRAW: <points coords=\"<POINT_205><POINT_1916><POINT_1924>1<POINT_1912>\">add .</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "molmo-point-gui",
+      "predicted_x": 319,
+      "predicted_y": 252,
+      "bbox": [
+        125.91994628906251,
+        231.16570443289623,
+        512.3199462890624,
+        369.34856157575337
+      ],
+      "hit": true,
+      "latency_s": 31.827069997787476,
+      "raw_response": "FOUND: x=319.9, y=252.6, confidence=1.0\nRAW: <points coords=\"<POINT_846><POINT_2541><POINT_2547>1<POINT_2539>\">Quote - Honesty is Best Policy</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "molmo-point-gui",
+      "predicted_x": 1576,
+      "predicted_y": 173,
+      "bbox": [
+        1545.5117797851562,
+        164.50717817034038,
+        1593.5117797851562,
+        187.65003531319755
+      ],
+      "hit": true,
+      "latency_s": 28.324014902114868,
+      "raw_response": "FOUND: x=1576.4, y=173.5, confidence=1.0\nRAW: <points coords=\"<POINT_612><POINT_2761><POINT_2764>1<POINT_2758>\">name</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "molmo-point-gui",
+      "predicted_x": 543,
+      "predicted_y": 283,
+      "bbox": [
+        338.325,
+        1292.8228571428572,
+        413.7975,
+        1378.0857142857144
+      ],
+      "hit": false,
+      "latency_s": 28.61670207977295,
+      "raw_response": "FOUND: x=543.1, y=283.6, confidence=1.0\nRAW: <points coords=\"<POINT_699><POINT_2762><POINT_2769>1<POINT_2758>\">send</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "molmo-point-gui",
+      "predicted_x": 1654,
+      "predicted_y": 797,
+      "bbox": [
+        1470.5775272369385,
+        1012.381718837193,
+        1535.6775272369384,
+        1034.7531474086218
+      ],
+      "hit": false,
+      "latency_s": 32.4133198261261,
+      "raw_response": "FOUND: x=1654.7, y=797.5, confidence=1.0\nRAW: <points coords=\"<POINT_2208><POINT_2759><POINT_2763>1<POINT_2758>\">UTF-8(file encoding)</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "molmo-point-gui",
+      "predicted_x": 65,
+      "predicted_y": 12,
+      "bbox": [
+        48.21695001113736,
+        2.740858559592592,
+        84.21695001113737,
+        25.36942998816402
+      ],
+      "hit": true,
+      "latency_s": 26.708434104919434,
+      "raw_response": "FOUND: x=65.7, y=12.6, confidence=1.0\nRAW: <points coords=\"<POINT_198><POINT_2540><POINT_2552>1<POINT_2539>\">Edit</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "molmo-point-gui",
+      "predicted_x": 426,
+      "predicted_y": 606,
+      "bbox": [
+        420.3660099792481,
+        600.4617930603027,
+        438.006009979248,
+        615.867507346017
+      ],
+      "hit": true,
+      "latency_s": 17.206116914749146,
+      "raw_response": "FOUND: x=426.9, y=606.5, confidence=1.0\nRAW: <points coords=\"<POINT_1429><POINT_1583><POINT_1591>1<POINT_1582>\">Cursor</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "molmo-point-gui",
+      "predicted_x": 1228,
+      "predicted_y": 142,
+      "bbox": [
+        1190.4,
+        127.54285714285713,
+        1262.3999999999999,
+        158.4
+      ],
+      "hit": true,
+      "latency_s": 19.992452144622803,
+      "raw_response": "FOUND: x=1228.1, y=142.1, confidence=1.0\nRAW: <points coords=\"<POINT_557><POINT_1913><POINT_1925>1<POINT_1912>\">Play TV</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "molmo-point-gui",
+      "predicted_x": 639,
+      "predicted_y": 131,
+      "bbox": [
+        584.4400024414062,
+        110.05714285714286,
+        730.0400024414063,
+        147.0857142857143
+      ],
+      "hit": true,
+      "latency_s": 20.082559823989868,
+      "raw_response": "FOUND: x=639.9, y=131.0, confidence=1.0\nRAW: <points coords=\"<POINT_481><POINT_1916><POINT_1922>1<POINT_1912>\">edit widgets</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "molmo-point-gui",
+      "predicted_x": 1000,
+      "predicted_y": 431,
+      "bbox": [
+        965.4600036621094,
+        416.0,
+        1049.4600036621093,
+        452.40000000000003
+      ],
+      "hit": true,
+      "latency_s": 26.93154788017273,
+      "raw_response": "FOUND: x=1000.8, y=431.6, confidence=1.0\nRAW: <points coords=\"<POINT_1297><POINT_2541><POINT_2549>1<POINT_2539>\">delay:</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "molmo-point-gui",
+      "predicted_x": 92,
+      "predicted_y": 25,
+      "bbox": [
+        63.060003662109374,
+        5.177142857142857,
+        125.46000366210937,
+        50.47714285714286
+      ],
+      "hit": true,
+      "latency_s": 29.72165298461914,
+      "raw_response": "FOUND: x=92.9, y=25.4, confidence=1.0\nRAW: <points coords=\"<POINT_199><POINT_2542><POINT_2552>1<POINT_2539>\">metabase logo</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "molmo-point-gui",
+      "predicted_x": 18,
+      "predicted_y": 18,
+      "bbox": [
+        1.7681452751159668,
+        4.371428571428572,
+        52.115645275115966,
+        37.885714285714286
+      ],
+      "hit": true,
+      "latency_s": 30.62925696372986,
+      "raw_response": "FOUND: x=18.3, y=18.2, confidence=1.0\nRAW: <points coords=\"<POINT_196><POINT_2762><POINT_2764>1<POINT_2758>\">frappe book Logo</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "molmo-point-gui",
+      "predicted_x": 406,
+      "predicted_y": 122,
+      "bbox": [
+        378.0024559967253,
+        91.57359218759137,
+        441.8583708555054,
+        155.3593357113619
+      ],
+      "hit": true,
+      "latency_s": 33.83964395523071,
+      "raw_response": "FOUND: x=406.4, y=122.1, confidence=1.0\nRAW: <points coords=\"<POINT_452><POINT_2762><POINT_2770>1<POINT_2746><POINT_2760><POINT_2765>2\">Record/Record new track</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "molmo-point-gui",
+      "predicted_x": 869,
+      "predicted_y": 156,
+      "bbox": [
+        847.8600036621093,
+        135.49714285714288,
+        895.8600036621094,
+        179.7942857142857
+      ],
+      "hit": true,
+      "latency_s": 28.007772207260132,
+      "raw_response": "FOUND: x=869.1, y=156.7, confidence=1.0\nRAW: <points coords=\"<POINT_582><POINT_2543><POINT_2550>1<POINT_2539>\">more options</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "molmo-point-gui",
+      "predicted_x": 516,
+      "predicted_y": 117,
+      "bbox": [
+        497.47861323728046,
+        105.58950279796744,
+        534.2188203511931,
+        131.29221071589373
+      ],
+      "hit": true,
+      "latency_s": 30.24007296562195,
+      "raw_response": "FOUND: x=516.6, y=117.8, confidence=1.0\nRAW: <points coords=\"<POINT_456><POINT_2761><POINT_2769>1<POINT_2758>\">Toggle focus mode</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "molmo-point-gui",
+      "predicted_x": 1654,
+      "predicted_y": 457,
+      "bbox": [
+        1642.9072631835936,
+        445.9630293927874,
+        1674.4072631835938,
+        477.2830293927874
+      ],
+      "hit": true,
+      "latency_s": 27.72503972053528,
+      "raw_response": "FOUND: x=1654.7, y=457.7, confidence=1.0\nRAW: <points coords=\"<POINT_1354><POINT_2759><POINT_2765>1<POINT_2758>\">chart</point>",
+      "error": null
+    }
+  ]
+}

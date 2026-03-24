@@ -1,0 +1,61 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "Ordered on February 6, 2026 date text",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:17:58",
+  "run_tag": "20260319_001709",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 3.25,
+      "error": null
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 4.0,
+      "error": null
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 2.97,
+      "error": null
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"19.4\" y=\"44.4\" y=\"44.4\" alt=\"Ordered on February 6, 2026 date text\">Ordered on February 6, 2026 date text</points>",
+      "parsed_x": 198,
+      "parsed_y": 295,
+      "raw_x": 19.4,
+      "raw_y": 44.4,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 38.55,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result_20260319_001709.jpg"
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "label": "View order details",
+  "run_tag": "20260321_211733",
+  "bounds": {
+    "app": "Cursor",
+    "window_x": 0,
+    "window_y": 33,
+    "window_w": 1512,
+    "window_h": 879,
+    "content_x": 0,
+    "content_y": 103,
+    "content_w": 1512,
+    "content_h": 809
+  },
+  "desktop_size": [
+    3024,
+    1964
+  ],
+  "screen_size": [
+    1512,
+    982
+  ],
+  "crop_offset": [
+    0,
+    206
+  ],
+  "full_size": [
+    1024,
+    665
+  ],
+  "crop_size": [
+    1024,
+    547
+  ],
+  "results": {
+    "gemini-flash": {
+      "model": "gemini-flash",
+      "full": {
+        "x": 396,
+        "y": 632,
+        "latency": 8.6,
+        "raw": "FOUND: x=396, y=632, confidence=1.0"
+      },
+      "crop": {
+        "x_in_crop": 455,
+        "y_in_crop": 362,
+        "x_translated": 455,
+        "y_translated": 431,
+        "offset": [
+          0,
+          69
+        ],
+        "latency": 12.8,
+        "raw": "FOUND: x=455, y=362, confidence=0.99"
+      }
+    },
+    "gpt": {
+      "model": "gpt",
+      "full": {
+        "x": null,
+        "y": null,
+        "latency": 4.1,
+        "raw": ""
+      },
+      "crop": {
+        "x_translated": null,
+        "y_translated": null,
+        "latency": 3.9,
+        "raw": ""
+      }
+    },
+    "claude": {
+      "model": "claude",
+      "full": {
+        "x": null,
+        "y": null,
+        "latency": 3.5,
+        "raw": "NOT_FOUND"
+      },
+      "crop": {
+        "x_in_crop": 501,
+        "y_in_crop": 351,
+        "x_translated": 501,
+        "y_translated": 420,
+        "offset": [
+          0,
+          69
+        ],
+        "latency": 6.0,
+        "raw": "I need to look for the text \"View order details\" in the screenshot.\n\nLooking at the terminal/console output in the cente"
+      }
+    }
+  }
+}

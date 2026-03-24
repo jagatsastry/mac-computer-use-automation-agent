@@ -1,0 +1,64 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "Your Account & Lists",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:17:09",
+  "run_tag": "20260319_001647",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "FOUND: x=825, y=184, confidence=0.95",
+      "parsed_x": 825,
+      "parsed_y": 184,
+      "raw_x": 825.0,
+      "raw_y": 184.0,
+      "confidence": 0.95,
+      "coordinate_space": "pixel",
+      "latency_s": 2.41,
+      "error": null,
+      "image_path": "grounding_comparison/gemini_result_20260319_001647.jpg"
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "FOUND: x=956, y=95, confidence=0.95",
+      "parsed_x": 956,
+      "parsed_y": 95,
+      "raw_x": 956.0,
+      "raw_y": 95.0,
+      "confidence": 0.95,
+      "coordinate_space": "pixel",
+      "latency_s": 2.28,
+      "error": null,
+      "image_path": "grounding_comparison/gpt_result_20260319_001647.jpg"
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "FOUND: x=856, y=127, confidence=0.9",
+      "parsed_x": 856,
+      "parsed_y": 127,
+      "raw_x": 856.0,
+      "raw_y": 127.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.53,
+      "error": null,
+      "image_path": "grounding_comparison/claude_result_20260319_001647.jpg"
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"81.2\" y=\"19.2\" y=\"19.2\" alt=\"Your Account & Lists\">Your Account & Lists</points>",
+      "parsed_x": 831,
+      "parsed_y": 127,
+      "raw_x": 81.2,
+      "raw_y": 19.2,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 14.33,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result_20260319_001647.jpg"
+    }
+  }
+}

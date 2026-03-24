@@ -587,6 +587,13 @@ class ScreenCoordinatorImpl:
             confidence defaults to 0.0 if not present in response.
         """
         response = response.strip()
+        first_answer = re.search(
+            r'(^|\n)\s*(NOT_FOUND|FOUND:|<point\b|<points\b|\{)',
+            response,
+            re.IGNORECASE,
+        )
+        if first_answer:
+            response = response[first_answer.start(2):].strip()
         if response.upper().startswith("NOT_FOUND"):
             return None
 
@@ -627,9 +634,20 @@ class ScreenCoordinatorImpl:
         )
         if points_match:
             coords_str = points_match.group(1)
-            triplet = re.search(r'([0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)', coords_str)
+            triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
             if triplet:
                 return float(triplet.group(2)), float(triplet.group(3)), 0.0
+            # Molmo2 may emit either direct "ID X Y" triplets or a frame-prefixed
+            # single-image form like "1 1 914 074" where the first "1" is the frame id.
+            frame_match = re.search(
+                r'(?:^|\t|:|,|;)\s*([0-9\.]+)\s+([0-9\. ]+)',
+                coords_str,
+            )
+            if frame_match:
+                coords_str = frame_match.group(2)
+                triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+                if triplet:
+                    return float(triplet.group(2)), float(triplet.group(3)), 0.0
 
         # <points x1="N" y1="N" x2="N" y2="N"> — Molmo bounding-box format.
         # Take the center of the bounding box as the click target.

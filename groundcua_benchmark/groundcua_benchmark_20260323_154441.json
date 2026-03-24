@@ -1,0 +1,38 @@
+{
+  "run_tag": "20260323_154441",
+  "n_samples": 1,
+  "n_platforms": 1,
+  "models": {
+    "molmo-point-gui": {
+      "model_id": "allenai/MolmoPoint-GUI-8B",
+      "accuracy": 100.0,
+      "hit_rate": 100.0,
+      "found_accuracy": 100.0,
+      "hits": 1,
+      "misses": 0,
+      "not_found": 0,
+      "errors": 0,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo-point-gui",
+      "predicted_x": 138,
+      "predicted_y": 336,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": true,
+      "latency_s": 98.98692035675049,
+      "raw_response": "FOUND: x=138.9, y=336.4, confidence=1.0\nRAW: <points coords=\"<POINT_993><POINT_2759><POINT_2769>1<POINT_2698><POINT_2760><POINT_2763>2<POINT_2704><POINT_2759><POINT_2766>3",
+      "error": null
+    }
+  ]
+}

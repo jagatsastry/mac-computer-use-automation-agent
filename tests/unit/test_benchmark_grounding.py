@@ -417,6 +417,14 @@ class TestParseCoordinates:
         result = bg._parse_coordinates("NOT_FOUND - element not visible on screen")
         assert result is None
 
+    def test_not_found_before_echoed_found_prefers_not_found(self, bg):
+        """Prompt echoes after NOT_FOUND should not be parsed as coordinates."""
+        result = bg._parse_coordinates(
+            "If you find it, return the coordinates as floating point values.\n\n"
+            'NOT_FOUND\nFOUND: x="29.1" y="11.1" y="11.1"'
+        )
+        assert result is None
+
     def test_found_with_extra_whitespace_around_equals(self, bg):
         """Extra whitespace around = and , signs."""
         result = bg._parse_coordinates("FOUND: x = 300 , y = 400")
@@ -451,6 +459,11 @@ class TestParseCoordinates:
         """Molmo2 coordinates at scale extremes."""
         result = bg._parse_coordinates('<points coords="1 999 001"/>')
         assert result == (999.0, 1.0)
+
+    def test_molmo2_points_coords_with_frame_prefix(self, bg):
+        """Molmo2 single-image output may include a leading frame id."""
+        result = bg._parse_coordinates('<points coords="1 1 914 074"/>')
+        assert result == (914.0, 74.0)
 
     def test_molmo2_found_no_y_label(self, bg):
         """Molmo2 sometimes omits 'y=' label: FOUND: x=851 090 -> (851.0, 90.0)."""
@@ -526,6 +539,20 @@ class TestResolveCoordinateSpace:
     def test_molmo2_substring_match(self, bg):
         """HuggingFace-style 'mlx-community/Molmo2-8B-4bit' -> normalized_0_1000."""
         assert bg._resolve_coordinate_space("mlx-community/Molmo2-8B-4bit") == "normalized_0_1000"
+
+
+class TestMolmoRequestSizing:
+    """Molmo-family models should use the right mlx-vlm resize cap."""
+
+    def test_molmo_request_max_image_dim(self, bg):
+        assert bg._molmo_request_max_image_dim("mlx-community/Molmo-7B-D-0924-3bit") == 768
+        assert bg._molmo_request_max_image_dim("mlx-community/Molmo2-8B-5bit") == 0
+        assert bg._molmo_request_max_image_dim("mlx-community/MolmoPoint-8B-4bit") == 0
+
+    def test_molmo_request_timeout(self, bg):
+        assert bg._molmo_request_timeout_s("mlx-community/Molmo-7B-D-0924-3bit") == 120
+        assert bg._molmo_request_timeout_s("mlx-community/MolmoPoint-8B-4bit") == 120
+        assert bg._molmo_request_timeout_s("allenai/MolmoPoint-GUI-8B") == 300
 
 
 # ---------------------------------------------------------------------------

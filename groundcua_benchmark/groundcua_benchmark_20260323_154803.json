@@ -1,0 +1,200 @@
+{
+  "run_tag": "20260323_154803",
+  "n_samples": 10,
+  "n_platforms": 10,
+  "models": {
+    "molmo-point-gui": {
+      "model_id": "allenai/MolmoPoint-GUI-8B",
+      "accuracy": 60.0,
+      "hit_rate": 60.0,
+      "found_accuracy": 60.0,
+      "hits": 6,
+      "misses": 4,
+      "not_found": 0,
+      "errors": 0,
+      "total": 10
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo-point-gui",
+      "predicted_x": 138,
+      "predicted_y": 336,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": true,
+      "latency_s": 200.0723419189453,
+      "raw_response": "FOUND: x=138.9, y=336.4, confidence=1.0\nRAW: <points coords=\"<POINT_993><POINT_2759><POINT_2769>1<POINT_2758>\">CPU usage:</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo-point-gui",
+      "predicted_x": 1891,
+      "predicted_y": 499,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 37.22916579246521,
+      "raw_response": "FOUND: x=1891.1, y=499.2, confidence=1.0\nRAW: <points coords=\"<POINT_1415><POINT_2759><POINT_2765>1<POINT_2758>\">form settings</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo-point-gui",
+      "predicted_x": 61,
+      "predicted_y": 86,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 33.31971001625061,
+      "raw_response": "FOUND: x=61.2, y=86.9, confidence=1.0\nRAW: <points coords=\"<POINT_340><POINT_2542><POINT_2549>1<POINT_2539>\">create</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "molmo-point-gui",
+      "predicted_x": 495,
+      "predicted_y": 837,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 36.29074192047119,
+      "raw_response": "FOUND: x=495.7, y=837.8, confidence=1.0\nRAW: <points coords=\"<POINT_2163><POINT_2762><POINT_2766>1<POINT_2758>\">maximize</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "molmo-point-gui",
+      "predicted_x": 134,
+      "predicted_y": 35,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 22.579067945480347,
+      "raw_response": "FOUND: x=134.8, y=35.2, confidence=1.0\nRAW: <points coords=\"<POINT_253><POINT_1915><POINT_1917>1<POINT_1912>\">Insert</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "molmo-point-gui",
+      "predicted_x": 1859,
+      "predicted_y": 14,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": false,
+      "latency_s": 36.77446389198303,
+      "raw_response": "FOUND: x=1859.6, y=14.3, confidence=1.0\nRAW: <points coords=\"<POINT_255><POINT_2761><POINT_2763>1<POINT_2758>\">zoom in</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "molmo-point-gui",
+      "predicted_x": 53,
+      "predicted_y": 14,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": true,
+      "latency_s": 23.66622519493103,
+      "raw_response": "FOUND: x=53.5, y=14.1, confidence=1.0\nRAW: <points coords=\"<POINT_197><POINT_1916><POINT_1923>1<POINT_1912>\">Maximize</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "molmo-point-gui",
+      "predicted_x": 1354,
+      "predicted_y": 382,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": true,
+      "latency_s": 29.42097806930542,
+      "raw_response": "FOUND: x=1354.9, y=382.1, confidence=1.0\nRAW: <points coords=\"<POINT_1131><POINT_1913><POINT_1918>1<POINT_1912>\">Toggle command panel</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "molmo-point-gui",
+      "predicted_x": 15,
+      "predicted_y": 544,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 31.354932069778442,
+      "raw_response": "FOUND: x=15.5, y=544.6, confidence=1.0\nRAW: <points coords=\"<POINT_1444><POINT_1916><POINT_1917>1<POINT_1912>\">Cutter tool</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "molmo-point-gui",
+      "predicted_x": 864,
+      "predicted_y": 93,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": true,
+      "latency_s": 34.727262020111084,
+      "raw_response": "FOUND: x=864.6, y=93.9, confidence=1.0\nRAW: <points coords=\"<POINT_440><POINT_2541><POINT_2547>1<POINT_2539>\">Print</point>",
+      "error": null
+    }
+  ]
+}

@@ -124,6 +124,20 @@ async def test_find_element_parses_native_points_coords(mock_capture):
     assert result.y == 192
 
 
+@pytest.mark.asyncio
+async def test_find_element_parses_frame_prefixed_points_coords(mock_capture):
+    """Molmo2 single-image outputs may include a leading frame id before ID/X/Y."""
+    config = _make_config(vision_model="molmo2")
+    coord = _make_coordinator(config, mock_capture)
+    coord._call_vision_model.return_value = '<points coords="1 1 500 250" />'
+
+    result = await coord.find_element("the search bar", screenshot_b64="fakedata")
+
+    assert result is not None
+    assert result.x == 512
+    assert result.y == 192
+
+
 # ---------------------------------------------------------------------------
 # Test 3: find_element NOT_FOUND response -> returns None
 # ---------------------------------------------------------------------------
@@ -536,6 +550,13 @@ class TestParseCoordinates:
     def test_parse_found_with_whitespace(self):
         result = self.coord._parse_coordinates("  FOUND: x = 100 , y = 200  ")
         assert result == (100.0, 200.0, 0.0)
+
+    def test_parse_not_found_before_echoed_found(self):
+        result = self.coord._parse_coordinates(
+            "If you find it, return the coordinates as floating point values.\n\n"
+            'NOT_FOUND\nFOUND: x="29.1" y="11.1" y="11.1"'
+        )
+        assert result is None
 
 
 class TestModelModels:

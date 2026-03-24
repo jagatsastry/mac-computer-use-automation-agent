@@ -235,6 +235,13 @@ import re
 
 def parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     response = response.strip()
+    first_answer = re.search(
+        r'(^|\n)\s*(NOT_FOUND|FOUND:|<point\b|<points\b|\{)',
+        response,
+        re.IGNORECASE,
+    )
+    if first_answer:
+        response = response[first_answer.start(2):].strip()
     if response.upper().startswith("NOT_FOUND"):
         return None
     patterns = [
@@ -246,6 +253,18 @@ def parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
         m = re.search(pat, response, re.IGNORECASE)
         if m:
             return float(m.group(1)), float(m.group(2))
+    points_m = re.search(r'<points\b[^>]*\bcoords="([^"]+)"[^>]*/?>', response, re.IGNORECASE)
+    if points_m:
+        coords_str = points_m.group(1)
+        triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+        if triplet:
+            return float(triplet.group(2)), float(triplet.group(3))
+        frame_m = re.search(r'(?:^|\t|:|,|;)\s*([0-9\.]+)\s+([0-9\. ]+)', coords_str)
+        if frame_m:
+            coords_str = frame_m.group(2)
+            triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+            if triplet:
+                return float(triplet.group(2)), float(triplet.group(3))
     return None
 
 
@@ -309,6 +328,7 @@ def query_model(model_name: str, prompt: str, image_b64: str) -> str:
                 {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
             ]}],
+            "max_image_dim": 0,
             "max_tokens": 256, "temperature": 0,
         }
         resp = httpx.post(f"http://localhost:{port}/v1/chat/completions", json=payload, timeout=120)

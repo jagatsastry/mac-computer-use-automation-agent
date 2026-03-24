@@ -1,11 +1,15 @@
 # GroundCUA Grounding Benchmark Report
 
-**Date**: 2026-03-23
+**Date**: 2026-03-24
 **Dataset**: ServiceNow/GroundCUA (51K screenshots, 87 desktop platforms)
 **Sample size**: 50 samples from 50 platforms (seed=42)
 **Script**: `scripts/benchmark_groundcua.py`
 
-## Final Results (v5)
+This report now includes two phases:
+- v5: cloud-model baseline and benchmark fixes for Gemini / Claude / GPT
+- v6: local Molmo-family follow-up on the same 50-sample slice
+
+## Cloud Model Results (v5)
 
 | Model | Model ID | Accuracy | Hits | Misses | Not Found | Errors | Avg Latency |
 |-------|----------|----------|------|--------|-----------|--------|-------------|
@@ -19,6 +23,30 @@
 - Gemini: 39/50 = 78.0% (never refuses)
 - Claude: 20/30 = 66.7% (refuses 40% of the time)
 - GPT: 24/42 = 57.1% (refuses 16% of the time)
+
+## Molmo Family Follow-up (v6)
+
+These runs use the current benchmark script after the Molmo-specific fixes described below.
+
+| Model | Model ID | HitRate | FoundAcc | Hits | Misses | Not Found | Errors | Avg Latency |
+|-------|----------|---------|----------|------|--------|-----------|--------|-------------|
+| **Molmo** | `mlx-community/Molmo-7B-D-0924-3bit` | **10.0%** | **26.3%** | 5 | 14 | 31 | 0 | 7.2s |
+| **MolmoPoint** | `mlx-community/MolmoPoint-8B-4bit` | **50.0%** | **51.0%** | 25 | 24 | 1 | 0 | 20.9s |
+| **MolmoPoint-GUI** | `allenai/MolmoPoint-GUI-8B` | **68.0%** | **69.4%** | 34 | 15 | 1 | 0 | 39.0s |
+
+**Metric note**:
+- `HitRate` = hits / total samples
+- `FoundAcc` = hits / (hits + misses), excluding NOT_FOUND
+
+**Key takeaways**:
+- `molmo` is now benchmarking honestly: weak overall, mostly `NOT_FOUND`, but no longer crashing or misparsed.
+- `molmo-point` is a large step up over plain Molmo and uses the same clean pixel-point decode path.
+- `molmo-point-gui` is the best local model on this slice, and it did **not** need any extra normalization or coordinate conversion changes.
+- The main GUI-model tradeoff is latency. Median latency is about 31.8s, and one cold/worst-case sample took 285.1s.
+
+**MolmoPoint-GUI pilot**:
+- First 10 samples: 6/10 hits, 0 NOT_FOUND, 0 errors
+- Pilot artifact: `groundcua_benchmark/groundcua_benchmark_20260323_154803.json`
 
 ## Configuration
 
@@ -62,6 +90,36 @@ Later, we switched to sending original-resolution images to all models. This hel
 **Fix**: Per-model image preparation:
 - Gemini/Molmo: original resolution (normalized coords are resolution-independent)
 - Claude/GPT: resized to 1024 width (pixel coords benefit from smaller coordinate range)
+
+### Molmo Follow-up Fixes
+
+#### Bug 4: GroundCUA screenshots were being recompressed to JPEG
+
+**Root cause**: `benchmark_groundcua.py` was re-encoding dataset PNGs as JPEG before inference. For tiny toolbar icons and thin text labels, that added avoidable blur.
+
+**Fix**: Preserve screenshots as lossless PNG throughout the benchmark request path.
+
+#### Bug 5: Molmo native outputs and prompt echoes were being parsed incorrectly
+
+**Root cause**:
+- Molmo2 / MolmoPoint native `<points ...>` outputs were not fully supported everywhere.
+- Plain Molmo often echoed prompt text, then answered `NOT_FOUND`, then included a later `FOUND:` example string. The old parser could count those as bogus misses.
+
+**Fix**:
+- Added native `<point>` and `<points coords="...">` parsing, including frame-prefixed forms like `"1 1 914 074"`.
+- Updated parsers to trust the first line-level answer token (`NOT_FOUND`, `FOUND:`, `<point>`, `<points>`, or JSON) instead of later echoed examples.
+
+#### Bug 6: Plain Molmo v1 OOMed on original GroundCUA screenshots
+
+**Root cause**: Molmo v1 could not reliably handle full-resolution GroundCUA screenshots on local MLX without running out of GPU memory.
+
+**Fix**: Keep original screenshots in the benchmark, but apply a **single** server-side `max_image_dim=768` cap only for plain Molmo v1. Molmo2 and MolmoPoint variants still use the original image size.
+
+#### Bug 7: MolmoPoint-GUI needed a longer cold-start timeout
+
+**Root cause**: The GUI finetune's first request can exceed the benchmark's previous 120-second HTTP timeout even when the server is healthy.
+
+**Fix**: Increase local request timeout to 300s for `molmo-point-gui` only. No other coordinate handling changes were required.
 
 ## Iteration History
 
@@ -165,6 +223,22 @@ pip install -e ".[dev]"
 # Run on specific platforms
 .venv/bin/python scripts/benchmark_groundcua.py \
   --n 20 --platforms Chrome,Firefox,VS\ Code
+
+# Local Molmo family (one server at a time)
+.venv-molmo2/bin/python scripts/mlx_vlm_server.py \
+  --model mlx-community/Molmo-7B-D-0924-3bit --port 8091
+.venv/bin/python scripts/benchmark_groundcua.py \
+  --n 50 --seed 42 --models molmo
+
+.venv-molmo2/bin/python scripts/mlx_vlm_server.py \
+  --model mlx-community/MolmoPoint-8B-4bit --port 8092
+.venv/bin/python scripts/benchmark_groundcua.py \
+  --n 50 --seed 42 --models molmo-point
+
+.venv-molmo2/bin/python scripts/mlx_vlm_server.py \
+  --model allenai/MolmoPoint-GUI-8B --port 8092
+.venv/bin/python scripts/benchmark_groundcua.py \
+  --n 50 --seed 42 --models molmo-point-gui
 ```
 
 ## Files
@@ -172,5 +246,9 @@ pip install -e ".[dev]"
 - `scripts/benchmark_groundcua.py` — benchmark script
 - `scripts/compare_grounding.py` — single-image comparison tool
 - `groundcua_benchmark/groundcua_benchmark_20260321_232257.json` — raw results (v5)
+- `groundcua_benchmark/groundcua_benchmark_20260323_150855.json` — Molmo v1 raw results (v6)
+- `groundcua_benchmark/groundcua_benchmark_20260323_151535.json` — MolmoPoint raw results (v6)
+- `groundcua_benchmark/groundcua_benchmark_20260323_154803.json` — MolmoPoint-GUI pilot (10 samples)
+- `groundcua_benchmark/groundcua_benchmark_20260323_160053.json` — MolmoPoint-GUI full raw results (v6)
 - `groundcua_benchmark/debug_20260321_232257/` — annotated miss images
 - `src/automation_agent/vision/coordinator.py` — live agent coordinate space fix

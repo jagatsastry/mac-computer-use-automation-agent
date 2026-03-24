@@ -1,0 +1,108 @@
+{
+  "run_tag": "20260323_132030",
+  "n_samples": 5,
+  "n_platforms": 5,
+  "models": {
+    "molmo2": {
+      "model_id": "mlx-community/Molmo2-8B-5bit",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 5,
+      "not_found": 0,
+      "errors": 0,
+      "total": 5
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo2",
+      "predicted_x": 103,
+      "predicted_y": 443,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 9.850811004638672,
+      "raw_response": "FOUND: x=054 411, y=411, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo2",
+      "predicted_x": 986,
+      "predicted_y": 227,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 9.512298107147217,
+      "raw_response": "FOUND: x=514 211, y=211, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo2",
+      "predicted_x": 86,
+      "predicted_y": 123,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": false,
+      "latency_s": 9.268680810928345,
+      "raw_response": "FOUND: x=045 127, y=127 127, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "molmo2",
+      "predicted_x": 1870,
+      "predicted_y": 58,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 8.800584077835083,
+      "raw_response": "FOUND: x=974 054, y=054, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "molmo2",
+      "predicted_x": 155,
+      "predicted_y": 0,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": false,
+      "latency_s": 8.374619960784912,
+      "raw_response": "FOUND: x=114 1 074 054",
+      "error": null
+    }
+  ]
+}

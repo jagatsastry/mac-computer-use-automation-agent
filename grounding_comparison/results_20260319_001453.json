@@ -1,0 +1,64 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "Buy it again",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:15:16",
+  "run_tag": "20260319_001453",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "FOUND: x=263, y=650, confidence=0.95",
+      "parsed_x": 263,
+      "parsed_y": 650,
+      "raw_x": 263.0,
+      "raw_y": 650.0,
+      "confidence": 0.95,
+      "coordinate_space": "pixel",
+      "latency_s": 4.71,
+      "error": null,
+      "image_path": "grounding_comparison/gemini_result_20260319_001453.jpg"
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "FOUND: x=428, y=416, confidence=0.90",
+      "parsed_x": 428,
+      "parsed_y": 416,
+      "raw_x": 428.0,
+      "raw_y": 416.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 1.79,
+      "error": null,
+      "image_path": "grounding_comparison/gpt_result_20260319_001453.jpg"
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "FOUND: x=820, y=316, confidence=0.9",
+      "parsed_x": 820,
+      "parsed_y": 316,
+      "raw_x": 820.0,
+      "raw_y": 316.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.93,
+      "error": null,
+      "image_path": "grounding_comparison/claude_result_20260319_001453.jpg"
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"84.1\" y=\"41.4\" y=\"41.4\" alt=\"Buy it again\">Buy it again</points>",
+      "parsed_x": 861,
+      "parsed_y": 275,
+      "raw_x": 84.1,
+      "raw_y": 41.4,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 14.25,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result_20260319_001453.jpg"
+    }
+  }
+}

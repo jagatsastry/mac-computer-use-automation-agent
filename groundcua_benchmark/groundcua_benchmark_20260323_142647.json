@@ -1,0 +1,36 @@
+{
+  "run_tag": "20260323_142647",
+  "n_samples": 1,
+  "n_platforms": 1,
+  "models": {
+    "molmo": {
+      "model_id": "mlx-community/Molmo-7B-D-0924-3bit",
+      "accuracy": 0,
+      "hits": 0,
+      "misses": 0,
+      "not_found": 0,
+      "errors": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 0,
+      "raw_response": "",
+      "error": "Server disconnected without sending a response."
+    }
+  ]
+}

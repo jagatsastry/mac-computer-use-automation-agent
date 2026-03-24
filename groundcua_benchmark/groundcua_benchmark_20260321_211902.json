@@ -1,0 +1,306 @@
+{
+  "run_tag": "20260321_211902",
+  "n_samples": 5,
+  "n_platforms": 5,
+  "models": {
+    "gemini-flash": {
+      "model_id": "gemini-3-flash-preview",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 5,
+      "not_found": 0,
+      "errors": 0,
+      "total": 5
+    },
+    "gpt": {
+      "model_id": "gpt-4o",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 3,
+      "not_found": 2,
+      "errors": 0,
+      "total": 5
+    },
+    "claude": {
+      "model_id": "claude-sonnet-4-20250514",
+      "accuracy": 66.7,
+      "hits": 2,
+      "misses": 1,
+      "not_found": 2,
+      "errors": 0,
+      "total": 5
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gemini-flash",
+      "predicted_x": 76,
+      "predicted_y": 314,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 12.167555093765259,
+      "raw_response": "FOUND: x=76, y=314, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gpt",
+      "predicted_x": 150,
+      "predicted_y": 180,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 1.8057479858398438,
+      "raw_response": "FOUND: x=150, y=180, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "claude",
+      "predicted_x": 41,
+      "predicted_y": 180,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 2.8843960762023926,
+      "raw_response": "FOUND: x=41, y=180, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gemini-flash",
+      "predicted_x": 985,
+      "predicted_y": 561,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 72.99904918670654,
+      "raw_response": "FOUND: x=985, y=561, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 2.5798211097717285,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 5.439924955368042,
+      "raw_response": "I need to carefully examine this screenshot to look for \"form settings\" text or element.\n\nLooking at the screenshot, I can see this is a document editing interface (appears to be OnlyOffice based on t",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gemini-flash",
+      "predicted_x": 75,
+      "predicted_y": 88,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": false,
+      "latency_s": 2.6101486682891846,
+      "raw_response": "FOUND: x=75, y=88, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gpt",
+      "predicted_x": 55,
+      "predicted_y": 165,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": false,
+      "latency_s": 2.1389410495758057,
+      "raw_response": "FOUND: x=55, y=165, confidence=0.94",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "claude",
+      "predicted_x": 33,
+      "predicted_y": 46,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": true,
+      "latency_s": 2.079671859741211,
+      "raw_response": "FOUND: x=33, y=46, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gemini-flash",
+      "predicted_x": 956,
+      "predicted_y": 26,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 4.739438056945801,
+      "raw_response": "FOUND: x=956, y=26, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 0.9535107612609863,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 1.4178411960601807,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gemini-flash",
+      "predicted_x": 102,
+      "predicted_y": 47,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": false,
+      "latency_s": 3.416948080062866,
+      "raw_response": "FOUND: x=102, y=47, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gpt",
+      "predicted_x": 246,
+      "predicted_y": 30,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": false,
+      "latency_s": 1.6352310180664062,
+      "raw_response": "FOUND: x=246, y=30, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "claude",
+      "predicted_x": 99,
+      "predicted_y": 26,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": true,
+      "latency_s": 1.7780249118804932,
+      "raw_response": "FOUND: x=99, y=26, confidence=0.9",
+      "error": null
+    }
+  ]
+}

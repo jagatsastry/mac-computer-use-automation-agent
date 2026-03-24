@@ -1,0 +1,2736 @@
+{
+  "run_tag": "20260321_224133",
+  "n_samples": 50,
+  "n_platforms": 50,
+  "models": {
+    "gemini-flash": {
+      "model_id": "gemini-3-flash-preview",
+      "accuracy": 68.0,
+      "hits": 34,
+      "misses": 16,
+      "not_found": 0,
+      "errors": 0,
+      "total": 50
+    },
+    "gpt": {
+      "model_id": "gpt-4o",
+      "accuracy": 3.4,
+      "hits": 1,
+      "misses": 28,
+      "not_found": 21,
+      "errors": 0,
+      "total": 50
+    },
+    "claude": {
+      "model_id": "claude-sonnet-4-20250514",
+      "accuracy": 21.2,
+      "hits": 7,
+      "misses": 26,
+      "not_found": 17,
+      "errors": 0,
+      "total": 50
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gemini-flash",
+      "predicted_x": 157,
+      "predicted_y": 336,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": true,
+      "latency_s": 8.292366027832031,
+      "raw_response": "```json\n{\"found\": true, \"x\": 82, \"y\": 312, \"confidence\": 1.0}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gpt",
+      "predicted_x": 87,
+      "predicted_y": 227,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 1.6190922260284424,
+      "raw_response": "{\"found\": true, \"x\": 87, \"y\": 227, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "claude",
+      "predicted_x": 57,
+      "predicted_y": 256,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 2.544649839401245,
+      "raw_response": "{\"found\": true, \"x\": 57, \"y\": 256, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gemini-flash",
+      "predicted_x": 1893,
+      "predicted_y": 714,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": true,
+      "latency_s": 18.920023918151855,
+      "raw_response": "{\"found\": true, \"x\": 986, \"y\": 662, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 1.6061949729919434,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 3.0879530906677246,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gemini-flash",
+      "predicted_x": 144,
+      "predicted_y": 86,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 2.844942092895508,
+      "raw_response": "{\"found\": true, \"x\": 75, \"y\": 89, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gpt",
+      "predicted_x": 34,
+      "predicted_y": 79,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 1.7573130130767822,
+      "raw_response": "```json\n{\"found\": true, \"x\": 34, \"y\": 79, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "claude",
+      "predicted_x": 51,
+      "predicted_y": 69,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": false,
+      "latency_s": 2.085300922393799,
+      "raw_response": "{\"found\": true, \"x\": 51, \"y\": 69, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gemini-flash",
+      "predicted_x": 1870,
+      "predicted_y": 30,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": true,
+      "latency_s": 4.3028669357299805,
+      "raw_response": "{\"found\": true, \"x\": 974, \"y\": 28, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gpt",
+      "predicted_x": 1290,
+      "predicted_y": 12,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 1.465939998626709,
+      "raw_response": "```json\n{\"found\": true, \"x\": 1290, \"y\": 12, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "claude",
+      "predicted_x": 1276,
+      "predicted_y": 22,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 2.1321351528167725,
+      "raw_response": "{\"found\": true, \"x\": 1276, \"y\": 22, \"confidence\": 0.85}",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gemini-flash",
+      "predicted_x": 136,
+      "predicted_y": 33,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 3.4332079887390137,
+      "raw_response": "{\"found\": true, \"x\": 100, \"y\": 47, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gpt",
+      "predicted_x": 133,
+      "predicted_y": 16,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": false,
+      "latency_s": 1.5952942371368408,
+      "raw_response": "```json\n{\"found\": true, \"x\": 133, \"y\": 16, \"confidence\": 1.0}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "claude",
+      "predicted_x": 133,
+      "predicted_y": 34,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 2.000236988067627,
+      "raw_response": "{\"found\": true, \"x\": 133, \"y\": 34, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "gemini-flash",
+      "predicted_x": 1919,
+      "predicted_y": 1019,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": false,
+      "latency_s": 23.442813396453857,
+      "raw_response": "```json\n{\"found\": true, \"x\": 1913, \"y\": 988, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": false,
+      "latency_s": 1.4178378582000732,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": false,
+      "latency_s": 1.5113389492034912,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "gemini-flash",
+      "predicted_x": 77,
+      "predicted_y": 12,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": false,
+      "latency_s": 3.1716699600219727,
+      "raw_response": "{\"found\": true, \"x\": 54, \"y\": 16, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": false,
+      "latency_s": 1.626946210861206,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": false,
+      "latency_s": 1.7903132438659668,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "gemini-flash",
+      "predicted_x": 1353,
+      "predicted_y": 383,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": true,
+      "latency_s": 7.3520283699035645,
+      "raw_response": "{\"found\": true, \"x\": 991, \"y\": 532, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": false,
+      "latency_s": 1.4283509254455566,
+      "raw_response": "```json\n{\"found\": false}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": false,
+      "latency_s": 1.580967903137207,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "gemini-flash",
+      "predicted_x": 16,
+      "predicted_y": 397,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 5.087435007095337,
+      "raw_response": "{\"found\": true, \"x\": 12, \"y\": 552, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 1.2717971801757812,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "claude",
+      "predicted_x": 16,
+      "predicted_y": 399,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 1.8645350933074951,
+      "raw_response": "{\"found\": true, \"x\": 16, \"y\": 399, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "gemini-flash",
+      "predicted_x": 865,
+      "predicted_y": 80,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": true,
+      "latency_s": 3.2785263061523438,
+      "raw_response": "{\"found\": true, \"x\": 451, \"y\": 81, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "gpt",
+      "predicted_x": 772,
+      "predicted_y": 57,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": false,
+      "latency_s": 1.8664889335632324,
+      "raw_response": "{\"found\": true, \"x\": 772, \"y\": 57, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "claude",
+      "predicted_x": 686,
+      "predicted_y": 74,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": false,
+      "latency_s": 2.3721401691436768,
+      "raw_response": "{\"found\": true, \"x\": 686, \"y\": 74, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "gemini-flash",
+      "predicted_x": 23,
+      "predicted_y": 271,
+      "bbox": [
+        4.2749999999999995,
+        256.1142857142857,
+        47.475,
+        284.9143371428571
+      ],
+      "hit": true,
+      "latency_s": 44.68112802505493,
+      "raw_response": "{\"found\": true, \"x\": 12, \"y\": 251, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "gpt",
+      "predicted_x": 62,
+      "predicted_y": 134,
+      "bbox": [
+        4.2749999999999995,
+        256.1142857142857,
+        47.475,
+        284.9143371428571
+      ],
+      "hit": false,
+      "latency_s": 1.797605037689209,
+      "raw_response": "{\"found\": true, \"x\": 62, \"y\": 134, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "claude",
+      "predicted_x": 17,
+      "predicted_y": 205,
+      "bbox": [
+        4.2749999999999995,
+        256.1142857142857,
+        47.475,
+        284.9143371428571
+      ],
+      "hit": false,
+      "latency_s": 1.8935291767120361,
+      "raw_response": "{\"found\": true, \"x\": 17, \"y\": 205, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "gemini-flash",
+      "predicted_x": 136,
+      "predicted_y": 180,
+      "bbox": [
+        96.66000366210938,
+        166.11428571428573,
+        195.06000366210938,
+        199.6285714285714
+      ],
+      "hit": true,
+      "latency_s": 2.48893404006958,
+      "raw_response": "{\"found\": true, \"x\": 71, \"y\": 177, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "gpt",
+      "predicted_x": 81,
+      "predicted_y": 183,
+      "bbox": [
+        96.66000366210938,
+        166.11428571428573,
+        195.06000366210938,
+        199.6285714285714
+      ],
+      "hit": false,
+      "latency_s": 1.681382179260254,
+      "raw_response": "```json\n{\"found\": true, \"x\": 81, \"y\": 183, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "claude",
+      "predicted_x": 628,
+      "predicted_y": 574,
+      "bbox": [
+        96.66000366210938,
+        166.11428571428573,
+        195.06000366210938,
+        199.6285714285714
+      ],
+      "hit": false,
+      "latency_s": 1.8471858501434326,
+      "raw_response": "{\"found\": true, \"x\": 628, \"y\": 574}",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "gemini-flash",
+      "predicted_x": 940,
+      "predicted_y": 74,
+      "bbox": [
+        328.8,
+        702.72,
+        364.8,
+        735.84
+      ],
+      "hit": false,
+      "latency_s": 4.527831077575684,
+      "raw_response": "{\"found\": true, \"x\": 490, \"y\": 74, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        328.8,
+        702.72,
+        364.8,
+        735.84
+      ],
+      "hit": false,
+      "latency_s": 2.0626330375671387,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        328.8,
+        702.72,
+        364.8,
+        735.84
+      ],
+      "hit": false,
+      "latency_s": 1.6423470973968506,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "gemini-flash",
+      "predicted_x": 94,
+      "predicted_y": 135,
+      "bbox": [
+        43.24577227290373,
+        10.105496627414977,
+        221.38241823563664,
+        36.35216920949128
+      ],
+      "hit": false,
+      "latency_s": 3.0927481651306152,
+      "raw_response": "{\"found\": true, \"x\": 49, \"y\": 133, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        43.24577227290373,
+        10.105496627414977,
+        221.38241823563664,
+        36.35216920949128
+      ],
+      "hit": false,
+      "latency_s": 1.8791728019714355,
+      "raw_response": "```json\n{\"found\": false}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "claude",
+      "predicted_x": 73,
+      "predicted_y": 109,
+      "bbox": [
+        43.24577227290373,
+        10.105496627414977,
+        221.38241823563664,
+        36.35216920949128
+      ],
+      "hit": false,
+      "latency_s": 2.301220655441284,
+      "raw_response": "{\"found\": true, \"x\": 73, \"y\": 109, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "gemini-flash",
+      "predicted_x": 869,
+      "predicted_y": 159,
+      "bbox": [
+        845.4599853515625,
+        138.10285714285715,
+        891.0599853515625,
+        181.09714285714284
+      ],
+      "hit": true,
+      "latency_s": 8.52859902381897,
+      "raw_response": "{\"found\": true, \"x\": 453, \"y\": 175, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "gpt",
+      "predicted_x": 580,
+      "predicted_y": 130,
+      "bbox": [
+        845.4599853515625,
+        138.10285714285715,
+        891.0599853515625,
+        181.09714285714284
+      ],
+      "hit": false,
+      "latency_s": 1.9710562229156494,
+      "raw_response": "{\"found\": true, \"x\": 580, \"y\": 130, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "claude",
+      "predicted_x": 710,
+      "predicted_y": 129,
+      "bbox": [
+        845.4599853515625,
+        138.10285714285715,
+        891.0599853515625,
+        181.09714285714284
+      ],
+      "hit": false,
+      "latency_s": 2.0269699096679688,
+      "raw_response": "{\"found\": true, \"x\": 710, \"y\": 129, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "gemini-flash",
+      "predicted_x": 310,
+      "predicted_y": 103,
+      "bbox": [
+        299.68861272448606,
+        87.39076773566565,
+        332.131112724486,
+        119.36505344995138
+      ],
+      "hit": true,
+      "latency_s": 3.6260478496551514,
+      "raw_response": "{\"found\": true, \"x\": 227, \"y\": 143, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        299.68861272448606,
+        87.39076773566565,
+        332.131112724486,
+        119.36505344995138
+      ],
+      "hit": false,
+      "latency_s": 1.1585378646850586,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        299.68861272448606,
+        87.39076773566565,
+        332.131112724486,
+        119.36505344995138
+      ],
+      "hit": false,
+      "latency_s": 2.3644659519195557,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "gemini-flash",
+      "predicted_x": 41,
+      "predicted_y": 1107,
+      "bbox": [
+        821.25,
+        128.54857142857142,
+        870.5250000000001,
+        180.77142857142854
+      ],
+      "hit": false,
+      "latency_s": 42.12463307380676,
+      "raw_response": "```json\n{\"found\": true, \"x\": 19, \"y\": 788, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        821.25,
+        128.54857142857142,
+        870.5250000000001,
+        180.77142857142854
+      ],
+      "hit": false,
+      "latency_s": 2.0121958255767822,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        821.25,
+        128.54857142857142,
+        870.5250000000001,
+        180.77142857142854
+      ],
+      "hit": false,
+      "latency_s": 1.9588158130645752,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "gemini-flash",
+      "predicted_x": 133,
+      "predicted_y": 9,
+      "bbox": [
+        118.20937500000001,
+        1.2857142857142858,
+        147.009375,
+        21.857142857142858
+      ],
+      "hit": true,
+      "latency_s": 2.6688899993896484,
+      "raw_response": "{\"found\": true, \"x\": 93, \"y\": 11, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "gpt",
+      "predicted_x": 63,
+      "predicted_y": 13,
+      "bbox": [
+        118.20937500000001,
+        1.2857142857142858,
+        147.009375,
+        21.857142857142858
+      ],
+      "hit": false,
+      "latency_s": 2.679022789001465,
+      "raw_response": "{\"found\": true, \"x\": 63, \"y\": 13, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "claude",
+      "predicted_x": 126,
+      "predicted_y": 11,
+      "bbox": [
+        118.20937500000001,
+        1.2857142857142858,
+        147.009375,
+        21.857142857142858
+      ],
+      "hit": true,
+      "latency_s": 2.307758092880249,
+      "raw_response": "{\"found\": true, \"x\": 126, \"y\": 11, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "gemini-flash",
+      "predicted_x": 270,
+      "predicted_y": 160,
+      "bbox": [
+        255.79984342463385,
+        150.38000457246935,
+        289.39984342463384,
+        182.50000457246935
+      ],
+      "hit": true,
+      "latency_s": 5.193557024002075,
+      "raw_response": "{\"found\": true, \"x\": 141, \"y\": 157, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        255.79984342463385,
+        150.38000457246935,
+        289.39984342463384,
+        182.50000457246935
+      ],
+      "hit": false,
+      "latency_s": 1.6548881530761719,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "claude",
+      "predicted_x": 218,
+      "predicted_y": 128,
+      "bbox": [
+        255.79984342463385,
+        150.38000457246935,
+        289.39984342463384,
+        182.50000457246935
+      ],
+      "hit": false,
+      "latency_s": 2.1466922760009766,
+      "raw_response": "{\"found\": true, \"x\": 218, \"y\": 128, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "gemini-flash",
+      "predicted_x": 1919,
+      "predicted_y": 477,
+      "bbox": [
+        176.7804314084002,
+        34.78159320413663,
+        224.78043140840023,
+        53.29587891842233
+      ],
+      "hit": false,
+      "latency_s": 23.159982681274414,
+      "raw_response": "```json\n{\"found\": true, \"x\": 1117, \"y\": 442, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "gpt",
+      "predicted_x": 657,
+      "predicted_y": 337,
+      "bbox": [
+        176.7804314084002,
+        34.78159320413663,
+        224.78043140840023,
+        53.29587891842233
+      ],
+      "hit": false,
+      "latency_s": 2.177058219909668,
+      "raw_response": "{\"found\": true, \"x\": 657, \"y\": 337, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "claude",
+      "predicted_x": 854,
+      "predicted_y": 361,
+      "bbox": [
+        176.7804314084002,
+        34.78159320413663,
+        224.78043140840023,
+        53.29587891842233
+      ],
+      "hit": false,
+      "latency_s": 2.140446901321411,
+      "raw_response": "{\"found\": true, \"x\": 854, \"y\": 361, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "gemini-flash",
+      "predicted_x": 666,
+      "predicted_y": 1005,
+      "bbox": [
+        633.0050946745305,
+        991.0315173816543,
+        671.4050946745305,
+        1020.5172316673686
+      ],
+      "hit": true,
+      "latency_s": 3.8590619564056396,
+      "raw_response": "{\"found\": true, \"x\": 347, \"y\": 974, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        633.0050946745305,
+        991.0315173816543,
+        671.4050946745305,
+        1020.5172316673686
+      ],
+      "hit": false,
+      "latency_s": 1.8026759624481201,
+      "raw_response": "```json\n{\"found\": false}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "claude",
+      "predicted_x": 509,
+      "predicted_y": 792,
+      "bbox": [
+        633.0050946745305,
+        991.0315173816543,
+        671.4050946745305,
+        1020.5172316673686
+      ],
+      "hit": false,
+      "latency_s": 2.1899280548095703,
+      "raw_response": "{\"found\": true, \"x\": 509, \"y\": 792, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "gemini-flash",
+      "predicted_x": 1637,
+      "predicted_y": 131,
+      "bbox": [
+        1573.17,
+        106.22571428571429,
+        1701.0700000000002,
+        158.29714285714286
+      ],
+      "hit": true,
+      "latency_s": 5.0936713218688965,
+      "raw_response": "{\"found\": true, \"x\": 640, \"y\": 90, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "gpt",
+      "predicted_x": 601,
+      "predicted_y": 17,
+      "bbox": [
+        1573.17,
+        106.22571428571429,
+        1701.0700000000002,
+        158.29714285714286
+      ],
+      "hit": false,
+      "latency_s": 2.3960580825805664,
+      "raw_response": "{\"found\": true, \"x\": 601, \"y\": 17, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "claude",
+      "predicted_x": 919,
+      "predicted_y": 75,
+      "bbox": [
+        1573.17,
+        106.22571428571429,
+        1701.0700000000002,
+        158.29714285714286
+      ],
+      "hit": false,
+      "latency_s": 2.751244068145752,
+      "raw_response": "{\"found\": true, \"x\": 919, \"y\": 75, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "gemini-flash",
+      "predicted_x": 65,
+      "predicted_y": 618,
+      "bbox": [
+        76.890756302521,
+        600.2881152460985,
+        117.22689075630254,
+        636.4054193105815
+      ],
+      "hit": false,
+      "latency_s": 7.56129789352417,
+      "raw_response": "```json\n{\"found\": true, \"x\": 34, \"y\": 573, \"confidence\": 0.95}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        76.890756302521,
+        600.2881152460985,
+        117.22689075630254,
+        636.4054193105815
+      ],
+      "hit": false,
+      "latency_s": 1.9245247840881348,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        76.890756302521,
+        600.2881152460985,
+        117.22689075630254,
+        636.4054193105815
+      ],
+      "hit": false,
+      "latency_s": 1.9038472175598145,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "gemini-flash",
+      "predicted_x": 89,
+      "predicted_y": 347,
+      "bbox": [
+        79.07899737508691,
+        290.28826130832925,
+        98.27899737508693,
+        404.45968987975783
+      ],
+      "hit": true,
+      "latency_s": 4.735713005065918,
+      "raw_response": "{\"found\": true, \"x\": 70, \"y\": 483, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "gpt",
+      "predicted_x": 43,
+      "predicted_y": 266,
+      "bbox": [
+        79.07899737508691,
+        290.28826130832925,
+        98.27899737508693,
+        404.45968987975783
+      ],
+      "hit": false,
+      "latency_s": 2.1499977111816406,
+      "raw_response": "{\"found\": true, \"x\": 43, \"y\": 266, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        79.07899737508691,
+        290.28826130832925,
+        98.27899737508693,
+        404.45968987975783
+      ],
+      "hit": false,
+      "latency_s": 2.4950740337371826,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "gemini-flash",
+      "predicted_x": 221,
+      "predicted_y": 252,
+      "bbox": [
+        203.81274138190918,
+        240.8708561123953,
+        235.20774138190922,
+        261.045141826681
+      ],
+      "hit": true,
+      "latency_s": 6.875262022018433,
+      "raw_response": "{\"found\": true, \"x\": 203, \"y\": 411, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "gpt",
+      "predicted_x": 275,
+      "predicted_y": 297,
+      "bbox": [
+        203.81274138190918,
+        240.8708561123953,
+        235.20774138190922,
+        261.045141826681
+      ],
+      "hit": false,
+      "latency_s": 1.484971046447754,
+      "raw_response": "```json\n{\"found\": true, \"x\": 275, \"y\": 297, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "claude",
+      "predicted_x": 247,
+      "predicted_y": 251,
+      "bbox": [
+        203.81274138190918,
+        240.8708561123953,
+        235.20774138190922,
+        261.045141826681
+      ],
+      "hit": false,
+      "latency_s": 1.6647238731384277,
+      "raw_response": "{\"found\": true, \"x\": 247, \"y\": 251, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "gemini-flash",
+      "predicted_x": 296,
+      "predicted_y": 31,
+      "bbox": [
+        263.63656862260507,
+        25.001250417318666,
+        298.83656862260506,
+        41.45839327446152
+      ],
+      "hit": true,
+      "latency_s": 8.426062107086182,
+      "raw_response": "{\"found\": true, \"x\": 232, \"y\": 44, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "gpt",
+      "predicted_x": 358,
+      "predicted_y": 26,
+      "bbox": [
+        263.63656862260507,
+        25.001250417318666,
+        298.83656862260506,
+        41.45839327446152
+      ],
+      "hit": false,
+      "latency_s": 1.9774630069732666,
+      "raw_response": "```json\n{\"found\": true, \"x\": 358, \"y\": 26, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "claude",
+      "predicted_x": 279,
+      "predicted_y": 32,
+      "bbox": [
+        263.63656862260507,
+        25.001250417318666,
+        298.83656862260506,
+        41.45839327446152
+      ],
+      "hit": true,
+      "latency_s": 2.16054105758667,
+      "raw_response": "{\"found\": true, \"x\": 279, \"y\": 32, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "gemini-flash",
+      "predicted_x": 1919,
+      "predicted_y": 15,
+      "bbox": [
+        1892.2815219372508,
+        40.65567521204613,
+        1909.8932630980246,
+        56.60916801677309
+      ],
+      "hit": false,
+      "latency_s": 7.417880058288574,
+      "raw_response": "```json\n{\"found\": true, \"x\": 1906, \"y\": 14, \"confidence\": 1.0}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1892.2815219372508,
+        40.65567521204613,
+        1909.8932630980246,
+        56.60916801677309
+      ],
+      "hit": false,
+      "latency_s": 1.514807939529419,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1892.2815219372508,
+        40.65567521204613,
+        1909.8932630980246,
+        56.60916801677309
+      ],
+      "hit": false,
+      "latency_s": 1.7437949180603027,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "gemini-flash",
+      "predicted_x": 82,
+      "predicted_y": 294,
+      "bbox": [
+        1757.997421875,
+        423.37142857142857,
+        1812.9724218749998,
+        472.53714285714284
+      ],
+      "hit": false,
+      "latency_s": 14.46652603149414,
+      "raw_response": "```json\n{\"found\": true, \"x\": 28, \"y\": 154, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1757.997421875,
+        423.37142857142857,
+        1812.9724218749998,
+        472.53714285714284
+      ],
+      "hit": false,
+      "latency_s": 2.0431809425354004,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1757.997421875,
+        423.37142857142857,
+        1812.9724218749998,
+        472.53714285714284
+      ],
+      "hit": false,
+      "latency_s": 1.9487650394439697,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "gemini-flash",
+      "predicted_x": 13,
+      "predicted_y": 477,
+      "bbox": [
+        6.361484375000001,
+        426.2057142857143,
+        27.288984375,
+        514.4257142857143
+      ],
+      "hit": true,
+      "latency_s": 1.9973738193511963,
+      "raw_response": "{\"found\": true, \"x\": 9, \"y\": 595, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "gpt",
+      "predicted_x": 52,
+      "predicted_y": 370,
+      "bbox": [
+        6.361484375000001,
+        426.2057142857143,
+        27.288984375,
+        514.4257142857143
+      ],
+      "hit": false,
+      "latency_s": 2.015022039413452,
+      "raw_response": "{\"found\": true, \"x\": 52, \"y\": 370, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        6.361484375000001,
+        426.2057142857143,
+        27.288984375,
+        514.4257142857143
+      ],
+      "hit": false,
+      "latency_s": 1.5919427871704102,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "gemini-flash",
+      "predicted_x": 174,
+      "predicted_y": 551,
+      "bbox": [
+        1338.9,
+        938.4000000000001,
+        1478.1000000000001,
+        974.8285714285714
+      ],
+      "hit": false,
+      "latency_s": 8.893194198608398,
+      "raw_response": "```json\n{\"found\": true, \"x\": 91, \"y\": 541, \"confidence\": 1.0}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "gpt",
+      "predicted_x": 39,
+      "predicted_y": 458,
+      "bbox": [
+        1338.9,
+        938.4000000000001,
+        1478.1000000000001,
+        974.8285714285714
+      ],
+      "hit": false,
+      "latency_s": 2.8165411949157715,
+      "raw_response": "{\"found\": true, \"x\": 39, \"y\": 458, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "claude",
+      "predicted_x": 1095,
+      "predicted_y": 752,
+      "bbox": [
+        1338.9,
+        938.4000000000001,
+        1478.1000000000001,
+        974.8285714285714
+      ],
+      "hit": false,
+      "latency_s": 2.4755349159240723,
+      "raw_response": "{\"found\": true, \"x\": 1095, \"y\": 752, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "gemini-flash",
+      "predicted_x": 742,
+      "predicted_y": 265,
+      "bbox": [
+        394.655625,
+        264.89714285714285,
+        490.205625,
+        339.4542857142857
+      ],
+      "hit": false,
+      "latency_s": 9.115430116653442,
+      "raw_response": "{\"found\": true, \"x\": 680, \"y\": 432, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        394.655625,
+        264.89714285714285,
+        490.205625,
+        339.4542857142857
+      ],
+      "hit": false,
+      "latency_s": 2.8272359371185303,
+      "raw_response": "```json\n{\"found\": false}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        394.655625,
+        264.89714285714285,
+        490.205625,
+        339.4542857142857
+      ],
+      "hit": false,
+      "latency_s": 1.9362659454345703,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "gemini-flash",
+      "predicted_x": 130,
+      "predicted_y": 77,
+      "bbox": [
+        57.075,
+        67.88571428571429,
+        102.675,
+        95.65714285714284
+      ],
+      "hit": false,
+      "latency_s": 4.8322601318359375,
+      "raw_response": "{\"found\": true, \"x\": 68, \"y\": 72, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "gpt",
+      "predicted_x": 284,
+      "predicted_y": 22,
+      "bbox": [
+        57.075,
+        67.88571428571429,
+        102.675,
+        95.65714285714284
+      ],
+      "hit": false,
+      "latency_s": 2.445230007171631,
+      "raw_response": "{\"found\": true, \"x\": 284, \"y\": 22, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "claude",
+      "predicted_x": 59,
+      "predicted_y": 59,
+      "bbox": [
+        57.075,
+        67.88571428571429,
+        102.675,
+        95.65714285714284
+      ],
+      "hit": false,
+      "latency_s": 2.895491123199463,
+      "raw_response": "{\"found\": true, \"x\": 59, \"y\": 59, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "gemini-flash",
+      "predicted_x": 130,
+      "predicted_y": 1002,
+      "bbox": [
+        5.460003662109375,
+        992.3142857142857,
+        245.4600036621094,
+        1020.0
+      ],
+      "hit": true,
+      "latency_s": 4.325838088989258,
+      "raw_response": "{\"found\": true, \"x\": 68, \"y\": 983, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        5.460003662109375,
+        992.3142857142857,
+        245.4600036621094,
+        1020.0
+      ],
+      "hit": false,
+      "latency_s": 2.463613986968994,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "claude",
+      "predicted_x": 96,
+      "predicted_y": 791,
+      "bbox": [
+        5.460003662109375,
+        992.3142857142857,
+        245.4600036621094,
+        1020.0
+      ],
+      "hit": false,
+      "latency_s": 3.8523600101470947,
+      "raw_response": "{\"found\": true, \"x\": 96, \"y\": 791, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "gemini-flash",
+      "predicted_x": 577,
+      "predicted_y": 528,
+      "bbox": [
+        593.485546875,
+        433.67703125,
+        617.935546875,
+        454.11703125
+      ],
+      "hit": false,
+      "latency_s": 12.514941215515137,
+      "raw_response": "```json\n{\"found\": true, \"x\": 354, \"y\": 517, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        593.485546875,
+        433.67703125,
+        617.935546875,
+        454.11703125
+      ],
+      "hit": false,
+      "latency_s": 18.325637817382812,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "claude",
+      "predicted_x": 513,
+      "predicted_y": 375,
+      "bbox": [
+        593.485546875,
+        433.67703125,
+        617.935546875,
+        454.11703125
+      ],
+      "hit": false,
+      "latency_s": 2.3427629470825195,
+      "raw_response": "{\"found\": true, \"x\": 513, \"y\": 375, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "gemini-flash",
+      "predicted_x": 882,
+      "predicted_y": 293,
+      "bbox": [
+        249.76456510543824,
+        2.0628571428571427,
+        292.45206510543824,
+        31.974285714285713
+      ],
+      "hit": false,
+      "latency_s": 12.221219062805176,
+      "raw_response": "{\"found\": true, \"x\": 646, \"y\": 406, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        249.76456510543824,
+        2.0628571428571427,
+        292.45206510543824,
+        31.974285714285713
+      ],
+      "hit": false,
+      "latency_s": 1.7509348392486572,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        249.76456510543824,
+        2.0628571428571427,
+        292.45206510543824,
+        31.974285714285713
+      ],
+      "hit": false,
+      "latency_s": 2.066354751586914,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "gemini-flash",
+      "predicted_x": 272,
+      "predicted_y": 254,
+      "bbox": [
+        125.91994628906251,
+        231.16570443289623,
+        512.3199462890624,
+        369.34856157575337
+      ],
+      "hit": true,
+      "latency_s": 3.2605791091918945,
+      "raw_response": "{\"found\": true, \"x\": 142, \"y\": 282, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "gpt",
+      "predicted_x": 96,
+      "predicted_y": 122,
+      "bbox": [
+        125.91994628906251,
+        231.16570443289623,
+        512.3199462890624,
+        369.34856157575337
+      ],
+      "hit": false,
+      "latency_s": 2.7151191234588623,
+      "raw_response": "```json\n{\"found\": true, \"x\": 96, \"y\": 122, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "claude",
+      "predicted_x": 222,
+      "predicted_y": 207,
+      "bbox": [
+        125.91994628906251,
+        231.16570443289623,
+        512.3199462890624,
+        369.34856157575337
+      ],
+      "hit": false,
+      "latency_s": 2.859844207763672,
+      "raw_response": "{\"found\": true, \"x\": 222, \"y\": 207, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "gemini-flash",
+      "predicted_x": 1570,
+      "predicted_y": 173,
+      "bbox": [
+        1545.5117797851562,
+        164.50717817034038,
+        1593.5117797851562,
+        187.65003531319755
+      ],
+      "hit": true,
+      "latency_s": 5.628076076507568,
+      "raw_response": "{\"found\": true, \"x\": 818, \"y\": 161, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "gpt",
+      "predicted_x": 315,
+      "predicted_y": 205,
+      "bbox": [
+        1545.5117797851562,
+        164.50717817034038,
+        1593.5117797851562,
+        187.65003531319755
+      ],
+      "hit": false,
+      "latency_s": 2.6890738010406494,
+      "raw_response": "```json\n{\"found\": true, \"x\": 315, \"y\": 205, \"confidence\": 0.95}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "claude",
+      "predicted_x": 1191,
+      "predicted_y": 133,
+      "bbox": [
+        1545.5117797851562,
+        164.50717817034038,
+        1593.5117797851562,
+        187.65003531319755
+      ],
+      "hit": false,
+      "latency_s": 1.9409420490264893,
+      "raw_response": "{\"found\": true, \"x\": 1191, \"y\": 133, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "gemini-flash",
+      "predicted_x": 370,
+      "predicted_y": 1339,
+      "bbox": [
+        338.325,
+        1292.8228571428572,
+        413.7975,
+        1378.0857142857144
+      ],
+      "hit": true,
+      "latency_s": 17.3694429397583,
+      "raw_response": "{\"found\": true, \"x\": 178, \"y\": 965, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "gpt",
+      "predicted_x": 93,
+      "predicted_y": 684,
+      "bbox": [
+        338.325,
+        1292.8228571428572,
+        413.7975,
+        1378.0857142857144
+      ],
+      "hit": false,
+      "latency_s": 1.7443969249725342,
+      "raw_response": "```json\n{\"found\": true, \"x\": 93, \"y\": 684, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "claude",
+      "predicted_x": 240,
+      "predicted_y": 878,
+      "bbox": [
+        338.325,
+        1292.8228571428572,
+        413.7975,
+        1378.0857142857144
+      ],
+      "hit": false,
+      "latency_s": 2.119832754135132,
+      "raw_response": "{\"found\": true, \"x\": 240, \"y\": 878, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "gemini-flash",
+      "predicted_x": 1679,
+      "predicted_y": 1043,
+      "bbox": [
+        1470.5775272369385,
+        1012.381718837193,
+        1535.6775272369384,
+        1034.7531474086218
+      ],
+      "hit": false,
+      "latency_s": 7.696858167648315,
+      "raw_response": "{\"found\": true, \"x\": 1714, \"y\": 1062, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "gpt",
+      "predicted_x": 875,
+      "predicted_y": 696,
+      "bbox": [
+        1470.5775272369385,
+        1012.381718837193,
+        1535.6775272369384,
+        1034.7531474086218
+      ],
+      "hit": false,
+      "latency_s": 1.6913011074066162,
+      "raw_response": "```json\n{\"found\": true, \"x\": 875, \"y\": 696, \"confidence\": 0.95}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "claude",
+      "predicted_x": 1246,
+      "predicted_y": 850,
+      "bbox": [
+        1470.5775272369385,
+        1012.381718837193,
+        1535.6775272369384,
+        1034.7531474086218
+      ],
+      "hit": false,
+      "latency_s": 1.9997379779815674,
+      "raw_response": "{\"found\": true, \"x\": 1246, \"y\": 850, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "gemini-flash",
+      "predicted_x": 67,
+      "predicted_y": 13,
+      "bbox": [
+        48.21695001113736,
+        2.740858559592592,
+        84.21695001113737,
+        25.36942998816402
+      ],
+      "hit": true,
+      "latency_s": 2.1491141319274902,
+      "raw_response": "{\"found\": true, \"x\": 35, \"y\": 14, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "gpt",
+      "predicted_x": 30,
+      "predicted_y": 8,
+      "bbox": [
+        48.21695001113736,
+        2.740858559592592,
+        84.21695001113737,
+        25.36942998816402
+      ],
+      "hit": false,
+      "latency_s": 1.6981840133666992,
+      "raw_response": "{\"found\": true, \"x\": 30, \"y\": 8, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "claude",
+      "predicted_x": 51,
+      "predicted_y": 10,
+      "bbox": [
+        48.21695001113736,
+        2.740858559592592,
+        84.21695001113737,
+        25.36942998816402
+      ],
+      "hit": true,
+      "latency_s": 2.2948551177978516,
+      "raw_response": "{\"found\": true, \"x\": 51, \"y\": 10, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "gemini-flash",
+      "predicted_x": 424,
+      "predicted_y": 601,
+      "bbox": [
+        420.3660099792481,
+        600.4617930603027,
+        438.006009979248,
+        615.867507346017
+      ],
+      "hit": true,
+      "latency_s": 2.6112749576568604,
+      "raw_response": "{\"found\": true, \"x\": 361, \"y\": 893, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "gpt",
+      "predicted_x": 435,
+      "predicted_y": 511,
+      "bbox": [
+        420.3660099792481,
+        600.4617930603027,
+        438.006009979248,
+        615.867507346017
+      ],
+      "hit": false,
+      "latency_s": 2.6467666625976562,
+      "raw_response": "{\"found\": true, \"x\": 435, \"y\": 511, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        420.3660099792481,
+        600.4617930603027,
+        438.006009979248,
+        615.867507346017
+      ],
+      "hit": false,
+      "latency_s": 1.7467358112335205,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "gemini-flash",
+      "predicted_x": 1226,
+      "predicted_y": 142,
+      "bbox": [
+        1190.4,
+        127.54285714285713,
+        1262.3999999999999,
+        158.4
+      ],
+      "hit": true,
+      "latency_s": 5.046567916870117,
+      "raw_response": "{\"found\": true, \"x\": 958, \"y\": 198, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "gpt",
+      "predicted_x": 1164,
+      "predicted_y": 172,
+      "bbox": [
+        1190.4,
+        127.54285714285713,
+        1262.3999999999999,
+        158.4
+      ],
+      "hit": false,
+      "latency_s": 2.7174668312072754,
+      "raw_response": "```json\n{\"found\": true, \"x\": 1164, \"y\": 172, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "claude",
+      "predicted_x": 1227,
+      "predicted_y": 143,
+      "bbox": [
+        1190.4,
+        127.54285714285713,
+        1262.3999999999999,
+        158.4
+      ],
+      "hit": true,
+      "latency_s": 1.7599608898162842,
+      "raw_response": "{\"found\": true, \"x\": 1227, \"y\": 143, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "gemini-flash",
+      "predicted_x": 640,
+      "predicted_y": 132,
+      "bbox": [
+        584.4400024414062,
+        110.05714285714286,
+        730.0400024414063,
+        147.0857142857143
+      ],
+      "hit": true,
+      "latency_s": 9.028218030929565,
+      "raw_response": "{\"found\": true, \"x\": 500, \"y\": 184, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "gpt",
+      "predicted_x": 580,
+      "predicted_y": 200,
+      "bbox": [
+        584.4400024414062,
+        110.05714285714286,
+        730.0400024414063,
+        147.0857142857143
+      ],
+      "hit": false,
+      "latency_s": 1.7435331344604492,
+      "raw_response": "{\"found\": true, \"x\": 580, \"y\": 200, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "claude",
+      "predicted_x": 640,
+      "predicted_y": 132,
+      "bbox": [
+        584.4400024414062,
+        110.05714285714286,
+        730.0400024414063,
+        147.0857142857143
+      ],
+      "hit": true,
+      "latency_s": 1.8068530559539795,
+      "raw_response": "{\"found\": true, \"x\": 640, \"y\": 132, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "gemini-flash",
+      "predicted_x": 1019,
+      "predicted_y": 434,
+      "bbox": [
+        965.4600036621094,
+        416.0,
+        1049.4600036621093,
+        452.40000000000003
+      ],
+      "hit": true,
+      "latency_s": 4.7729737758636475,
+      "raw_response": "{\"found\": true, \"x\": 531, \"y\": 477, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "gpt",
+      "predicted_x": 950,
+      "predicted_y": 480,
+      "bbox": [
+        965.4600036621094,
+        416.0,
+        1049.4600036621093,
+        452.40000000000003
+      ],
+      "hit": false,
+      "latency_s": 1.8159680366516113,
+      "raw_response": "```json\n{\"found\": true, \"x\": 950, \"y\": 480, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "claude",
+      "predicted_x": 832,
+      "predicted_y": 353,
+      "bbox": [
+        965.4600036621094,
+        416.0,
+        1049.4600036621093,
+        452.40000000000003
+      ],
+      "hit": false,
+      "latency_s": 1.7517571449279785,
+      "raw_response": "{\"found\": true, \"x\": 832, \"y\": 353, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "gemini-flash",
+      "predicted_x": 96,
+      "predicted_y": 28,
+      "bbox": [
+        63.060003662109374,
+        5.177142857142857,
+        125.46000366210937,
+        50.47714285714286
+      ],
+      "hit": true,
+      "latency_s": 2.7456910610198975,
+      "raw_response": "{\"found\": true, \"x\": 50, \"y\": 32, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "gpt",
+      "predicted_x": 40,
+      "predicted_y": 15,
+      "bbox": [
+        63.060003662109374,
+        5.177142857142857,
+        125.46000366210937,
+        50.47714285714286
+      ],
+      "hit": false,
+      "latency_s": 3.3925628662109375,
+      "raw_response": "```json\n{\"found\": true, \"x\": 40, \"y\": 15, \"confidence\": 0.9}\n```",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "claude",
+      "predicted_x": 77,
+      "predicted_y": 22,
+      "bbox": [
+        63.060003662109374,
+        5.177142857142857,
+        125.46000366210937,
+        50.47714285714286
+      ],
+      "hit": true,
+      "latency_s": 1.8447961807250977,
+      "raw_response": "{\"found\": true, \"x\": 77, \"y\": 22, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "gemini-flash",
+      "predicted_x": 40,
+      "predicted_y": 16,
+      "bbox": [
+        1.7681452751159668,
+        4.371428571428572,
+        52.115645275115966,
+        37.885714285714286
+      ],
+      "hit": true,
+      "latency_s": 3.5657918453216553,
+      "raw_response": "{\"found\": true, \"x\": 21, \"y\": 16, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1.7681452751159668,
+        4.371428571428572,
+        52.115645275115966,
+        37.885714285714286
+      ],
+      "hit": false,
+      "latency_s": 2.5377628803253174,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1.7681452751159668,
+        4.371428571428572,
+        52.115645275115966,
+        37.885714285714286
+      ],
+      "hit": false,
+      "latency_s": 1.5085678100585938,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "gemini-flash",
+      "predicted_x": 405,
+      "predicted_y": 124,
+      "bbox": [
+        378.0024559967253,
+        91.57359218759137,
+        441.8583708555054,
+        155.3593357113619
+      ],
+      "hit": true,
+      "latency_s": 3.8872718811035156,
+      "raw_response": "{\"found\": true, \"x\": 211, \"y\": 115, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "gpt",
+      "predicted_x": 240,
+      "predicted_y": 50,
+      "bbox": [
+        378.0024559967253,
+        91.57359218759137,
+        441.8583708555054,
+        155.3593357113619
+      ],
+      "hit": false,
+      "latency_s": 1.4949519634246826,
+      "raw_response": "{\"found\": true, \"x\": 240, \"y\": 50, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "claude",
+      "predicted_x": 309,
+      "predicted_y": 93,
+      "bbox": [
+        378.0024559967253,
+        91.57359218759137,
+        441.8583708555054,
+        155.3593357113619
+      ],
+      "hit": false,
+      "latency_s": 1.795969009399414,
+      "raw_response": "{\"found\": true, \"x\": 309, \"y\": 93, \"confidence\": 0.95}",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "gemini-flash",
+      "predicted_x": 867,
+      "predicted_y": 157,
+      "bbox": [
+        847.8600036621093,
+        135.49714285714288,
+        895.8600036621094,
+        179.7942857142857
+      ],
+      "hit": true,
+      "latency_s": 3.8591737747192383,
+      "raw_response": "{\"found\": true, \"x\": 452, \"y\": 173, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "gpt",
+      "predicted_x": 845,
+      "predicted_y": 255,
+      "bbox": [
+        847.8600036621093,
+        135.49714285714288,
+        895.8600036621094,
+        179.7942857142857
+      ],
+      "hit": false,
+      "latency_s": 2.0872058868408203,
+      "raw_response": "{\"found\": true, \"x\": 845, \"y\": 255, \"confidence\": 0.9}",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "claude",
+      "predicted_x": 710,
+      "predicted_y": 129,
+      "bbox": [
+        847.8600036621093,
+        135.49714285714288,
+        895.8600036621094,
+        179.7942857142857
+      ],
+      "hit": false,
+      "latency_s": 1.7187340259552002,
+      "raw_response": "{\"found\": true, \"x\": 710, \"y\": 129, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "gemini-flash",
+      "predicted_x": 514,
+      "predicted_y": 118,
+      "bbox": [
+        497.47861323728046,
+        105.58950279796744,
+        534.2188203511931,
+        131.29221071589373
+      ],
+      "hit": true,
+      "latency_s": 4.2665698528289795,
+      "raw_response": "{\"found\": true, \"x\": 268, \"y\": 110, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        497.47861323728046,
+        105.58950279796744,
+        534.2188203511931,
+        131.29221071589373
+      ],
+      "hit": false,
+      "latency_s": 1.374737024307251,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "claude",
+      "predicted_x": 390,
+      "predicted_y": 90,
+      "bbox": [
+        497.47861323728046,
+        105.58950279796744,
+        534.2188203511931,
+        131.29221071589373
+      ],
+      "hit": false,
+      "latency_s": 1.5643582344055176,
+      "raw_response": "{\"found\": true, \"x\": 390, \"y\": 90, \"confidence\": 0.8}",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "gemini-flash",
+      "predicted_x": 1654,
+      "predicted_y": 458,
+      "bbox": [
+        1642.9072631835936,
+        445.9630293927874,
+        1674.4072631835938,
+        477.2830293927874
+      ],
+      "hit": true,
+      "latency_s": 6.367087125778198,
+      "raw_response": "{\"found\": true, \"x\": 985, \"y\": 439, \"confidence\": 1.0}",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1642.9072631835936,
+        445.9630293927874,
+        1674.4072631835938,
+        477.2830293927874
+      ],
+      "hit": false,
+      "latency_s": 1.5294499397277832,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1642.9072631835936,
+        445.9630293927874,
+        1674.4072631835938,
+        477.2830293927874
+      ],
+      "hit": false,
+      "latency_s": 1.8229501247406006,
+      "raw_response": "{\"found\": false}",
+      "error": null
+    }
+  ]
+}

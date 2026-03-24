@@ -126,6 +126,14 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
         NOT_FOUND
     """
     response = response.strip()
+    first_answer = re.search(
+        r'(^|\n)\s*(NOT_FOUND|FOUND:|<point\b|<points\b|\{)',
+        response,
+        re.IGNORECASE,
+    )
+    if first_answer:
+        response = response[first_answer.start(2):].strip()
+
     if response.upper().startswith("NOT_FOUND"):
         return None
 
@@ -155,7 +163,8 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     if point_match:
         return float(point_match.group(1)), float(point_match.group(2))
 
-    # Try Molmo2's native <points coords="ID X Y"/> format (0-1000 scale)
+    # Try Molmo2's native <points coords="ID X Y"/> format (0-1000 scale).
+    # Some single-image outputs include a leading frame id: "1 1 914 074".
     points_match = re.search(
         r'<points\s[^>]*coords="([^"]+)"',
         response,
@@ -163,12 +172,38 @@ def _parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     )
     if points_match:
         coords_str = points_match.group(1)
-        # Extract first point triplet: ID X Y
         triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
         if triplet:
             return float(triplet.group(2)), float(triplet.group(3))
+        frame_match = re.search(
+            r'(?:^|\t|:|,|;)\s*([0-9\.]+)\s+([0-9\. ]+)',
+            coords_str,
+        )
+        if frame_match:
+            coords_str = frame_match.group(2)
+            # Extract first point triplet: ID X Y
+            triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+            if triplet:
+                return float(triplet.group(2)), float(triplet.group(3))
 
     return None
+
+
+def _molmo_request_max_image_dim(model: str) -> int:
+    """Return the per-model mlx-vlm resize cap."""
+    model_lower = model.lower()
+    if "molmopoint" in model_lower or "molmo2" in model_lower:
+        return 0
+    if "molmo" in model_lower:
+        return 768
+    return 0
+
+
+def _molmo_request_timeout_s(model: str) -> int:
+    """Return the per-model HTTP timeout for local Molmo-family servers."""
+    if "molmopoint-gui" in model.lower():
+        return 300
+    return 120
 
 
 def normalize_prediction(
@@ -508,6 +543,8 @@ def call_openai_compat_backend(
         "max_tokens": 256,
         "stream": False,
     }
+    if "molmo" in model.lower():
+        payload["max_image_dim"] = _molmo_request_max_image_dim(model)
 
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -517,7 +554,7 @@ def call_openai_compat_backend(
     )
 
     start = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=_molmo_request_timeout_s(model)) as resp:
         result = json.loads(resp.read())
     elapsed = time.perf_counter() - start
 

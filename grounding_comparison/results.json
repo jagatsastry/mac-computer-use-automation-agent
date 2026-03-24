@@ -1,0 +1,63 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "point to where i can search for my orders",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:09:40",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "FOUND: x=583, y=318, confidence=0.9",
+      "parsed_x": 583,
+      "parsed_y": 318,
+      "raw_x": 583.0,
+      "raw_y": 318.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.62,
+      "error": null,
+      "image_path": "grounding_comparison/gemini_result.jpg"
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "FOUND: x=463, y=340, confidence=0.9",
+      "parsed_x": 463,
+      "parsed_y": 340,
+      "raw_x": 463.0,
+      "raw_y": 340.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.63,
+      "error": null,
+      "image_path": "grounding_comparison/gpt_result.jpg"
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "FOUND: x=597, y=213, confidence=0.9",
+      "parsed_x": 597,
+      "parsed_y": 213,
+      "raw_x": 597.0,
+      "raw_y": 213.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.37,
+      "error": null,
+      "image_path": "grounding_comparison/claude_result.jpg"
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"61.4\" y=\"32.4\" y=\"34.4\" x=\"71.1\" y=\"32.4\" alt=\"where i can search for my orders\">where i can search for my orders</point>",
+      "parsed_x": 628,
+      "parsed_y": 215,
+      "raw_x": 61.4,
+      "raw_y": 32.4,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 32.95,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result.jpg"
+    }
+  }
+}

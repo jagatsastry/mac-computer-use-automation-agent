@@ -27,6 +27,7 @@ _model = None
 _processor = None
 _config = None
 _model_name = ""
+_default_max_image_dim = 768
 
 
 def _load_model(model_path: str):
@@ -59,6 +60,9 @@ async def chat_completions(request: Request) -> JSONResponse:
     body = await request.json()
     messages = body.get("messages", [])
     max_tokens = body.get("max_tokens", 256)
+    request_max_image_dim = body.get("max_image_dim", _default_max_image_dim)
+    if request_max_image_dim is not None:
+        request_max_image_dim = int(request_max_image_dim)
 
     # Extract text and image from messages
     prompt_text = ""
@@ -80,10 +84,10 @@ async def chat_completions(request: Request) -> JSONResponse:
                         _, b64data = image_url.split(",", 1)
                         image_bytes = base64.b64decode(b64data)
                         image = Image.open(io.BytesIO(image_bytes))
-                        # Resize large images to prevent Metal GPU OOM
-                        max_dim = 768
-                        if max(image.size) > max_dim:
-                            ratio = max_dim / max(image.size)
+                        # Allow benchmark callers to disable the server-side resize so
+                        # evaluation uses the same pixels end-to-end.
+                        if request_max_image_dim and max(image.size) > request_max_image_dim:
+                            ratio = request_max_image_dim / max(image.size)
                             new_size = (int(image.width * ratio), int(image.height * ratio))
                             image = image.resize(new_size, Image.LANCZOS)
                         # mlx-vlm 0.3.x generate() expects file paths, not PIL images
@@ -125,6 +129,30 @@ async def chat_completions(request: Request) -> JSONResponse:
             import os
             os.unlink(tmp_file.name)
     elapsed = time.perf_counter() - start
+    content = (
+        output.text if hasattr(output, "text") else (output if isinstance(output, str) else str(output))
+    )
+
+    if getattr(_config, "model_type", "") == "molmo_point":
+        from mlx_vlm.models.molmo_point.point_utils import extract_points_from_text
+
+        pointing_metadata = getattr(_processor, "_pointing_metadata", None)
+        if pointing_metadata:
+            points = extract_points_from_text(
+                content,
+                pointing_metadata,
+                no_more_points_class=bool(getattr(_config, "no_more_points_class", True)),
+                patch_location=getattr(_config, "patch_location", "3x3"),
+            )
+            if points:
+                first_point = sorted(points, key=lambda p: (p[0], p[1]))[0]
+                _, _, px, py = first_point
+                content = (
+                    f"FOUND: x={px:.1f}, y={py:.1f}, confidence=1.0\n"
+                    f"RAW: {content}"
+                )
+            else:
+                content = f"NOT_FOUND\nRAW: {content}"
 
     return JSONResponse({
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -136,7 +164,7 @@ async def chat_completions(request: Request) -> JSONResponse:
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": output.text if hasattr(output, "text") else (output if isinstance(output, str) else str(output)),
+                    "content": content,
                 },
                 "finish_reason": "stop",
             }
@@ -164,12 +192,20 @@ app = Starlette(
 
 
 def main():
+    global _default_max_image_dim
     parser = argparse.ArgumentParser(description="Minimal OpenAI-compatible mlx-vlm server")
     parser.add_argument("--model", required=True, help="HuggingFace model ID")
     parser.add_argument("--port", type=int, default=8091, help="Port to listen on")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    parser.add_argument(
+        "--max-image-dim",
+        type=int,
+        default=768,
+        help="Resize images whose largest dimension exceeds this many pixels; use 0 to disable.",
+    )
     args = parser.parse_args()
 
+    _default_max_image_dim = args.max_image_dim
     _load_model(args.model)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

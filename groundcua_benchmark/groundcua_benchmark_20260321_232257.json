@@ -1,0 +1,2736 @@
+{
+  "run_tag": "20260321_232257",
+  "n_samples": 50,
+  "n_platforms": 50,
+  "models": {
+    "gemini-flash": {
+      "model_id": "gemini-3-flash-preview",
+      "accuracy": 78.0,
+      "hits": 39,
+      "misses": 11,
+      "not_found": 0,
+      "errors": 0,
+      "total": 50
+    },
+    "gpt": {
+      "model_id": "gpt-5.4",
+      "accuracy": 57.1,
+      "hits": 24,
+      "misses": 18,
+      "not_found": 8,
+      "errors": 0,
+      "total": 50
+    },
+    "claude": {
+      "model_id": "claude-sonnet-4-20250514",
+      "accuracy": 66.7,
+      "hits": 20,
+      "misses": 10,
+      "not_found": 20,
+      "errors": 0,
+      "total": 50
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gemini-flash",
+      "predicted_x": 165,
+      "predicted_y": 338,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": true,
+      "latency_s": 6.707886219024658,
+      "raw_response": "FOUND: x=86, y=313, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "gpt",
+      "predicted_x": 74,
+      "predicted_y": 177,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": true,
+      "latency_s": 1.1440320014953613,
+      "raw_response": "FOUND: x=74, y=177, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "claude",
+      "predicted_x": 41,
+      "predicted_y": 180,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 3.2559781074523926,
+      "raw_response": "FOUND: x=41, y=180, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gemini-flash",
+      "predicted_x": 1891,
+      "predicted_y": 713,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": true,
+      "latency_s": 12.130019187927246,
+      "raw_response": "FOUND: x=985, y=661, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "gpt",
+      "predicted_x": 574,
+      "predicted_y": 108,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 1.357787847518921,
+      "raw_response": "FOUND: x=574, y=108, confidence=0.73",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 2.136197090148926,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gemini-flash",
+      "predicted_x": 144,
+      "predicted_y": 86,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 2.64451003074646,
+      "raw_response": "FOUND: x=75, y=89, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "gpt",
+      "predicted_x": 58,
+      "predicted_y": 43,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": true,
+      "latency_s": 1.21498703956604,
+      "raw_response": "FOUND: x=58, y=43, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "claude",
+      "predicted_x": 33,
+      "predicted_y": 46,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": true,
+      "latency_s": 1.649296760559082,
+      "raw_response": "FOUND: x=33, y=46, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gemini-flash",
+      "predicted_x": 1866,
+      "predicted_y": 28,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": true,
+      "latency_s": 4.450581073760986,
+      "raw_response": "FOUND: x=972, y=26, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "gpt",
+      "predicted_x": 895,
+      "predicted_y": 18,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 1.2037932872772217,
+      "raw_response": "FOUND: x=895, y=18, confidence=0.82",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "claude",
+      "predicted_x": 838,
+      "predicted_y": 16,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 4.879568815231323,
+      "raw_response": "I need to look for a maximize button or element in this macOS desktop screenshot.\n\nLooking at the screenshot, I can see what appears to be a window with typical macOS window controls in the top-left a",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gemini-flash",
+      "predicted_x": 133,
+      "predicted_y": 35,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 5.807390928268433,
+      "raw_response": "FOUND: x=98, y=49, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": false,
+      "latency_s": 1.1750001907348633,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "claude",
+      "predicted_x": 99,
+      "predicted_y": 26,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": true,
+      "latency_s": 1.4372758865356445,
+      "raw_response": "FOUND: x=99, y=26, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "gemini-flash",
+      "predicted_x": 1872,
+      "predicted_y": 1019,
+      "bbox": [
+        1858.9546430113924,
+        1011.2457969159735,
+        1885.3546430113925,
+        1028.9372254874022
+      ],
+      "hit": true,
+      "latency_s": 2.3402719497680664,
+      "raw_response": "FOUND: x=975, y=988, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "gpt",
+      "predicted_x": 950,
+      "predicted_y": 544,
+      "bbox": [
+        991.4424762727426,
+        538.9391359532804,
+        1005.5224762727427,
+        548.3677073818519
+      ],
+      "hit": false,
+      "latency_s": 1.3424670696258545,
+      "raw_response": "FOUND: x=950, y=544, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        991.4424762727426,
+        538.9391359532804,
+        1005.5224762727427,
+        548.3677073818519
+      ],
+      "hit": false,
+      "latency_s": 1.6668980121612549,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "gemini-flash",
+      "predicted_x": 64,
+      "predicted_y": 13,
+      "bbox": [
+        48.009375,
+        5.628571428571428,
+        67.809375,
+        24.76571428571429
+      ],
+      "hit": true,
+      "latency_s": 4.185458183288574,
+      "raw_response": "FOUND: x=45, y=17, confidence=0.999",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        34.14,
+        4.0,
+        48.220000000000006,
+        17.6
+      ],
+      "hit": false,
+      "latency_s": 1.1738910675048828,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        34.14,
+        4.0,
+        48.220000000000006,
+        17.6
+      ],
+      "hit": false,
+      "latency_s": 1.7837510108947754,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "gemini-flash",
+      "predicted_x": 1350,
+      "predicted_y": 382,
+      "bbox": [
+        1345.5101042175293,
+        334.36607142857144,
+        1366.0001042175295,
+        421.79464285714283
+      ],
+      "hit": true,
+      "latency_s": 4.5032219886779785,
+      "raw_response": "FOUND: x=989, y=531, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1008.640078125,
+        250.31015625,
+        1024.000078125,
+        315.76015624999997
+      ],
+      "hit": false,
+      "latency_s": 1.1417300701141357,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1008.640078125,
+        250.31015625,
+        1024.000078125,
+        315.76015624999997
+      ],
+      "hit": false,
+      "latency_s": 1.5112779140472412,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "gemini-flash",
+      "predicted_x": 19,
+      "predicted_y": 397,
+      "bbox": [
+        3.2567977905273438e-06,
+        639.406023297991,
+        32.44250325679779,
+        669.2345947265625
+      ],
+      "hit": false,
+      "latency_s": 6.044031143188477,
+      "raw_response": "FOUND: x=14, y=552, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "gpt",
+      "predicted_x": 12,
+      "predicted_y": 384,
+      "bbox": [
+        2.44140625e-06,
+        478.6664535522461,
+        24.320002441406253,
+        500.99645355224607
+      ],
+      "hit": false,
+      "latency_s": 1.3658041954040527,
+      "raw_response": "FOUND: x=12, y=384, confidence=0.50",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        2.44140625e-06,
+        478.6664535522461,
+        24.320002441406253,
+        500.99645355224607
+      ],
+      "hit": false,
+      "latency_s": 1.6009719371795654,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "gemini-flash",
+      "predicted_x": 860,
+      "predicted_y": 80,
+      "bbox": [
+        836.7104438382404,
+        54.75489628779424,
+        894.010719320334,
+        104.10554563844359
+      ],
+      "hit": true,
+      "latency_s": 2.4044830799102783,
+      "raw_response": "FOUND: x=448, y=81, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "gpt",
+      "predicted_x": 467,
+      "predicted_y": 40,
+      "bbox": [
+        446.24557004706156,
+        29.20261135349026,
+        476.8057169708448,
+        55.52295767383658
+      ],
+      "hit": true,
+      "latency_s": 1.2751410007476807,
+      "raw_response": "FOUND: x=467, y=40, confidence=0.93",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        446.24557004706156,
+        29.20261135349026,
+        476.8057169708448,
+        55.52295767383658
+      ],
+      "hit": false,
+      "latency_s": 2.698615074157715,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "gemini-flash",
+      "predicted_x": 24,
+      "predicted_y": 272,
+      "bbox": [
+        4.2749999999999995,
+        256.1142857142857,
+        47.475,
+        284.9143371428571
+      ],
+      "hit": true,
+      "latency_s": 51.764528036117554,
+      "raw_response": "FOUND: x=13, y=252, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "gpt",
+      "predicted_x": 76,
+      "predicted_y": 129,
+      "bbox": [
+        2.28,
+        136.59428571428572,
+        25.32,
+        151.95431314285713
+      ],
+      "hit": false,
+      "latency_s": 1.3262381553649902,
+      "raw_response": "FOUND: x=76, y=129, confidence=0.88",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "claude",
+      "predicted_x": 573,
+      "predicted_y": 298,
+      "bbox": [
+        2.28,
+        136.59428571428572,
+        25.32,
+        151.95431314285713
+      ],
+      "hit": false,
+      "latency_s": 3.1312201023101807,
+      "raw_response": "I can see this is a LibreOffice Draw window, not a macOS desktop. I can see a white rectangular shape in the center of the black canvas area.\n\nFOUND: x=573, y=298, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "gemini-flash",
+      "predicted_x": 138,
+      "predicted_y": 181,
+      "bbox": [
+        96.66000366210938,
+        166.11428571428573,
+        195.06000366210938,
+        199.6285714285714
+      ],
+      "hit": true,
+      "latency_s": 4.212836027145386,
+      "raw_response": "FOUND: x=72, y=178, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "gpt",
+      "predicted_x": 75,
+      "predicted_y": 96,
+      "bbox": [
+        51.552001953125,
+        88.59428571428572,
+        104.032001953125,
+        106.46857142857141
+      ],
+      "hit": true,
+      "latency_s": 1.4900400638580322,
+      "raw_response": "FOUND: x=75, y=96, confidence=0.98",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "claude",
+      "predicted_x": 426,
+      "predicted_y": 219,
+      "bbox": [
+        51.552001953125,
+        88.59428571428572,
+        104.032001953125,
+        106.46857142857141
+      ],
+      "hit": false,
+      "latency_s": 1.658109188079834,
+      "raw_response": "FOUND: x=426, y=219, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "gemini-flash",
+      "predicted_x": 946,
+      "predicted_y": 74,
+      "bbox": [
+        328.8,
+        702.72,
+        364.8,
+        735.84
+      ],
+      "hit": false,
+      "latency_s": 3.9966189861297607,
+      "raw_response": "FOUND: x=493, y=74, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "gpt",
+      "predicted_x": 299,
+      "predicted_y": 94,
+      "bbox": [
+        175.36,
+        374.3657142857143,
+        194.56,
+        392.01
+      ],
+      "hit": false,
+      "latency_s": 1.6644651889801025,
+      "raw_response": "FOUND: x=299, y=94, confidence=0.93",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "claude",
+      "predicted_x": 500,
+      "predicted_y": 41,
+      "bbox": [
+        175.36,
+        374.3657142857143,
+        194.56,
+        392.01
+      ],
+      "hit": false,
+      "latency_s": 4.4193809032440186,
+      "raw_response": "I need to look for a header element in this macOS desktop screenshot. Looking at the image, I can see what appears to be a browser window showing the Lemmy.World website. At the top of the browser win",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "gemini-flash",
+      "predicted_x": 94,
+      "predicted_y": 136,
+      "bbox": [
+        43.24577227290373,
+        10.105496627414977,
+        221.38241823563664,
+        36.35216920949128
+      ],
+      "hit": false,
+      "latency_s": 3.8106510639190674,
+      "raw_response": "FOUND: x=49, y=134, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "gpt",
+      "predicted_x": 64,
+      "predicted_y": 65,
+      "bbox": [
+        23.064411878881987,
+        5.3895982012879875,
+        118.07062305900621,
+        19.38782357839535
+      ],
+      "hit": false,
+      "latency_s": 3.685438871383667,
+      "raw_response": "FOUND: x=64, y=65, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        23.064411878881987,
+        5.3895982012879875,
+        118.07062305900621,
+        19.38782357839535
+      ],
+      "hit": false,
+      "latency_s": 1.8089799880981445,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "gemini-flash",
+      "predicted_x": 867,
+      "predicted_y": 157,
+      "bbox": [
+        845.4599853515625,
+        138.10285714285715,
+        891.0599853515625,
+        181.09714285714284
+      ],
+      "hit": true,
+      "latency_s": 5.889823913574219,
+      "raw_response": "FOUND: x=452, y=173, confidence=0.999",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "gpt",
+      "predicted_x": 465,
+      "predicted_y": 84,
+      "bbox": [
+        450.9119921875,
+        73.59428571428572,
+        475.2319921875,
+        96.50571428571429
+      ],
+      "hit": true,
+      "latency_s": 1.9678997993469238,
+      "raw_response": "FOUND: x=465, y=84, confidence=0.86",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        450.9119921875,
+        73.59428571428572,
+        475.2319921875,
+        96.50571428571429
+      ],
+      "hit": false,
+      "latency_s": 2.0048370361328125,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "gemini-flash",
+      "predicted_x": 311,
+      "predicted_y": 103,
+      "bbox": [
+        299.68861272448606,
+        87.39076773566565,
+        332.131112724486,
+        119.36505344995138
+      ],
+      "hit": true,
+      "latency_s": 3.9796700477600098,
+      "raw_response": "FOUND: x=228, y=143, confidence=0.999",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "gpt",
+      "predicted_x": 153,
+      "predicted_y": 77,
+      "bbox": [
+        224.65676385788706,
+        65.48255587949461,
+        248.97676385788702,
+        89.44112730806606
+      ],
+      "hit": false,
+      "latency_s": 1.3095741271972656,
+      "raw_response": "FOUND: x=153, y=77, confidence=0.70",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        224.65676385788706,
+        65.48255587949461,
+        248.97676385788702,
+        89.44112730806606
+      ],
+      "hit": false,
+      "latency_s": 1.6132960319519043,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "gemini-flash",
+      "predicted_x": 41,
+      "predicted_y": 1107,
+      "bbox": [
+        821.25,
+        128.54857142857142,
+        870.5250000000001,
+        180.77142857142854
+      ],
+      "hit": false,
+      "latency_s": 14.485329866409302,
+      "raw_response": "FOUND: x=19, y=788, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "gpt",
+      "predicted_x": 744,
+      "predicted_y": 455,
+      "bbox": [
+        384.0,
+        60.068571428571424,
+        407.04,
+        84.47142857142856
+      ],
+      "hit": false,
+      "latency_s": 1.4308149814605713,
+      "raw_response": "FOUND: x=744, y=455, confidence=0.76",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        384.0,
+        60.068571428571424,
+        407.04,
+        84.47142857142856
+      ],
+      "hit": false,
+      "latency_s": 3.292158842086792,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "gemini-flash",
+      "predicted_x": 118,
+      "predicted_y": 11,
+      "bbox": [
+        118.20937500000001,
+        1.2857142857142858,
+        147.009375,
+        21.857142857142858
+      ],
+      "hit": false,
+      "latency_s": 2.6038050651550293,
+      "raw_response": "FOUND: x=82, y=13, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "gpt",
+      "predicted_x": 89,
+      "predicted_y": 12,
+      "bbox": [
+        84.06,
+        0.9142857142857144,
+        104.54,
+        15.542857142857144
+      ],
+      "hit": true,
+      "latency_s": 1.2108237743377686,
+      "raw_response": "FOUND: x=89, y=12, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "claude",
+      "predicted_x": 94,
+      "predicted_y": 8,
+      "bbox": [
+        84.06,
+        0.9142857142857144,
+        104.54,
+        15.542857142857144
+      ],
+      "hit": true,
+      "latency_s": 2.399808168411255,
+      "raw_response": "FOUND: x=94, y=8, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "gemini-flash",
+      "predicted_x": 266,
+      "predicted_y": 161,
+      "bbox": [
+        255.79984342463385,
+        150.38000457246935,
+        289.39984342463384,
+        182.50000457246935
+      ],
+      "hit": true,
+      "latency_s": 5.91344690322876,
+      "raw_response": "FOUND: x=139, y=158, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "gpt",
+      "predicted_x": 200,
+      "predicted_y": 88,
+      "bbox": [
+        136.42658315980472,
+        80.1928595812092,
+        154.3465831598047,
+        97.32143100978064
+      ],
+      "hit": false,
+      "latency_s": 1.5723791122436523,
+      "raw_response": "FOUND: x=200, y=88, confidence=0.73",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "claude",
+      "predicted_x": 142,
+      "predicted_y": 86,
+      "bbox": [
+        136.42658315980472,
+        80.1928595812092,
+        154.3465831598047,
+        97.32143100978064
+      ],
+      "hit": true,
+      "latency_s": 2.0771610736846924,
+      "raw_response": "FOUND: x=142, y=86, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "gemini-flash",
+      "predicted_x": 1128,
+      "predicted_y": 477,
+      "bbox": [
+        176.7804314084002,
+        34.78159320413663,
+        224.78043140840023,
+        53.29587891842233
+      ],
+      "hit": false,
+      "latency_s": 2.6090269088745117,
+      "raw_response": "FOUND: x=588, y=442, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "gpt",
+      "predicted_x": 615,
+      "predicted_y": 255,
+      "bbox": [
+        94.28289675114678,
+        18.5501830422062,
+        119.88289675114679,
+        28.42446875649191
+      ],
+      "hit": false,
+      "latency_s": 1.3915750980377197,
+      "raw_response": "FOUND: x=615, y=255, confidence=0.98",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "claude",
+      "predicted_x": 600,
+      "predicted_y": 254,
+      "bbox": [
+        94.28289675114678,
+        18.5501830422062,
+        119.88289675114679,
+        28.42446875649191
+      ],
+      "hit": false,
+      "latency_s": 1.806067943572998,
+      "raw_response": "FOUND: x=600, y=254, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "gemini-flash",
+      "predicted_x": 662,
+      "predicted_y": 1005,
+      "bbox": [
+        633.0050946745305,
+        991.0315173816543,
+        671.4050946745305,
+        1020.5172316673686
+      ],
+      "hit": true,
+      "latency_s": 3.830242872238159,
+      "raw_response": "FOUND: x=345, y=974, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        337.6027171597496,
+        528.1660218603778,
+        358.08271715974956,
+        543.8803075746634
+      ],
+      "hit": false,
+      "latency_s": 1.6049280166625977,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        337.6027171597496,
+        528.1660218603778,
+        358.08271715974956,
+        543.8803075746634
+      ],
+      "hit": false,
+      "latency_s": 1.8590221405029297,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "gemini-flash",
+      "predicted_x": 1626,
+      "predicted_y": 129,
+      "bbox": [
+        1573.17,
+        106.22571428571429,
+        1701.0700000000002,
+        158.29714285714286
+      ],
+      "hit": true,
+      "latency_s": 4.887277126312256,
+      "raw_response": "FOUND: x=636, y=89, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "gpt",
+      "predicted_x": 637,
+      "predicted_y": 51,
+      "bbox": [
+        629.76,
+        42.47571428571429,
+        680.96,
+        63.29714285714286
+      ],
+      "hit": true,
+      "latency_s": 1.303708791732788,
+      "raw_response": "FOUND: x=637, y=51, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "claude",
+      "predicted_x": 647,
+      "predicted_y": 52,
+      "bbox": [
+        629.76,
+        42.47571428571429,
+        680.96,
+        63.29714285714286
+      ],
+      "hit": true,
+      "latency_s": 1.6910600662231445,
+      "raw_response": "FOUND: x=647, y=52, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "gemini-flash",
+      "predicted_x": 126,
+      "predicted_y": 176,
+      "bbox": [
+        76.890756302521,
+        600.2881152460985,
+        117.22689075630254,
+        636.4054193105815
+      ],
+      "hit": false,
+      "latency_s": 44.44339108467102,
+      "raw_response": "FOUND: x=66, y=163, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        41.008403361344534,
+        320.15366146458587,
+        62.52100840336135,
+        339.4162236323101
+      ],
+      "hit": false,
+      "latency_s": 1.1476106643676758,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        41.008403361344534,
+        320.15366146458587,
+        62.52100840336135,
+        339.4162236323101
+      ],
+      "hit": false,
+      "latency_s": 4.383785963058472,
+      "raw_response": "I need to carefully examine this screenshot to look for the text \"Add various raster map layers\".\n\nLooking at the screenshot, I can see this appears to be a GIS software interface (likely QGIS based o",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "gemini-flash",
+      "predicted_x": 89,
+      "predicted_y": 347,
+      "bbox": [
+        79.07899737508691,
+        290.28826130832925,
+        98.27899737508693,
+        404.45968987975783
+      ],
+      "hit": true,
+      "latency_s": 3.0882890224456787,
+      "raw_response": "FOUND: x=70, y=482, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        63.263197900069535,
+        232.2306090466634,
+        78.62319790006956,
+        323.5677519038063
+      ],
+      "hit": false,
+      "latency_s": 1.200650930404663,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        63.263197900069535,
+        232.2306090466634,
+        78.62319790006956,
+        323.5677519038063
+      ],
+      "hit": false,
+      "latency_s": 1.2894630432128906,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "gemini-flash",
+      "predicted_x": 220,
+      "predicted_y": 252,
+      "bbox": [
+        203.81274138190918,
+        240.8708561123953,
+        235.20774138190922,
+        261.045141826681
+      ],
+      "hit": true,
+      "latency_s": 4.2228779792785645,
+      "raw_response": "FOUND: x=202, y=411, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "gpt",
+      "predicted_x": 208,
+      "predicted_y": 236,
+      "bbox": [
+        191.1211054716804,
+        225.57124147333437,
+        220.56110547168043,
+        244.46409861619148
+      ],
+      "hit": true,
+      "latency_s": 1.3204889297485352,
+      "raw_response": "FOUND: x=208, y=236, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "claude",
+      "predicted_x": 205,
+      "predicted_y": 235,
+      "bbox": [
+        191.1211054716804,
+        225.57124147333437,
+        220.56110547168043,
+        244.46409861619148
+      ],
+      "hit": true,
+      "latency_s": 2.073514938354492,
+      "raw_response": "FOUND: x=205, y=235, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "gemini-flash",
+      "predicted_x": 277,
+      "predicted_y": 32,
+      "bbox": [
+        263.63656862260507,
+        25.001250417318666,
+        298.83656862260506,
+        41.45839327446152
+      ],
+      "hit": true,
+      "latency_s": 36.95010805130005,
+      "raw_response": "FOUND: x=217, y=45, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "gpt",
+      "predicted_x": 216,
+      "predicted_y": 28,
+      "bbox": [
+        210.90925489808407,
+        20.001000333854932,
+        239.06925489808407,
+        33.16671461956922
+      ],
+      "hit": true,
+      "latency_s": 1.273129940032959,
+      "raw_response": "FOUND: x=216, y=28, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "claude",
+      "predicted_x": 221,
+      "predicted_y": 26,
+      "bbox": [
+        210.90925489808407,
+        20.001000333854932,
+        239.06925489808407,
+        33.16671461956922
+      ],
+      "hit": true,
+      "latency_s": 1.8472621440887451,
+      "raw_response": "FOUND: x=221, y=26, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "gemini-flash",
+      "predicted_x": 1889,
+      "predicted_y": 15,
+      "bbox": [
+        1892.2815219372508,
+        40.65567521204613,
+        1909.8932630980246,
+        56.60916801677309
+      ],
+      "hit": false,
+      "latency_s": 1.9542551040649414,
+      "raw_response": "FOUND: x=984, y=14, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "gpt",
+      "predicted_x": 987,
+      "predicted_y": 24,
+      "bbox": [
+        1009.2168116998671,
+        21.683026779757935,
+        1018.6097403189465,
+        30.191556275612314
+      ],
+      "hit": false,
+      "latency_s": 1.3106529712677002,
+      "raw_response": "FOUND: x=987, y=24, confidence=0.96",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "claude",
+      "predicted_x": 1005,
+      "predicted_y": 100,
+      "bbox": [
+        1009.2168116998671,
+        21.683026779757935,
+        1018.6097403189465,
+        30.191556275612314
+      ],
+      "hit": false,
+      "latency_s": 5.651689291000366,
+      "raw_response": "I need to look for a \"Close interface\" element in this screenshot of what appears to be a music notation software (likely MuseScore).\n\nLooking at the interface, I can see various UI elements including",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "gemini-flash",
+      "predicted_x": 1782,
+      "predicted_y": 451,
+      "bbox": [
+        1757.997421875,
+        423.37142857142857,
+        1812.9724218749998,
+        472.53714285714284
+      ],
+      "hit": true,
+      "latency_s": 37.73658990859985,
+      "raw_response": "FOUND: x=608, y=236, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        613.98,
+        147.69285714285715,
+        633.18,
+        164.84428571428572
+      ],
+      "hit": false,
+      "latency_s": 1.5781440734863281,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        613.98,
+        147.69285714285715,
+        633.18,
+        164.84428571428572
+      ],
+      "hit": false,
+      "latency_s": 5.277338266372681,
+      "raw_response": "I need to search for the word \"delete\" in this screenshot of a macOS desktop showing what appears to be a note-taking application (Joplin).\n\nLooking through the interface, I can see:\n- Menu bar at the",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "gemini-flash",
+      "predicted_x": 12,
+      "predicted_y": 469,
+      "bbox": [
+        6.361484375000001,
+        426.2057142857143,
+        27.288984375,
+        514.4257142857143
+      ],
+      "hit": true,
+      "latency_s": 6.3993120193481445,
+      "raw_response": "FOUND: x=8, y=585, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "gpt",
+      "predicted_x": 13,
+      "predicted_y": 319,
+      "bbox": [
+        4.28,
+        286.44000000000005,
+        18.36,
+        345.7300000000001
+      ],
+      "hit": true,
+      "latency_s": 1.2670199871063232,
+      "raw_response": "FOUND: x=13, y=319, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        4.28,
+        286.44000000000005,
+        18.36,
+        345.7300000000001
+      ],
+      "hit": false,
+      "latency_s": 1.6319987773895264,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "gemini-flash",
+      "predicted_x": 1392,
+      "predicted_y": 959,
+      "bbox": [
+        1338.9,
+        938.4000000000001,
+        1478.1000000000001,
+        974.8285714285714
+      ],
+      "hit": true,
+      "latency_s": 9.950543880462646,
+      "raw_response": "FOUND: x=725, y=941, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "gpt",
+      "predicted_x": 758,
+      "predicted_y": 534,
+      "bbox": [
+        714.08,
+        500.48,
+        788.32,
+        519.9085714285715
+      ],
+      "hit": false,
+      "latency_s": 1.3911778926849365,
+      "raw_response": "FOUND: x=758, y=534, confidence=0.90",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "claude",
+      "predicted_x": 742,
+      "predicted_y": 510,
+      "bbox": [
+        714.08,
+        500.48,
+        788.32,
+        519.9085714285715
+      ],
+      "hit": true,
+      "latency_s": 1.6917717456817627,
+      "raw_response": "FOUND: x=742, y=510, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "gemini-flash",
+      "predicted_x": 723,
+      "predicted_y": 548,
+      "bbox": [
+        394.655625,
+        264.89714285714285,
+        490.205625,
+        339.4542857142857
+      ],
+      "hit": false,
+      "latency_s": 8.963459730148315,
+      "raw_response": "FOUND: x=663, y=894, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "gpt",
+      "predicted_x": 421,
+      "predicted_y": 264,
+      "bbox": [
+        370.08,
+        248.07142857142856,
+        459.68,
+        317.8928571428571
+      ],
+      "hit": true,
+      "latency_s": 1.382431983947754,
+      "raw_response": "FOUND: x=421, y=264, confidence=0.66",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        370.08,
+        248.07142857142856,
+        459.68,
+        317.8928571428571
+      ],
+      "hit": false,
+      "latency_s": 1.6006131172180176,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "gemini-flash",
+      "predicted_x": 72,
+      "predicted_y": 76,
+      "bbox": [
+        57.075,
+        67.88571428571429,
+        102.675,
+        95.65714285714284
+      ],
+      "hit": true,
+      "latency_s": 22.377415895462036,
+      "raw_response": "FOUND: x=38, y=71, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "gpt",
+      "predicted_x": 54,
+      "predicted_y": 42,
+      "bbox": [
+        30.44,
+        36.205714285714286,
+        54.76,
+        51.01714285714285
+      ],
+      "hit": true,
+      "latency_s": 1.6787807941436768,
+      "raw_response": "FOUND: x=54, y=42, confidence=0.98",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "claude",
+      "predicted_x": 42,
+      "predicted_y": 42,
+      "bbox": [
+        30.44,
+        36.205714285714286,
+        54.76,
+        51.01714285714285
+      ],
+      "hit": true,
+      "latency_s": 2.896630048751831,
+      "raw_response": "FOUND: x=42, y=42, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "gemini-flash",
+      "predicted_x": 130,
+      "predicted_y": 1004,
+      "bbox": [
+        5.460003662109375,
+        992.3142857142857,
+        245.4600036621094,
+        1020.0
+      ],
+      "hit": true,
+      "latency_s": 2.9446263313293457,
+      "raw_response": "FOUND: x=68, y=985, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "gpt",
+      "predicted_x": 492,
+      "predicted_y": 535,
+      "bbox": [
+        2.912001953125,
+        529.2342857142856,
+        130.912001953125,
+        544.0
+      ],
+      "hit": false,
+      "latency_s": 1.2955601215362549,
+      "raw_response": "FOUND: x=492, y=535, confidence=0.94",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "claude",
+      "predicted_x": 71,
+      "predicted_y": 535,
+      "bbox": [
+        2.912001953125,
+        529.2342857142856,
+        130.912001953125,
+        544.0
+      ],
+      "hit": true,
+      "latency_s": 1.7925481796264648,
+      "raw_response": "FOUND: x=71, y=535, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "gemini-flash",
+      "predicted_x": 577,
+      "predicted_y": 444,
+      "bbox": [
+        593.485546875,
+        433.67703125,
+        617.935546875,
+        454.11703125
+      ],
+      "hit": false,
+      "latency_s": 18.261107206344604,
+      "raw_response": "FOUND: x=354, y=435, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "gpt",
+      "predicted_x": 531,
+      "predicted_y": 189,
+      "bbox": [
+        372.84,
+        272.42725446428574,
+        388.20000000000005,
+        285.2672544642857
+      ],
+      "hit": false,
+      "latency_s": 2.6830990314483643,
+      "raw_response": "FOUND: x=531, y=189, confidence=0.80",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        372.84,
+        272.42725446428574,
+        388.20000000000005,
+        285.2672544642857
+      ],
+      "hit": false,
+      "latency_s": 4.978678226470947,
+      "raw_response": "I need to carefully examine this screenshot to look for an element related to \"spiro\" activity settings.\n\nLooking at the screenshot, I can see this appears to be a font or typography design software i",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "gemini-flash",
+      "predicted_x": 881,
+      "predicted_y": 292,
+      "bbox": [
+        249.76456510543824,
+        2.0628571428571427,
+        292.45206510543824,
+        31.974285714285713
+      ],
+      "hit": false,
+      "latency_s": 29.806270837783813,
+      "raw_response": "FOUND: x=645, y=405, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "gpt",
+      "predicted_x": 396,
+      "predicted_y": 255,
+      "bbox": [
+        187.232001953125,
+        1.5457142857142856,
+        219.232001953125,
+        23.958571428571425
+      ],
+      "hit": false,
+      "latency_s": 1.4467849731445312,
+      "raw_response": "FOUND: x=396, y=255, confidence=0.90",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "claude",
+      "predicted_x": 404,
+      "predicted_y": 255,
+      "bbox": [
+        187.232001953125,
+        1.5457142857142856,
+        219.232001953125,
+        23.958571428571425
+      ],
+      "hit": false,
+      "latency_s": 2.796765089035034,
+      "raw_response": "I need to look for an \"add\" element in this screenshot of what appears to be a bookmark editing dialog in DuckDuckGo browser.\n\nLooking at the interface, I can see there's a checkbox with text \"Add to ",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "gemini-flash",
+      "predicted_x": 324,
+      "predicted_y": 359,
+      "bbox": [
+        125.91994628906251,
+        231.16570443289623,
+        512.3199462890624,
+        369.34856157575337
+      ],
+      "hit": true,
+      "latency_s": 9.206735134124756,
+      "raw_response": "FOUND: x=169, y=398, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "gpt",
+      "predicted_x": 141,
+      "predicted_y": 136,
+      "bbox": [
+        67.1573046875,
+        123.25428046090263,
+        273.23730468749994,
+        196.9314233180455
+      ],
+      "hit": true,
+      "latency_s": 1.2932138442993164,
+      "raw_response": "FOUND: x=141, y=136, confidence=0.98",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "claude",
+      "predicted_x": 145,
+      "predicted_y": 135,
+      "bbox": [
+        67.1573046875,
+        123.25428046090263,
+        273.23730468749994,
+        196.9314233180455
+      ],
+      "hit": true,
+      "latency_s": 1.4882948398590088,
+      "raw_response": "FOUND: x=145, y=135, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "gemini-flash",
+      "predicted_x": 1572,
+      "predicted_y": 176,
+      "bbox": [
+        1545.5117797851562,
+        164.50717817034038,
+        1593.5117797851562,
+        187.65003531319755
+      ],
+      "hit": true,
+      "latency_s": 9.674404859542847,
+      "raw_response": "FOUND: x=819, y=163, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "gpt",
+      "predicted_x": 261,
+      "predicted_y": 101,
+      "bbox": [
+        824.27294921875,
+        87.7371616908482,
+        849.87294921875,
+        100.08001883370535
+      ],
+      "hit": false,
+      "latency_s": 1.2353572845458984,
+      "raw_response": "FOUND: x=261, y=101, confidence=0.92",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "claude",
+      "predicted_x": 214,
+      "predicted_y": 117,
+      "bbox": [
+        824.27294921875,
+        87.7371616908482,
+        849.87294921875,
+        100.08001883370535
+      ],
+      "hit": false,
+      "latency_s": 1.8586139678955078,
+      "raw_response": "FOUND: x=214, y=117, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "gemini-flash",
+      "predicted_x": 370,
+      "predicted_y": 1336,
+      "bbox": [
+        338.325,
+        1292.8228571428572,
+        413.7975,
+        1378.0857142857144
+      ],
+      "hit": true,
+      "latency_s": 4.805639028549194,
+      "raw_response": "FOUND: x=178, y=963, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "gpt",
+      "predicted_x": 182,
+      "predicted_y": 658,
+      "bbox": [
+        166.39999999999998,
+        635.2342857142858,
+        203.52,
+        677.1285714285715
+      ],
+      "hit": true,
+      "latency_s": 1.3733561038970947,
+      "raw_response": "FOUND: x=182, y=658, confidence=0.96",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "claude",
+      "predicted_x": 183,
+      "predicted_y": 668,
+      "bbox": [
+        166.39999999999998,
+        635.2342857142858,
+        203.52,
+        677.1285714285715
+      ],
+      "hit": true,
+      "latency_s": 1.818437099456787,
+      "raw_response": "FOUND: x=183, y=668, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "gemini-flash",
+      "predicted_x": 1496,
+      "predicted_y": 1024,
+      "bbox": [
+        1470.5775272369385,
+        1012.381718837193,
+        1535.6775272369384,
+        1034.7531474086218
+      ],
+      "hit": true,
+      "latency_s": 3.573723077774048,
+      "raw_response": "FOUND: x=891, y=981, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "gpt",
+      "predicted_x": 898,
+      "predicted_y": 623,
+      "bbox": [
+        896.3520166015626,
+        616.7382884870257,
+        936.0320166015625,
+        630.3668599155972
+      ],
+      "hit": true,
+      "latency_s": 1.387192964553833,
+      "raw_response": "FOUND: x=898, y=623, confidence=0.96",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "claude",
+      "predicted_x": 913,
+      "predicted_y": 623,
+      "bbox": [
+        896.3520166015626,
+        616.7382884870257,
+        936.0320166015625,
+        630.3668599155972
+      ],
+      "hit": true,
+      "latency_s": 1.8183791637420654,
+      "raw_response": "FOUND: x=913, y=623, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "gemini-flash",
+      "predicted_x": 63,
+      "predicted_y": 9,
+      "bbox": [
+        48.21695001113736,
+        2.740858559592592,
+        84.21695001113737,
+        25.36942998816402
+      ],
+      "hit": true,
+      "latency_s": 2.515477180480957,
+      "raw_response": "FOUND: x=33, y=10, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "gpt",
+      "predicted_x": 31,
+      "predicted_y": 8,
+      "bbox": [
+        25.71570667260659,
+        1.4617912317827157,
+        44.915706672606596,
+        13.530362660354143
+      ],
+      "hit": true,
+      "latency_s": 1.5977652072906494,
+      "raw_response": "FOUND: x=31, y=8, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "claude",
+      "predicted_x": 36,
+      "predicted_y": 10,
+      "bbox": [
+        25.71570667260659,
+        1.4617912317827157,
+        44.915706672606596,
+        13.530362660354143
+      ],
+      "hit": true,
+      "latency_s": 1.642056941986084,
+      "raw_response": "FOUND: x=36, y=10, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "gemini-flash",
+      "predicted_x": 428,
+      "predicted_y": 601,
+      "bbox": [
+        420.3660099792481,
+        600.4617930603027,
+        438.006009979248,
+        615.867507346017
+      ],
+      "hit": true,
+      "latency_s": 5.141463041305542,
+      "raw_response": "FOUND: x=364, y=893, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "gpt",
+      "predicted_x": 370,
+      "predicted_y": 525,
+      "bbox": [
+        366.03298828125,
+        522.0632206726075,
+        381.3929882812499,
+        535.4575063868931
+      ],
+      "hit": true,
+      "latency_s": 1.4757568836212158,
+      "raw_response": "FOUND: x=370, y=525, confidence=0.98",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "claude",
+      "predicted_x": 369,
+      "predicted_y": 529,
+      "bbox": [
+        366.03298828125,
+        522.0632206726075,
+        381.3929882812499,
+        535.4575063868931
+      ],
+      "hit": true,
+      "latency_s": 1.8632030487060547,
+      "raw_response": "FOUND: x=369, y=529, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "gemini-flash",
+      "predicted_x": 1226,
+      "predicted_y": 144,
+      "bbox": [
+        1190.4,
+        127.54285714285713,
+        1262.3999999999999,
+        158.4
+      ],
+      "hit": true,
+      "latency_s": 3.342780828475952,
+      "raw_response": "FOUND: x=958, y=201, confidence=0.999",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "gpt",
+      "predicted_x": 985,
+      "predicted_y": 115,
+      "bbox": [
+        952.3200000000002,
+        102.03428571428572,
+        1009.92,
+        126.72000000000001
+      ],
+      "hit": true,
+      "latency_s": 1.286712884902954,
+      "raw_response": "FOUND: x=985, y=115, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "claude",
+      "predicted_x": 983,
+      "predicted_y": 115,
+      "bbox": [
+        952.3200000000002,
+        102.03428571428572,
+        1009.92,
+        126.72000000000001
+      ],
+      "hit": true,
+      "latency_s": 3.734755754470825,
+      "raw_response": "FOUND: x=983, y=115, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "gemini-flash",
+      "predicted_x": 640,
+      "predicted_y": 131,
+      "bbox": [
+        584.4400024414062,
+        110.05714285714286,
+        730.0400024414063,
+        147.0857142857143
+      ],
+      "hit": true,
+      "latency_s": 5.685405015945435,
+      "raw_response": "FOUND: x=500, y=183, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "gpt",
+      "predicted_x": 510,
+      "predicted_y": 110,
+      "bbox": [
+        467.552001953125,
+        88.0457142857143,
+        584.032001953125,
+        117.66857142857144
+      ],
+      "hit": true,
+      "latency_s": 1.4914329051971436,
+      "raw_response": "FOUND: x=510, y=110, confidence=0.97",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "claude",
+      "predicted_x": 512,
+      "predicted_y": 105,
+      "bbox": [
+        467.552001953125,
+        88.0457142857143,
+        584.032001953125,
+        117.66857142857144
+      ],
+      "hit": true,
+      "latency_s": 1.752807855606079,
+      "raw_response": "FOUND: x=512, y=105, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "gemini-flash",
+      "predicted_x": 1017,
+      "predicted_y": 433,
+      "bbox": [
+        965.4600036621094,
+        416.0,
+        1049.4600036621093,
+        452.40000000000003
+      ],
+      "hit": true,
+      "latency_s": 3.703763961791992,
+      "raw_response": "FOUND: x=530, y=476, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "gpt",
+      "predicted_x": 535,
+      "predicted_y": 229,
+      "bbox": [
+        514.912001953125,
+        221.71428571428572,
+        559.712001953125,
+        241.11428571428573
+      ],
+      "hit": true,
+      "latency_s": 1.430022954940796,
+      "raw_response": "FOUND: x=535, y=229, confidence=0.96",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "claude",
+      "predicted_x": 543,
+      "predicted_y": 230,
+      "bbox": [
+        514.912001953125,
+        221.71428571428572,
+        559.712001953125,
+        241.11428571428573
+      ],
+      "hit": true,
+      "latency_s": 1.8050627708435059,
+      "raw_response": "FOUND: x=543, y=230, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "gemini-flash",
+      "predicted_x": 97,
+      "predicted_y": 29,
+      "bbox": [
+        63.060003662109374,
+        5.177142857142857,
+        125.46000366210937,
+        50.47714285714286
+      ],
+      "hit": true,
+      "latency_s": 4.6726789474487305,
+      "raw_response": "FOUND: x=51, y=33, confidence=0.999",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "gpt",
+      "predicted_x": 48,
+      "predicted_y": 16,
+      "bbox": [
+        33.632001953125,
+        2.76,
+        66.912001953125,
+        26.909999999999997
+      ],
+      "hit": true,
+      "latency_s": 1.4117450714111328,
+      "raw_response": "FOUND: x=48, y=16, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "claude",
+      "predicted_x": 291,
+      "predicted_y": 65,
+      "bbox": [
+        33.632001953125,
+        2.76,
+        66.912001953125,
+        26.909999999999997
+      ],
+      "hit": false,
+      "latency_s": 1.7528960704803467,
+      "raw_response": "FOUND: x=291, y=65, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "gemini-flash",
+      "predicted_x": 30,
+      "predicted_y": 18,
+      "bbox": [
+        1.7681452751159668,
+        4.371428571428572,
+        52.115645275115966,
+        37.885714285714286
+      ],
+      "hit": true,
+      "latency_s": 4.370782852172852,
+      "raw_response": "FOUND: x=16, y=18, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "gpt",
+      "predicted_x": 12,
+      "predicted_y": 10,
+      "bbox": [
+        0.943994140625,
+        2.331428571428572,
+        27.823994140625,
+        20.205714285714286
+      ],
+      "hit": true,
+      "latency_s": 1.3073999881744385,
+      "raw_response": "FOUND: x=12, y=10, confidence=0.88",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        0.943994140625,
+        2.331428571428572,
+        27.823994140625,
+        20.205714285714286
+      ],
+      "hit": false,
+      "latency_s": 1.6173679828643799,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "gemini-flash",
+      "predicted_x": 408,
+      "predicted_y": 123,
+      "bbox": [
+        378.0024559967253,
+        91.57359218759137,
+        441.8583708555054,
+        155.3593357113619
+      ],
+      "hit": true,
+      "latency_s": 6.385097980499268,
+      "raw_response": "FOUND: x=213, y=114, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "gpt",
+      "predicted_x": 220,
+      "predicted_y": 67,
+      "bbox": [
+        201.60130986492015,
+        48.8392491667154,
+        235.65779778960288,
+        82.85831237939301
+      ],
+      "hit": true,
+      "latency_s": 1.2831439971923828,
+      "raw_response": "FOUND: x=220, y=67, confidence=0.96",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "claude",
+      "predicted_x": 216,
+      "predicted_y": 59,
+      "bbox": [
+        201.60130986492015,
+        48.8392491667154,
+        235.65779778960288,
+        82.85831237939301
+      ],
+      "hit": true,
+      "latency_s": 1.65604829788208,
+      "raw_response": "FOUND: x=216, y=59, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "gemini-flash",
+      "predicted_x": 871,
+      "predicted_y": 159,
+      "bbox": [
+        847.8600036621093,
+        135.49714285714288,
+        895.8600036621094,
+        179.7942857142857
+      ],
+      "hit": true,
+      "latency_s": 5.770302057266235,
+      "raw_response": "FOUND: x=454, y=175, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "gpt",
+      "predicted_x": 465,
+      "predicted_y": 83,
+      "bbox": [
+        452.19200195312493,
+        72.20571428571431,
+        477.792001953125,
+        95.81142857142858
+      ],
+      "hit": true,
+      "latency_s": 1.3100380897521973,
+      "raw_response": "FOUND: x=465, y=83, confidence=0.92",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "claude",
+      "predicted_x": 464,
+      "predicted_y": 84,
+      "bbox": [
+        452.19200195312493,
+        72.20571428571431,
+        477.792001953125,
+        95.81142857142858
+      ],
+      "hit": true,
+      "latency_s": 1.7999000549316406,
+      "raw_response": "FOUND: x=464, y=84, confidence=0.8",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "gemini-flash",
+      "predicted_x": 514,
+      "predicted_y": 116,
+      "bbox": [
+        497.47861323728046,
+        105.58950279796744,
+        534.2188203511931,
+        131.29221071589373
+      ],
+      "hit": true,
+      "latency_s": 4.6106531620025635,
+      "raw_response": "FOUND: x=268, y=108, confidence=1.0",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "gpt",
+      "predicted_x": 941,
+      "predicted_y": 64,
+      "bbox": [
+        265.3219270598829,
+        56.3144014922493,
+        284.916704187303,
+        70.02251238180999
+      ],
+      "hit": false,
+      "latency_s": 1.1692631244659424,
+      "raw_response": "FOUND: x=941, y=64, confidence=0.71",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        265.3219270598829,
+        56.3144014922493,
+        284.916704187303,
+        70.02251238180999
+      ],
+      "hit": false,
+      "latency_s": 1.4731571674346924,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "gemini-flash",
+      "predicted_x": 1654,
+      "predicted_y": 455,
+      "bbox": [
+        1642.9072631835936,
+        445.9630293927874,
+        1674.4072631835938,
+        477.2830293927874
+      ],
+      "hit": true,
+      "latency_s": 12.882517099380493,
+      "raw_response": "FOUND: x=985, y=436, confidence=0.9",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "gpt",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1001.39109375,
+        271.67862710135324,
+        1020.5910937500001,
+        290.7586271013533
+      ],
+      "hit": false,
+      "latency_s": 1.4674949645996094,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "claude",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1001.39109375,
+        271.67862710135324,
+        1020.5910937500001,
+        290.7586271013533
+      ],
+      "hit": false,
+      "latency_s": 1.6909658908843994,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    }
+  ]
+}

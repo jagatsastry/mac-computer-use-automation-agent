@@ -1,0 +1,36 @@
+{
+  "run_tag": "20260323_142834",
+  "n_samples": 1,
+  "n_platforms": 1,
+  "models": {
+    "molmo": {
+      "model_id": "mlx-community/Molmo-7B-D-0924-3bit",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 1,
+      "not_found": 0,
+      "errors": 0,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo",
+      "predicted_x": 405,
+      "predicted_y": 533,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 8.065983057022095,
+      "raw_response": " FOUND: x=\"21.1\" y=\"49.4\" y=\"49.4\"",
+      "error": null
+    }
+  ]
+}

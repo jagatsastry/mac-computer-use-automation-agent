@@ -48,7 +48,7 @@ if _env_path.exists():
 # Constants (reused from compare_grounding.py)
 # ---------------------------------------------------------------------------
 
-# Per-model prompts: Gemini uses 0-1000 normalized grid, others use pixel coords.
+# Per-model prompts.
 PROMPTS: Dict[str, str] = {
     "gemini": """\
 Look at this screenshot. Find this UI element: {{element_description}}
@@ -60,8 +60,9 @@ If you CAN find it, respond: FOUND: x=<number>, y=<number>, confidence=<0.0-1.0>
 
 Only respond with one of these formats, nothing else.""",
 
+    # Neutral prompt for pixel-coord cloud models (no "macOS desktop" assumption)
     "default": """\
-Look at this screenshot of a macOS desktop. Find this element: {{element_description}}
+Look at this screenshot. Find this UI element: {{element_description}}
 
 Return pixel coordinates relative to the provided screenshot image (origin at top-left corner of the image).
 
@@ -69,11 +70,34 @@ If you CANNOT find it, respond: NOT_FOUND
 If you CAN find it, respond: FOUND: x=<number>, y=<number>, confidence=<0.0-1.0>
 
 Only respond with one of these formats, nothing else.""",
+
+    # Molmo still benchmarks better on GroundCUA with the structured FOUND: prompt,
+    # but we keep native-output parsing enabled as a fallback.
+    "molmo": """\
+Look at this screenshot. Find this UI element: {{element_description}}
+
+Return pixel coordinates relative to the provided screenshot image (origin at top-left corner of the image).
+
+If you CANNOT find it, respond: NOT_FOUND
+If you CAN find it, respond: FOUND: x=<number>, y=<number>, confidence=<0.0-1.0>
+
+Only respond with one of these formats, nothing else.""",
+
+    # MolmoPoint models are trained for instruction-like pointing queries.
+    "molmo-point": """\
+Point to {{element_description}}.""",
 }
 
 
 def get_prompt(model_name: str, label: str) -> str:
-    key = "gemini" if model_name.startswith("gemini") else "default"
+    if model_name.startswith("molmo-point"):
+        key = "molmo-point"
+    elif model_name.startswith("gemini"):
+        key = "gemini"
+    elif model_name.startswith("molmo"):
+        key = "molmo"
+    else:
+        key = "default"
     return PROMPTS[key].replace("{{element_description}}", label)
 
 MODEL_IDS: Dict[str, str] = {
@@ -83,12 +107,14 @@ MODEL_IDS: Dict[str, str] = {
     "claude": "claude-sonnet-4-20250514",
     "molmo": "mlx-community/Molmo-7B-D-0924-3bit",
     "molmo2": "mlx-community/Molmo2-8B-5bit",
+    # MolmoPoint is decoded server-side into FOUND: pixel coordinates.
     "molmo-point": "mlx-community/MolmoPoint-8B-4bit",
     "molmo-point-gui": "allenai/MolmoPoint-GUI-8B",
 }
 
 COORDINATE_SPACES: Dict[str, str] = {
-    "molmo-point": "normalized_0_100",  # MolmoPoint: same as Molmo v1
+    "molmo-point": "pixel",               # server decodes special point tokens to pixels
+    "molmo-point-gui": "pixel",           # server decodes special point tokens to pixels
     "molmo2": "normalized_0_1000",      # Molmo2: 0-1000
     "molmo": "normalized_0_100",        # Molmo v1: 0-100
     "gemini": "normalized_0_1000",
@@ -270,12 +296,15 @@ def load_samples(
 # Image preparation
 # ---------------------------------------------------------------------------
 
-def prepare_image(sample: Sample, resize: bool = True) -> Tuple[str, int, int]:
-    """Load image, optionally resize to _TARGET_WIDTH, return (base64, w, h).
+def prepare_image(sample: Sample, resize: bool = True) -> Tuple[str, int, int, str]:
+    """Load image, optionally resize to _TARGET_WIDTH, return (base64, w, h, media_type).
 
     Pixel-coord models (Claude, GPT) benefit from resize (smaller targets
     are proportionally larger). Gemini uses 0-1000 normalized coords so
     resolution doesn't affect coordinate accuracy — send original.
+
+    GroundCUA screenshots are PNGs. Preserve them as lossless PNG rather
+    than recompressing to JPEG, which can blur tiny UI targets.
     """
     img_bytes = _download_file(f"images/{sample.image_path}")
     img = Image.open(io.BytesIO(img_bytes))
@@ -290,9 +319,9 @@ def prepare_image(sample: Sample, resize: bool = True) -> Tuple[str, int, int]:
             img = img.resize((_TARGET_WIDTH, new_h), Image.LANCZOS)
 
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=90)
+    img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return b64, img.size[0], img.size[1]
+    return b64, img.size[0], img.size[1], "image/png"
 
 
 # ---------------------------------------------------------------------------
@@ -302,32 +331,23 @@ def prepare_image(sample: Sample, resize: bool = True) -> Tuple[str, int, int]:
 def parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
     """Parse coordinates from model response. Returns (x, y) or None.
 
-    Tries JSON first (preferred), then legacy FOUND: format, then XML.
+    Full parser matching coordinator.py _parse_coordinates():
+    JSON, FOUND: text, <point>, <points coords>, <points x1/y1> bbox center.
     """
     response = response.strip()
-
-    # 1. JSON — preferred format {"found": true, "x": N, "y": N}
-    json_m = re.search(r"\{[^{}]*\}", response, re.DOTALL)
-    if json_m:
-        try:
-            payload = json.loads(json_m.group(0))
-        except json.JSONDecodeError:
-            payload = None
-        if isinstance(payload, dict):
-            # {"found": false} → not found
-            if payload.get("found") is False:
-                return None
-            # {"found": true, "x": N, "y": N} or {"x": N, "y": N}
-            if "x" in payload and "y" in payload:
-                return float(payload["x"]), float(payload["y"])
-            # {"point": {"x": N, "y": N}}
-            pt = payload.get("point") or payload.get("target")
-            if isinstance(pt, dict) and "x" in pt and "y" in pt:
-                return float(pt["x"]), float(pt["y"])
-
-    # 2. Legacy FOUND: format fallback
+    first_answer = re.search(
+        r'(^|\n)\s*(NOT_FOUND|FOUND:|<point\b|<points\b|\{)',
+        response,
+        re.IGNORECASE,
+    )
+    if first_answer:
+        response = response[first_answer.start(2):].strip()
     if response.upper().startswith("NOT_FOUND"):
         return None
+
+    # 1. FOUND: x=N, y=N (comma separated)
+    # 2. FOUND: x=N y=N (space separated, with y= label)
+    # 3. FOUND: x=N N (space separated, no y= label — Molmo2 fallback)
     patterns = [
         r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s*,\s*y\s*=\s*"?([0-9]*\.?[0-9]+)"?',
         r'FOUND:\s*x\s*=\s*"?([0-9]*\.?[0-9]+)"?\s+y\s*=\s*"?([0-9]*\.?[0-9]+)"?',
@@ -338,17 +358,77 @@ def parse_coordinates(response: str) -> Optional[Tuple[float, float]]:
         if m:
             return float(m.group(1)), float(m.group(2))
 
+    # 4. <point x="N" y="N" /> — Molmo native format
+    point_m = re.search(
+        r'<point\b[^>]*\bx="([0-9]*\.?[0-9]+)"[^>]*\by="([0-9]*\.?[0-9]+)"',
+        response, re.IGNORECASE,
+    )
+    if point_m:
+        return float(point_m.group(1)), float(point_m.group(2))
+
+    # 5. <points coords="ID X Y"/> or frame-prefixed "F ID X Y" — Molmo2 native format
+    points_m = re.search(
+        r'<points\b[^>]*\bcoords="([^"]+)"[^>]*/?>',
+        response, re.IGNORECASE,
+    )
+    if points_m:
+        coords_str = points_m.group(1)
+        triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+        if triplet:
+            return float(triplet.group(2)), float(triplet.group(3))
+        frame_m = re.search(r'(?:^|\t|:|,|;)\s*([0-9\.]+)\s+([0-9\. ]+)', coords_str)
+        if frame_m:
+            coords_str = frame_m.group(2)
+            triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+            if triplet:
+                return float(triplet.group(2)), float(triplet.group(3))
+
+    # 6. <points x1="N" y1="N" x2="N" y2="N"> — bbox center
+    points_xy_m = re.search(
+        r'<points\b[^>]*\bx1="([0-9]*\.?[0-9]+)"[^>]*\by1="([0-9]*\.?[0-9]+)"'
+        r'(?:[^>]*\bx2="([0-9]*\.?[0-9]+)"[^>]*\by2="([0-9]*\.?[0-9]+)")?',
+        response, re.IGNORECASE,
+    )
+    if points_xy_m:
+        x1 = float(points_xy_m.group(1))
+        y1 = float(points_xy_m.group(2))
+        if points_xy_m.group(3) and points_xy_m.group(4):
+            x2 = float(points_xy_m.group(3))
+            y2 = float(points_xy_m.group(4))
+            return (x1 + x2) / 2, (y1 + y2) / 2
+        return x1, y1
+
+    # 7. JSON fallback — {"found": true/false, "x": N, "y": N}
+    json_m = re.search(r"\{[^{}]*\}", response, re.DOTALL)
+    if json_m:
+        try:
+            payload = json.loads(json_m.group(0))
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            if payload.get("found") is False:
+                return None
+            if "x" in payload and "y" in payload:
+                return float(payload["x"]), float(payload["y"])
+            pt = payload.get("point") or payload.get("target")
+            if isinstance(pt, dict) and "x" in pt and "y" in pt:
+                return float(pt["x"]), float(pt["y"])
+
     return None
 
 
 def convert_coordinates(raw_x: float, raw_y: float, model_name: str, w: int, h: int) -> Tuple[int, int]:
     """Convert model coordinates to pixel coords."""
-    # Determine space from model name
+    # Prefer the longest matching prefix so "molmo-point" does not fall through
+    # to the generic "molmo" normalized space.
     space = "pixel"
-    for prefix, sp in COORDINATE_SPACES.items():
-        if model_name.startswith(prefix):
-            space = sp
-            break
+    matched = sorted(
+        (prefix, sp)
+        for prefix, sp in COORDINATE_SPACES.items()
+        if model_name.startswith(prefix)
+    )
+    if matched:
+        space = max(matched, key=lambda item: len(item[0]))[1]
 
     if space == "normalized_0_100":
         if raw_x > 100 or raw_y > 100:
@@ -362,16 +442,65 @@ def convert_coordinates(raw_x: float, raw_y: float, model_name: str, w: int, h: 
     return int(raw_x), int(raw_y)
 
 
+def should_use_original_image(model_name: str) -> bool:
+    """Return whether a model should receive the original screenshot bytes.
+
+    Gemini and the Molmo family all emit coordinates relative to the provided image,
+    so keeping the benchmark on the original screenshot avoids extra benchmark-side
+    resampling and preserves bbox evaluation in the dataset's native pixel space.
+    """
+    return model_name.startswith("gemini") or model_name.startswith("molmo")
+
+
+def molmo_request_max_image_dim(model_name: str) -> int:
+    """Return the server-side image cap for a given Molmo-family model."""
+    # Molmo v1 OOMs on full-resolution GroundCUA images on this machine, so keep
+    # its resize inside the server. Molmo2 and MolmoPoint can use the original.
+    if model_name.startswith("molmo-point") or model_name.startswith("molmo2"):
+        return 0
+    return 768
+
+
+def molmo_request_timeout_s(model_name: str) -> int:
+    """Return the per-model HTTP timeout for local Molmo-family servers."""
+    if model_name.startswith("molmo-point-gui"):
+        return 300
+    return 120
+
+
 def point_in_bbox(x: int, y: int, bbox: List[float]) -> bool:
     """Check if (x,y) falls inside [x1, y1, x2, y2]."""
     return bbox[0] <= x <= bbox[2] and bbox[1] <= y <= bbox[3]
+
+
+def summarize_model_stats(stats: Dict[str, int]) -> Dict[str, Any]:
+    """Return user-facing metrics for one model's GroundCUA run."""
+    total = stats["hits"] + stats["misses"] + stats["errors"] + stats["not_found"]
+    found = stats["hits"] + stats["misses"]
+    hit_rate = stats["hits"] / total * 100 if total > 0 else 0.0
+    found_accuracy = stats["hits"] / found * 100 if found > 0 else 0.0
+    return {
+        "accuracy": round(hit_rate, 1),
+        "hit_rate": round(hit_rate, 1),
+        "found_accuracy": round(found_accuracy, 1),
+        "hits": stats["hits"],
+        "misses": stats["misses"],
+        "not_found": stats["not_found"],
+        "errors": stats["errors"],
+        "total": total,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Model query functions (from compare_grounding.py)
 # ---------------------------------------------------------------------------
 
-def query_gemini(prompt: str, image_b64: str, model_name: str = "gemini-flash") -> str:
+def query_gemini(
+    prompt: str,
+    image_b64: str,
+    media_type: str = "image/png",
+    model_name: str = "gemini-flash",
+) -> str:
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("AGENT_GEMINI_API_KEY")
     if not api_key:
         raise EnvironmentError("GEMINI_API_KEY not set")
@@ -379,14 +508,14 @@ def query_gemini(prompt: str, image_b64: str, model_name: str = "gemini-flash") 
     from google.genai import types
     client = genai.Client(api_key=api_key)
     image_bytes = base64.b64decode(image_b64)
-    image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+    image_part = types.Part.from_bytes(data=image_bytes, mime_type=media_type)
     response = client.models.generate_content(
         model=MODEL_IDS[model_name], contents=[image_part, prompt],
     )
     return response.text
 
 
-def query_claude(prompt: str, image_b64: str) -> str:
+def query_claude(prompt: str, image_b64: str, media_type: str = "image/png") -> str:
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("AGENT_ANTHROPIC_API_KEY")
     if not api_key:
         raise EnvironmentError("ANTHROPIC_API_KEY not set")
@@ -395,14 +524,14 @@ def query_claude(prompt: str, image_b64: str) -> str:
     msg = client.messages.create(
         model=MODEL_IDS["claude"], max_tokens=256,
         messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
             {"type": "text", "text": prompt},
         ]}],
     )
     return msg.content[0].text
 
 
-def query_gpt(prompt: str, image_b64: str) -> str:
+def query_gpt(prompt: str, image_b64: str, media_type: str = "image/png") -> str:
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AGENT_OPENAI_API_KEY")
     if not api_key:
         raise EnvironmentError("OPENAI_API_KEY not set")
@@ -411,7 +540,7 @@ def query_gpt(prompt: str, image_b64: str) -> str:
         "model": MODEL_IDS["gpt"],
         "input": [{"role": "user", "content": [
             {"type": "input_text", "text": prompt},
-            {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}", "detail": "high"},
+            {"type": "input_image", "image_url": f"data:{media_type};base64,{image_b64}", "detail": "high"},
         ]}],
     }
     resp = httpx.post("https://api.openai.com/v1/responses", json=payload, headers=headers, timeout=120)
@@ -432,31 +561,39 @@ def query_gpt(prompt: str, image_b64: str) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def query_molmo(prompt: str, image_b64: str, model_name: str = "molmo") -> str:
+def query_molmo(
+    prompt: str,
+    image_b64: str,
+    media_type: str = "image/png",
+    model_name: str = "molmo",
+) -> str:
     port = MOLMO_PORTS[model_name]
     url = f"http://localhost:{port}/v1/chat/completions"
     payload = {
         "model": MODEL_IDS[model_name],
         "messages": [{"role": "user", "content": [
             {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_b64}"}},
         ]}],
+        # Keep Molmo v1 on a single server-side resize to avoid OOMs while still
+        # avoiding the old benchmark+server double-resize path.
+        "max_image_dim": molmo_request_max_image_dim(model_name),
         "max_tokens": 256, "temperature": 0,
     }
-    resp = httpx.post(url, json=payload, timeout=120)
+    resp = httpx.post(url, json=payload, timeout=molmo_request_timeout_s(model_name))
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def dispatch_query(model_name: str, prompt: str, image_b64: str) -> str:
+def dispatch_query(model_name: str, prompt: str, image_b64: str, media_type: str) -> str:
     if model_name.startswith("gemini"):
-        return query_gemini(prompt, image_b64, model_name=model_name)
+        return query_gemini(prompt, image_b64, media_type=media_type, model_name=model_name)
     elif model_name.startswith("molmo"):
-        return query_molmo(prompt, image_b64, model_name=model_name)
+        return query_molmo(prompt, image_b64, media_type=media_type, model_name=model_name)
     elif model_name == "claude":
-        return query_claude(prompt, image_b64)
+        return query_claude(prompt, image_b64, media_type=media_type)
     elif model_name == "gpt":
-        return query_gpt(prompt, image_b64)
+        return query_gpt(prompt, image_b64, media_type=media_type)
     raise ValueError(f"Unknown model: {model_name}")
 
 
@@ -480,16 +617,14 @@ def run_benchmark(
     total = len(samples) * len(model_names)
     done = 0
 
-    # Pre-compute per-model image variants: Gemini gets original, others get resized
-    # Gemini uses 0-1000 normalized coords — resolution-independent, send original.
-    # All others (including Molmo) benefit from resized images.
-    _uses_original = lambda m: m.startswith("gemini")
+    # Pre-compute per-model image variants. Gemini and Molmo-family models use the
+    # original screenshot; Molmo v1 applies its single resize inside the server.
 
     for si, sample in enumerate(samples):
         # Prepare both variants (cached per sample)
         try:
-            img_orig_b64, orig_w, orig_h = prepare_image(sample, resize=False)
-            img_resized_b64, resized_w, resized_h = prepare_image(sample, resize=True)
+            img_orig_b64, orig_w, orig_h, orig_media_type = prepare_image(sample, resize=False)
+            img_resized_b64, resized_w, resized_h, resized_media_type = prepare_image(sample, resize=True)
         except Exception as e:
             print(f"  [skip] Failed to load image {sample.image_path}: {e}")
             continue
@@ -509,16 +644,21 @@ def run_benchmark(
 
             # Gemini: original image + original bbox (0-1000 normalized coords)
             # Others: resized image + scaled bbox (pixel coords)
-            if _uses_original(model_name):
-                img_b64, img_w, img_h = img_orig_b64, orig_w, orig_h
+            if should_use_original_image(model_name):
+                img_b64, img_w, img_h, media_type = img_orig_b64, orig_w, orig_h, orig_media_type
                 eval_bbox = sample.bbox
             else:
-                img_b64, img_w, img_h = img_resized_b64, resized_w, resized_h
+                img_b64, img_w, img_h, media_type = (
+                    img_resized_b64,
+                    resized_w,
+                    resized_h,
+                    resized_media_type,
+                )
                 eval_bbox = resized_bbox
 
             try:
                 t0 = time.time()
-                raw = dispatch_query(model_name, prompt, img_b64)
+                raw = dispatch_query(model_name, prompt, img_b64, media_type)
                 latency = time.time() - t0
             except Exception as e:
                 model_stats[model_name]["errors"] += 1
@@ -579,18 +719,9 @@ def run_benchmark(
         "results": [asdict(r) for r in results],
     }
     for m in model_names:
-        s = model_stats[m]
-        total_m = s["hits"] + s["misses"] + s["errors"] + s["not_found"]
-        evaluated = s["hits"] + s["misses"]
-        acc = s["hits"] / evaluated * 100 if evaluated > 0 else 0
         report["models"][m] = {
             "model_id": MODEL_IDS.get(m, m),
-            "accuracy": round(acc, 1),
-            "hits": s["hits"],
-            "misses": s["misses"],
-            "not_found": s["not_found"],
-            "errors": s["errors"],
-            "total": total_m,
+            **summarize_model_stats(model_stats[m]),
         }
 
     out_path = output_dir / f"groundcua_benchmark_{run_tag}.json"
@@ -602,12 +733,12 @@ def run_benchmark(
     print(f"\n{'='*70}")
     print(f"GroundCUA Benchmark Results ({len(samples)} samples, {len(set(s.platform for s in samples))} platforms)")
     print(f"{'='*70}")
-    print(f"{'Model':<15} {'Accuracy':>8} {'Hits':>6} {'Miss':>6} {'N/F':>5} {'Err':>5} {'Total':>6}")
+    print(f"{'Model':<15} {'HitRate':>8} {'FoundAcc':>8} {'Hits':>6} {'Miss':>6} {'N/F':>5} {'Err':>5} {'Total':>6}")
     print(f"{'-'*70}")
     for m in model_names:
         d = report["models"][m]
         print(
-            f"{m:<15} {d['accuracy']:>7.1f}% {d['hits']:>6} {d['misses']:>6}"
+            f"{m:<15} {d['hit_rate']:>7.1f}% {d['found_accuracy']:>7.1f}% {d['hits']:>6} {d['misses']:>6}"
             f" {d['not_found']:>5} {d['errors']:>5} {d['total']:>6}"
         )
     print(f"{'='*70}")

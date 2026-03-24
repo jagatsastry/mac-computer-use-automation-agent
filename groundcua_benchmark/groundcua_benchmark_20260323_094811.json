@@ -1,0 +1,918 @@
+{
+  "run_tag": "20260323_094811",
+  "n_samples": 50,
+  "n_platforms": 50,
+  "models": {
+    "molmo2": {
+      "model_id": "mlx-community/Molmo2-8B-5bit",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 49,
+      "not_found": 1,
+      "errors": 0,
+      "total": 50
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo2",
+      "predicted_x": 65,
+      "predicted_y": 236,
+      "bbox": [
+        41.312001953125,
+        174.44571428571427,
+        110.43200195312498,
+        186.78857142857143
+      ],
+      "hit": false,
+      "latency_s": 10.876091718673706,
+      "raw_response": "FOUND: x=064 411, y=411, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo2",
+      "predicted_x": 352,
+      "predicted_y": 81,
+      "bbox": [
+        999.68,
+        369.46285714285716,
+        1020.16,
+        386.74285714285713
+      ],
+      "hit": false,
+      "latency_s": 10.970907926559448,
+      "raw_response": "FOUND: x=344 141, y=141, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo2",
+      "predicted_x": 46,
+      "predicted_y": 65,
+      "bbox": [
+        12.925714285714287,
+        37.98367346938776,
+        142.38875428571427,
+        55.70938775510204
+      ],
+      "hit": false,
+      "latency_s": 11.365987062454224,
+      "raw_response": "FOUND: x=045 127, y=127, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "molmo2",
+      "predicted_x": 1000,
+      "predicted_y": 31,
+      "bbox": [
+        991.0719995117188,
+        8.228571428571428,
+        1003.8719995117187,
+        22.217142857142854
+      ],
+      "hit": false,
+      "latency_s": 11.276707887649536,
+      "raw_response": "FOUND: x=977 054, y=054, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "molmo2",
+      "predicted_x": 126,
+      "predicted_y": 54,
+      "bbox": [
+        81.89268292682928,
+        22.148247822299652,
+        115.60975609756099,
+        31.19633144599303
+      ],
+      "hit": false,
+      "latency_s": 11.28095006942749,
+      "raw_response": "FOUND: x=124 101, y=101, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 5,
+      "platform": "OnlyOffice PDF Forms",
+      "instruction": "zoom in",
+      "model": "molmo2",
+      "predicted_x": 905,
+      "predicted_y": 431,
+      "bbox": [
+        991.4424762727426,
+        538.9391359532804,
+        1005.5224762727427,
+        548.3677073818519
+      ],
+      "hit": false,
+      "latency_s": 11.472254991531372,
+      "raw_response": "FOUND: x=884 784, y=784, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 6,
+      "platform": "GIMP",
+      "instruction": "Maximize",
+      "model": "molmo2",
+      "predicted_x": 113,
+      "predicted_y": 62,
+      "bbox": [
+        34.14,
+        4.0,
+        48.220000000000006,
+        17.6
+      ],
+      "hit": false,
+      "latency_s": 11.714138269424438,
+      "raw_response": "FOUND: x=111 111, y=111 111, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 7,
+      "platform": "Inkscape",
+      "instruction": "Toggle command panel",
+      "model": "molmo2",
+      "predicted_x": 1000,
+      "predicted_y": 23,
+      "bbox": [
+        1008.640078125,
+        250.31015625,
+        1024.000078125,
+        315.76015624999997
+      ],
+      "hit": false,
+      "latency_s": 11.43407416343689,
+      "raw_response": "FOUND: x=977 044, y=044, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 8,
+      "platform": "OpenToonz",
+      "instruction": "Cutter tool",
+      "model": "molmo2",
+      "predicted_x": 14,
+      "predicted_y": 224,
+      "bbox": [
+        2.44140625e-06,
+        478.6664535522461,
+        24.320002441406253,
+        500.99645355224607
+      ],
+      "hit": false,
+      "latency_s": 10.88835597038269,
+      "raw_response": "FOUND: x=014 417, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 9,
+      "platform": "GnuCash",
+      "instruction": "Print",
+      "model": "molmo2",
+      "predicted_x": 577,
+      "predicted_y": 60,
+      "bbox": [
+        446.24557004706156,
+        29.20261135349026,
+        476.8057169708448,
+        55.52295767383658
+      ],
+      "hit": false,
+      "latency_s": 11.569329261779785,
+      "raw_response": "FOUND: x=564 114, y=114, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 10,
+      "platform": "LibreOffice Draw",
+      "instruction": "Rectangle ",
+      "model": "molmo2",
+      "predicted_x": 485,
+      "predicted_y": 215,
+      "bbox": [
+        2.28,
+        136.59428571428572,
+        25.32,
+        151.95431314285713
+      ],
+      "hit": false,
+      "latency_s": 11.972738027572632,
+      "raw_response": "FOUND: x=474 374, y=474 374, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 11,
+      "platform": "Element",
+      "instruction": "people",
+      "model": "molmo2",
+      "predicted_x": 86,
+      "predicted_y": 121,
+      "bbox": [
+        51.552001953125,
+        88.59428571428572,
+        104.032001953125,
+        106.46857142857141
+      ],
+      "hit": false,
+      "latency_s": 11.38414216041565,
+      "raw_response": "FOUND: x=084 224, y=224, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 12,
+      "platform": "Lemmy",
+      "instruction": "Header",
+      "model": "molmo2",
+      "predicted_x": 0,
+      "predicted_y": 0,
+      "bbox": [
+        175.36,
+        374.3657142857143,
+        194.56,
+        392.01
+      ],
+      "hit": false,
+      "latency_s": 10.896803140640259,
+      "raw_response": "FOUND: x=0, y=0, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 13,
+      "platform": "WeKan",
+      "instruction": "board name",
+      "model": "molmo2",
+      "predicted_x": 113,
+      "predicted_y": 0,
+      "bbox": [
+        23.064411878881987,
+        5.3895982012879875,
+        118.07062305900621,
+        19.38782357839535
+      ],
+      "hit": false,
+      "latency_s": 12.545575141906738,
+      "raw_response": "FOUND: x=111 1 111 111, y=111 111, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 14,
+      "platform": "Ubuntu Terminal",
+      "instruction": "more options",
+      "model": "molmo2",
+      "predicted_x": 969,
+      "predicted_y": 19,
+      "bbox": [
+        450.9119921875,
+        73.59428571428572,
+        475.2319921875,
+        96.50571428571429
+      ],
+      "hit": false,
+      "latency_s": 8.790752172470093,
+      "raw_response": "FOUND: x=947 041, y=041, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 15,
+      "platform": "LibreOffice Writer",
+      "instruction": "decrease size",
+      "model": "molmo2",
+      "predicted_x": 997,
+      "predicted_y": 23,
+      "bbox": [
+        224.65676385788706,
+        65.48255587949461,
+        248.97676385788702,
+        89.44112730806606
+      ],
+      "hit": false,
+      "latency_s": 11.378093004226685,
+      "raw_response": "FOUND: x=974 044, y=044, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 16,
+      "platform": "OpenShot",
+      "instruction": "expand/hide",
+      "model": "molmo2",
+      "predicted_x": 12,
+      "predicted_y": 7,
+      "bbox": [
+        384.0,
+        60.068571428571424,
+        407.04,
+        84.47142857142856
+      ],
+      "hit": false,
+      "latency_s": 11.196764945983887,
+      "raw_response": "FOUND: x=012, y=012, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 17,
+      "platform": "Eclipse",
+      "instruction": "File",
+      "model": "molmo2",
+      "predicted_x": 116,
+      "predicted_y": 0,
+      "bbox": [
+        84.06,
+        0.9142857142857144,
+        104.54,
+        15.542857142857144
+      ],
+      "hit": false,
+      "latency_s": 10.944017171859741,
+      "raw_response": "FOUND: x=114 1 047 044",
+      "error": null
+    },
+    {
+      "sample_idx": 18,
+      "platform": "OnlyOffice Spreadsheet",
+      "instruction": "font color",
+      "model": "molmo2",
+      "predicted_x": 451,
+      "predicted_y": 83,
+      "bbox": [
+        136.42658315980472,
+        80.1928595812092,
+        154.3465831598047,
+        97.32143100978064
+      ],
+      "hit": false,
+      "latency_s": 11.186575889587402,
+      "raw_response": "FOUND: x=441 154, y=154, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 19,
+      "platform": "RStudio",
+      "instruction": "Plots",
+      "model": "molmo2",
+      "predicted_x": 564,
+      "predicted_y": 403,
+      "bbox": [
+        94.28289675114678,
+        18.5501830422062,
+        119.88289675114679,
+        28.42446875649191
+      ],
+      "hit": false,
+      "latency_s": 11.477410793304443,
+      "raw_response": "FOUND: x=551 701, y=701, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 20,
+      "platform": "Zulip",
+      "instruction": "Voice call",
+      "model": "molmo2",
+      "predicted_x": 14,
+      "predicted_y": 62,
+      "bbox": [
+        337.6027171597496,
+        528.1660218603778,
+        358.08271715974956,
+        543.8803075746634
+      ],
+      "hit": false,
+      "latency_s": 12.125769138336182,
+      "raw_response": "FOUND: x=014 114, y=014 114, confidence=0.99",
+      "error": null
+    },
+    {
+      "sample_idx": 21,
+      "platform": "Blender",
+      "instruction": "slot 1",
+      "model": "molmo2",
+      "predicted_x": 602,
+      "predicted_y": 76,
+      "bbox": [
+        629.76,
+        42.47571428571429,
+        680.96,
+        63.29714285714286
+      ],
+      "hit": false,
+      "latency_s": 11.588197946548462,
+      "raw_response": "FOUND: x=588 131, y=131, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 22,
+      "platform": "GrassGIS",
+      "instruction": "Add various raster map layers",
+      "model": "molmo2",
+      "predicted_x": 802,
+      "predicted_y": 198,
+      "bbox": [
+        41.008403361344534,
+        320.15366146458587,
+        62.52100840336135,
+        339.4162236323101
+      ],
+      "hit": false,
+      "latency_s": 11.282556056976318,
+      "raw_response": "FOUND: x=784 344, y=344, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 23,
+      "platform": "PDFedit",
+      "instruction": "History",
+      "model": "molmo2",
+      "predicted_x": 65,
+      "predicted_y": 77,
+      "bbox": [
+        63.263197900069535,
+        232.2306090466634,
+        78.62319790006956,
+        323.5677519038063
+      ],
+      "hit": false,
+      "latency_s": 11.877571105957031,
+      "raw_response": "FOUND: x=064 134, y=134 134, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 24,
+      "platform": "OpenProject",
+      "instruction": "45",
+      "model": "molmo2",
+      "predicted_x": 201,
+      "predicted_y": 293,
+      "bbox": [
+        191.1211054716804,
+        225.57124147333437,
+        220.56110547168043,
+        244.46409861619148
+      ],
+      "hit": false,
+      "latency_s": 11.794088125228882,
+      "raw_response": "FOUND: x=197 511, y=511, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 25,
+      "platform": "Krita",
+      "instruction": "Tools",
+      "model": "molmo2",
+      "predicted_x": 260,
+      "predicted_y": 65,
+      "bbox": [
+        210.90925489808407,
+        20.001000333854932,
+        239.06925489808407,
+        33.16671461956922
+      ],
+      "hit": false,
+      "latency_s": 11.49692988395691,
+      "raw_response": "FOUND: x=254 114, y=114, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 26,
+      "platform": "MuseScore",
+      "instruction": "Close interface",
+      "model": "molmo2",
+      "predicted_x": 997,
+      "predicted_y": 48,
+      "bbox": [
+        1009.2168116998671,
+        21.683026779757935,
+        1018.6097403189465,
+        30.191556275612314
+      ],
+      "hit": false,
+      "latency_s": 11.367718935012817,
+      "raw_response": "FOUND: x=974 084, y=084, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 27,
+      "platform": "Joplin",
+      "instruction": "delete",
+      "model": "molmo2",
+      "predicted_x": 997,
+      "predicted_y": 84,
+      "bbox": [
+        613.98,
+        147.69285714285715,
+        633.18,
+        164.84428571428572
+      ],
+      "hit": false,
+      "latency_s": 10.743285894393921,
+      "raw_response": "FOUND: x=974 127, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 28,
+      "platform": "KDevelop",
+      "instruction": "File system",
+      "model": "molmo2",
+      "predicted_x": 12,
+      "predicted_y": 6,
+      "bbox": [
+        4.28,
+        286.44000000000005,
+        18.36,
+        345.7300000000001
+      ],
+      "hit": false,
+      "latency_s": 11.1273672580719,
+      "raw_response": "FOUND: x=012, y=012, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 29,
+      "platform": "Mendeley",
+      "instruction": "Collections",
+      "model": "molmo2",
+      "predicted_x": 75,
+      "predicted_y": 403,
+      "bbox": [
+        714.08,
+        500.48,
+        788.32,
+        519.9085714285715
+      ],
+      "hit": false,
+      "latency_s": 12.084635734558105,
+      "raw_response": "FOUND: x=074 741, y=074 741, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 30,
+      "platform": "Affine",
+      "instruction": "Sticky notes",
+      "model": "molmo2",
+      "predicted_x": 631,
+      "predicted_y": 485,
+      "bbox": [
+        370.08,
+        248.07142857142856,
+        459.68,
+        317.8928571428571
+      ],
+      "hit": false,
+      "latency_s": 11.490882158279419,
+      "raw_response": "FOUND: x=617 844, y=844, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 31,
+      "platform": "Shotcut",
+      "instruction": "Edit",
+      "model": "molmo2",
+      "predicted_x": 55,
+      "predicted_y": 63,
+      "bbox": [
+        30.44,
+        36.205714285714286,
+        54.76,
+        51.01714285714285
+      ],
+      "hit": false,
+      "latency_s": 12.435665130615234,
+      "raw_response": "FOUND: x=054 111, y=111 111, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 32,
+      "platform": "Calibre",
+      "instruction": "calibre 7.19 created by kovid goyal",
+      "model": "molmo2",
+      "predicted_x": 34,
+      "predicted_y": 415,
+      "bbox": [
+        2.912001953125,
+        529.2342857142856,
+        130.912001953125,
+        544.0
+      ],
+      "hit": false,
+      "latency_s": 11.799148797988892,
+      "raw_response": "FOUND: x=034 764, y=044 764, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 33,
+      "platform": "FontForge",
+      "instruction": "change whether spiro is active or not",
+      "model": "molmo2",
+      "predicted_x": 382,
+      "predicted_y": 201,
+      "bbox": [
+        372.84,
+        272.42725446428574,
+        388.20000000000005,
+        285.2672544642857
+      ],
+      "hit": false,
+      "latency_s": 11.701780080795288,
+      "raw_response": "FOUND: x=374 314, y=314, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 34,
+      "platform": "DuckDuckGo",
+      "instruction": "add ",
+      "model": "molmo2",
+      "predicted_x": 410,
+      "predicted_y": 387,
+      "bbox": [
+        187.232001953125,
+        1.5457142857142856,
+        219.232001953125,
+        23.958571428571425
+      ],
+      "hit": false,
+      "latency_s": 11.472518920898438,
+      "raw_response": "FOUND: x=401 717, y=717, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 35,
+      "platform": "Mastodon",
+      "instruction": "Quote - Honesty is Best Policy",
+      "model": "molmo2",
+      "predicted_x": 150,
+      "predicted_y": 101,
+      "bbox": [
+        67.1573046875,
+        123.25428046090263,
+        273.23730468749994,
+        196.9314233180455
+      ],
+      "hit": false,
+      "latency_s": 8.567883014678955,
+      "raw_response": "FOUND: x=147 211, y=134 211, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 36,
+      "platform": "Lightworks",
+      "instruction": "name",
+      "model": "molmo2",
+      "predicted_x": 229,
+      "predicted_y": 94,
+      "bbox": [
+        824.27294921875,
+        87.7371616908482,
+        849.87294921875,
+        100.08001883370535
+      ],
+      "hit": false,
+      "latency_s": 11.577864170074463,
+      "raw_response": "FOUND: x=224 164, y=224 164, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 37,
+      "platform": "Bitwarden",
+      "instruction": "send",
+      "model": "molmo2",
+      "predicted_x": 178,
+      "predicted_y": 498,
+      "bbox": [
+        166.39999999999998,
+        635.2342857142858,
+        203.52,
+        677.1285714285715
+      ],
+      "hit": false,
+      "latency_s": 10.83576512336731,
+      "raw_response": "FOUND: x=174 731, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 38,
+      "platform": "IntelliJ IDEA",
+      "instruction": "UTF-8(file encoding)",
+      "model": "molmo2",
+      "predicted_x": 843,
+      "predicted_y": 483,
+      "bbox": [
+        896.3520166015626,
+        616.7382884870257,
+        936.0320166015625,
+        630.3668599155972
+      ],
+      "hit": false,
+      "latency_s": 11.338929891586304,
+      "raw_response": "FOUND: x=824 761, y=761, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 39,
+      "platform": "Anki",
+      "instruction": "Edit",
+      "model": "molmo2",
+      "predicted_x": 113,
+      "predicted_y": 12,
+      "bbox": [
+        25.71570667260659,
+        1.4617912317827157,
+        44.915706672606596,
+        13.530362660354143
+      ],
+      "hit": false,
+      "latency_s": 11.842777729034424,
+      "raw_response": "FOUND: x=111 024, y=024, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 40,
+      "platform": "Cryptomator",
+      "instruction": "Cursor",
+      "model": "molmo2",
+      "predicted_x": 352,
+      "predicted_y": 435,
+      "bbox": [
+        366.03298828125,
+        522.0632206726075,
+        381.3929882812499,
+        535.4575063868931
+      ],
+      "hit": false,
+      "latency_s": 11.435497999191284,
+      "raw_response": "FOUND: x=344 744, y=744, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 41,
+      "platform": "Kodi",
+      "instruction": "Play TV",
+      "model": "molmo2",
+      "predicted_x": 922,
+      "predicted_y": 157,
+      "bbox": [
+        952.3200000000002,
+        102.03428571428572,
+        1009.92,
+        126.72000000000001
+      ],
+      "hit": false,
+      "latency_s": 11.371670007705688,
+      "raw_response": "FOUND: x=901 274, y=274, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 42,
+      "platform": "Nextcloud",
+      "instruction": "edit widgets",
+      "model": "molmo2",
+      "predicted_x": 512,
+      "predicted_y": 133,
+      "bbox": [
+        467.552001953125,
+        88.0457142857143,
+        584.032001953125,
+        117.66857142857144
+      ],
+      "hit": false,
+      "latency_s": 11.408041000366211,
+      "raw_response": "FOUND: x=500 231, y=231, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 43,
+      "platform": "Flameshot",
+      "instruction": "delay:",
+      "model": "molmo2",
+      "predicted_x": 523,
+      "predicted_y": 181,
+      "bbox": [
+        514.912001953125,
+        221.71428571428572,
+        559.712001953125,
+        241.11428571428573
+      ],
+      "hit": false,
+      "latency_s": 8.257920026779175,
+      "raw_response": "FOUND: x=511 374, y=374, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 44,
+      "platform": "Metabase",
+      "instruction": "metabase logo",
+      "model": "molmo2",
+      "predicted_x": 150,
+      "predicted_y": 21,
+      "bbox": [
+        33.632001953125,
+        2.76,
+        66.912001953125,
+        26.909999999999997
+      ],
+      "hit": false,
+      "latency_s": 8.137842178344727,
+      "raw_response": "FOUND: x=147 044, y=044, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 45,
+      "platform": "Frappe Books",
+      "instruction": "frappe book Logo",
+      "model": "molmo2",
+      "predicted_x": 45,
+      "predicted_y": 23,
+      "bbox": [
+        0.943994140625,
+        2.331428571428572,
+        27.823994140625,
+        20.205714285714286
+      ],
+      "hit": false,
+      "latency_s": 10.773414134979248,
+      "raw_response": "FOUND: x=044 044, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 46,
+      "platform": "Audacity",
+      "instruction": "Record/Record new track",
+      "model": "molmo2",
+      "predicted_x": 239,
+      "predicted_y": 82,
+      "bbox": [
+        201.60130986492015,
+        48.8392491667154,
+        235.65779778960288,
+        82.85831237939301
+      ],
+      "hit": false,
+      "latency_s": 11.13317608833313,
+      "raw_response": "FOUND: x=234 144, y=144, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 47,
+      "platform": "Bash",
+      "instruction": "more options",
+      "model": "molmo2",
+      "predicted_x": 969,
+      "predicted_y": 21,
+      "bbox": [
+        452.19200195312493,
+        72.20571428571431,
+        477.792001953125,
+        95.81142857142858
+      ],
+      "hit": false,
+      "latency_s": 8.292664051055908,
+      "raw_response": "FOUND: x=947 044, y=044, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 48,
+      "platform": "Simplenote",
+      "instruction": "Toggle focus mode",
+      "model": "molmo2",
+      "predicted_x": 966,
+      "predicted_y": 81,
+      "bbox": [
+        265.3219270598829,
+        56.3144014922493,
+        284.916704187303,
+        70.02251238180999
+      ],
+      "hit": false,
+      "latency_s": 11.39929485321045,
+      "raw_response": "FOUND: x=944 141, y=141, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 49,
+      "platform": "OnlyOffice Document Editor",
+      "instruction": "chart",
+      "model": "molmo2",
+      "predicted_x": null,
+      "predicted_y": null,
+      "bbox": [
+        1001.39109375,
+        271.67862710135324,
+        1020.5910937500001,
+        290.7586271013533
+      ],
+      "hit": false,
+      "latency_s": 9.68845009803772,
+      "raw_response": "NOT_FOUND",
+      "error": null
+    }
+  ]
+}

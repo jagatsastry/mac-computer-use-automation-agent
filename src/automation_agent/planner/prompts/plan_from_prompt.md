@@ -27,7 +27,7 @@ contract, not a suggestion. Always navigate fresh.
 ## Available Actions
 - `activate_app`: Launch or bring an app to front. Params: `app_name` (string). Only use for non-browser apps (Calculator, Finder, etc). Do NOT use before `open_url` — `open_url` already activates the default browser.
 - `click`: Click a UI element. Params: `element` (string description) or `x`, `y` (coordinates)
-- `type_text`: Type text into a field. Params: `text` (string), `element` (optional string — description of the input field to click first). IMPORTANT: Always specify `element` when typing into a specific input field so the agent clicks it first to ensure focus. Also use `type_text` with search bars and filter inputs to find specific items instead of scrolling through lists.
+- `type_text`: Type text into a field. Params: `text` (string), `element` (optional string — description of the input field to click first). IMPORTANT: Always specify `element` when typing into a specific input field so the agent clicks it first to ensure focus. Also use `type_text` with search bars and filter inputs to find specific items instead of scrolling through lists. The verify condition for `type_text` should only confirm that the intended field contains the entered text; if search/filter submission is required, add a separate `press_key` or `click` step for that.
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
 - `open_url`: Open URL in default browser and bring it to front. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)
@@ -54,12 +54,13 @@ making a payment), set `"destructive": true` on the step. This triggers user con
 7. Use `wait_for_user` when user authentication or input is required.
 8. When interactive elements are listed in the Desktop State, reference them by exact name in your action steps.
 9. Check form progress to avoid re-filling already completed fields.
-10. **E-commerce goal completion**: For "buy", "purchase", "shop", or "add to cart" goals:
+10. For `type_text`, the verify condition should only check that the target field contains the text. Do NOT treat typing as submission. If the page must search, filter, or navigate after typing, add a separate `press_key` or `click` step and verify that step separately.
+11. **E-commerce goal completion**: For "buy", "purchase", "shop", or "add to cart" goals:
     - Opening a URL is NOT completion. Showing search results is NOT completion.
     - The plan MUST include steps through add-to-cart at minimum.
     - A complete buy plan includes: navigate → search → select product → add to cart → done.
     - Do NOT end the plan after opening a search URL.
-11. **Plan depth**: When a skill template is provided as a prior, your plan MUST cover
+12. **Plan depth**: When a skill template is provided as a prior, your plan MUST cover
     all phases in the skill template. Do not generate a plan shorter than the skill's
     step count unless the current screen state shows the task is partially complete.
 

@@ -1,0 +1,108 @@
+{
+  "run_tag": "20260323_141820",
+  "n_samples": 5,
+  "n_platforms": 5,
+  "models": {
+    "molmo-point": {
+      "model_id": "mlx-community/MolmoPoint-8B-4bit",
+      "accuracy": 40.0,
+      "hits": 2,
+      "misses": 3,
+      "not_found": 0,
+      "errors": 0,
+      "total": 5
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo-point",
+      "predicted_x": 233,
+      "predicted_y": 340,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 25.26063108444214,
+      "raw_response": "FOUND: x=233.3, y=340.7, confidence=1.0\nRAW: <points coords=\"<POINT_996><POINT_2759><POINT_2770>1<POINT_2758>\">CPU usage:</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo-point",
+      "predicted_x": 532,
+      "predicted_y": 130,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 24.590213775634766,
+      "raw_response": "FOUND: x=532.3, y=130.7, confidence=1.0\nRAW: <points coords=\"<POINT_517><POINT_2760><POINT_2769>1<POINT_2758>\">form settings</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo-point",
+      "predicted_x": 65,
+      "predicted_y": 86,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": true,
+      "latency_s": 21.31979274749756,
+      "raw_response": "FOUND: x=65.7, y=86.9, confidence=1.0\nRAW: <points coords=\"<POINT_340><POINT_2542><POINT_2552>1<POINT_2539>\">create</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 3,
+      "platform": "Komodo Edit",
+      "instruction": "maximize",
+      "model": "molmo-point",
+      "predicted_x": 1838,
+      "predicted_y": 27,
+      "bbox": [
+        1858.2599990844728,
+        15.428571428571429,
+        1882.2599990844726,
+        41.65714285714285
+      ],
+      "hit": false,
+      "latency_s": 24.23559808731079,
+      "raw_response": "FOUND: x=1838.6, y=27.8, confidence=1.0\nRAW: <points coords=\"<POINT_315><POINT_2759><POINT_2769>1<POINT_2758>\">maximize</point>",
+      "error": null
+    },
+    {
+      "sample_idx": 4,
+      "platform": "LibreOffice Calc",
+      "instruction": "Insert",
+      "model": "molmo-point",
+      "predicted_x": 130,
+      "predicted_y": 35,
+      "bbox": [
+        109.24355945121953,
+        29.558290069686414,
+        154.22160823170734,
+        41.633551393728226
+      ],
+      "hit": true,
+      "latency_s": 18.222874879837036,
+      "raw_response": "FOUND: x=130.3, y=35.2, confidence=1.0\nRAW: <points coords=\"<POINT_252><POINT_1916><POINT_1923>1<POINT_1912>\">Insert</point>",
+      "error": null
+    }
+  ]
+}

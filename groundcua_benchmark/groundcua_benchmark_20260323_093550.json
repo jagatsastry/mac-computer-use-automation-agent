@@ -1,0 +1,72 @@
+{
+  "run_tag": "20260323_093550",
+  "n_samples": 3,
+  "n_platforms": 3,
+  "models": {
+    "molmo2": {
+      "model_id": "mlx-community/Molmo2-8B-5bit",
+      "accuracy": 0.0,
+      "hits": 0,
+      "misses": 3,
+      "not_found": 0,
+      "errors": 0,
+      "total": 3
+    }
+  },
+  "results": [
+    {
+      "sample_idx": 0,
+      "platform": "Conky",
+      "instruction": "CPU usage:",
+      "model": "molmo2",
+      "predicted_x": 142,
+      "predicted_y": 443,
+      "bbox": [
+        77.46000366210937,
+        327.0857142857143,
+        207.06000366210935,
+        350.22857142857146
+      ],
+      "hit": false,
+      "latency_s": 10.797590970993042,
+      "raw_response": "FOUND: x=074 411, y=411, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 1,
+      "platform": "OnlyOffice Forms",
+      "instruction": "form settings",
+      "model": "molmo2",
+      "predicted_x": 929,
+      "predicted_y": 213,
+      "bbox": [
+        1874.3999999999999,
+        692.7428571428571,
+        1912.8,
+        725.1428571428571
+      ],
+      "hit": false,
+      "latency_s": 11.25127100944519,
+      "raw_response": "FOUND: x=484 198, y=484 198, confidence=0.95",
+      "error": null
+    },
+    {
+      "sample_idx": 2,
+      "platform": "OnlyOffice Calendar",
+      "instruction": "create",
+      "model": "molmo2",
+      "predicted_x": 86,
+      "predicted_y": 123,
+      "bbox": [
+        24.235714285714288,
+        71.26530612244899,
+        266.97891428571427,
+        104.52244897959184
+      ],
+      "hit": false,
+      "latency_s": 10.885808944702148,
+      "raw_response": "FOUND: x=045 127, y=127, confidence=0.95",
+      "error": null
+    }
+  ]
+}

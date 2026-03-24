@@ -105,6 +105,13 @@ def parse_coordinates(response: str) -> Optional[Tuple[float, float, float]]:
     Returns (x, y, confidence) or None if NOT_FOUND.
     """
     response = response.strip()
+    first_answer = re.search(
+        r'(^|\n)\s*(NOT_FOUND|FOUND:|<point\b|<points\b|\{)',
+        response,
+        re.IGNORECASE,
+    )
+    if first_answer:
+        response = response[first_answer.start(2):].strip()
     if response.upper().startswith("NOT_FOUND"):
         return None
 
@@ -138,7 +145,7 @@ def parse_coordinates(response: str) -> Optional[Tuple[float, float, float]]:
         conf = float(point_match.group(3)) if point_match.group(3) else 0.0
         return float(point_match.group(1)), float(point_match.group(2)), conf
 
-    # <points coords="..."> (triplet format)
+    # <points coords="..."> (triplet or frame-prefixed format)
     points_match = re.search(
         r'<points\b[^>]*\bcoords="([^"]+)"[^>]*/?>',
         response,
@@ -146,11 +153,18 @@ def parse_coordinates(response: str) -> Optional[Tuple[float, float, float]]:
     )
     if points_match:
         coords_str = points_match.group(1)
-        triplet = re.search(
-            r'([0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)', coords_str
-        )
+        triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
         if triplet:
             return float(triplet.group(2)), float(triplet.group(3)), 0.0
+        frame_match = re.search(
+            r'(?:^|\t|:|,|;)\s*([0-9\.]+)\s+([0-9\. ]+)',
+            coords_str,
+        )
+        if frame_match:
+            coords_str = frame_match.group(2)
+            triplet = re.search(r'([0-9]+)\s+([0-9]{3,4})\s+([0-9]{3,4})', coords_str)
+            if triplet:
+                return float(triplet.group(2)), float(triplet.group(3)), 0.0
 
     # <points x1="N" y1="N" x2="N" y2="N"> bounding box → center
     points_xy_match = re.search(
@@ -330,6 +344,7 @@ def query_molmo(prompt: str, image_b64: str, model_name: str = "molmo") -> str:
                 ],
             }
         ],
+        "max_image_dim": 0,
         "max_tokens": 256,
         "temperature": 0,
     }

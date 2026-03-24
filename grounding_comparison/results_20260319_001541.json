@@ -1,0 +1,63 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "Search Amazon text field",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:16:11",
+  "run_tag": "20260319_001541",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "FOUND: x=395, y=190, confidence=0.95",
+      "parsed_x": 395,
+      "parsed_y": 190,
+      "raw_x": 395.0,
+      "raw_y": 190.0,
+      "confidence": 0.95,
+      "coordinate_space": "pixel",
+      "latency_s": 4.55,
+      "error": null,
+      "image_path": "grounding_comparison/gemini_result_20260319_001541.jpg"
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 1.5,
+      "error": null
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "FOUND: x=433, y=123, confidence=0.9",
+      "parsed_x": 433,
+      "parsed_y": 123,
+      "raw_x": 433.0,
+      "raw_y": 123.0,
+      "confidence": 0.9,
+      "coordinate_space": "pixel",
+      "latency_s": 2.16,
+      "error": null,
+      "image_path": "grounding_comparison/claude_result_20260319_001541.jpg"
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"21.1\" y=\"19.2\" y=\"19.2\" alt=\"Search Amazon text field\">Search Amazon text field</points>",
+      "parsed_x": 216,
+      "parsed_y": 127,
+      "raw_x": 21.1,
+      "raw_y": 19.2,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 21.09,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result_20260319_001541.jpg"
+    }
+  }
+}

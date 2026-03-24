@@ -1,0 +1,61 @@
+{
+  "screenshot": "/Users/jagatp/Desktop/Screenshot 2026-03-19 at 12.08.19\u202fAM.png",
+  "label": "the Listerine product image for the March 5 order",
+  "image_size": [
+    1024,
+    665
+  ],
+  "timestamp": "2026-03-19T00:15:41",
+  "run_tag": "20260319_001517",
+  "results": {
+    "gemini": {
+      "model": "gemini-2.5-flash",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 2.72,
+      "error": null
+    },
+    "gpt": {
+      "model": "gpt-4o",
+      "raw_response": "NOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 1.49,
+      "error": null
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "raw_response": "I need to carefully examine this screenshot of an Amazon orders page to look for a Listerine product image associated with a March 5 order.\n\nLooking at the screenshot, I can see several orders listed:\n\n1. An order placed March 18, 2026 for Cinema Secrets makeup brush cleaner - arriving Saturday\n2. An order placed March 17, 2026 for what appears to be tape products - delivered March 13\n3. On the right side, there are some product recommendations including what looks like home/garden items and other products\n\nHowever, I don't see any order specifically from March 5, nor do I see any Listerine product images in this screenshot. The orders visible are from March 17 and March 18, 2026, and the products shown are makeup brush cleaner and tape products, not Listerine.\n\nNOT_FOUND",
+      "parsed_x": null,
+      "parsed_y": null,
+      "raw_x": null,
+      "raw_y": null,
+      "confidence": null,
+      "coordinate_space": null,
+      "latency_s": 6.74,
+      "error": null
+    },
+    "molmo": {
+      "model": "mlx-community/Molmo-7B-D-0924-3bit",
+      "raw_response": " FOUND: x=\"84.1\" y=\"88.1\" y2=\"88.1\" alt=\"the Listerine product image for the March 5 order\">the Listerine product image for the March 5 order</points>",
+      "parsed_x": 861,
+      "parsed_y": 585,
+      "raw_x": 84.1,
+      "raw_y": 88.1,
+      "confidence": 0.0,
+      "coordinate_space": "normalized_0_100",
+      "latency_s": 13.16,
+      "error": null,
+      "image_path": "grounding_comparison/molmo_result_20260319_001517.jpg"
+    }
+  }
+}
