@@ -914,7 +914,17 @@ class ScreenCoordinatorImpl:
             pass  # non-fatal debug logging
 
         # Try grounding model first if configured
-        if self._grounding_enabled:
+        # If grounding_model_provider routes to a cloud API (openai, gemini, anthropic),
+        # use _call_vision_model (which uses per-step model routing) instead of
+        # _call_grounding_model (which always POSTs to the local server).
+        _grounding_provider = ""
+        if self.config.grounding_model_provider:
+            _grounding_provider = self.config.grounding_model_provider.split(":")[0].strip()
+        _use_local_grounding = (
+            self._grounding_enabled
+            and _grounding_provider not in ("openai", "gemini", "anthropic")
+        )
+        if _use_local_grounding:
             try:
                 response = await self._call_grounding_model(prompt, screenshot_b64)
                 raw_coords = self._parse_coordinates(response)
