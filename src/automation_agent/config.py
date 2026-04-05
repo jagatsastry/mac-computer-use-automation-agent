@@ -166,7 +166,7 @@ class AgentConfig(BaseSettings):
         return os.environ.get("OPENAI_API_KEY")
 
     openai_model: str = Field(
-        default="gpt-4.1",
+        default="gpt-5.4",
         description="OpenAI model to use for text, vision, and grounding tasks",
     )
 
