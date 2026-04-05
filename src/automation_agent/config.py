@@ -179,7 +179,7 @@ class AgentConfig(BaseSettings):
         description="Model for plan generation (e.g., 'gemini:gemini-2.5-flash')",
     )
     grounding_model_provider: Optional[str] = Field(
-        default=None,
+        default="openai",
         description="Model for element grounding (e.g., 'openai:gpt-5.4')",
     )
     verification_model: Optional[str] = Field(
