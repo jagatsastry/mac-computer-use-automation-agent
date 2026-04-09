@@ -3509,23 +3509,31 @@ class AutomationAgent:
                             )
                         else:
                             slog.warning(
-                                "type_text element not found,"
-                                " typing to current focus",
+                                "type_text element not found — failing step",
                                 element=element_desc,
                                 duration_ms=_focus_dur,
                             )
                             self.logger.log_event(
                                 EventType.ELEMENT_NOT_FOUND,
                                 f"type_text click-to-focus: '{element_desc}' "
-                                f"not found ({_focus_dur}ms), typing to current focus",
+                                f"not found ({_focus_dur}ms)",
                             )
+                            return {
+                                "success": False,
+                                "error": f"Cannot type: element "
+                                f"'{element_desc}' not found to click",
+                            }
                     except Exception as exc:
                         slog.warning(
-                            "type_text click-to-focus failed,"
-                            " typing to current focus",
+                            "type_text click-to-focus failed — failing step",
                             element=element_desc,
                             error=str(exc),
                         )
+                        return {
+                            "success": False,
+                            "error": f"Cannot type: click-to-focus "
+                            f"'{element_desc}' failed: {exc}",
+                        }
                 if params.pop("_clear_first", False):
                     clear_result = self.actuator.press_key(["cmd", "a"])
                     if not clear_result.get("success", False):
