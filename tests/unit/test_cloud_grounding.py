@@ -3,14 +3,16 @@
 Covers:
   1. Config: grounding_model_provider resolution via resolve_step_model()
   2. Coordinator: cloud vs local grounding routing in find_element()
-  3. GPT computer-use grounding path (OpenAIClient.locate_element)
+  3. GPT computer-use grounding path (OpenAIClient.find_element)
   4. Coordinate space mapping for cloud models
 
 All external calls are mocked — no real API calls, no AppleScript.
 """
 
 import base64
-import io
+import sys
+import types
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,10 +27,63 @@ from automation_agent.vision.capture import ScreenCapture
 # Helpers / Factories
 # ---------------------------------------------------------------------------
 
-# Patch target for OpenAIClient.  The coordinator imports it lazily inside
-# find_element via ``from automation_agent.llm.openai_client import OpenAIClient``,
-# so we patch at the *source module* level.
-_OPENAI_CLIENT_PATCH = "automation_agent.llm.openai_client.OpenAIClient"
+
+@contextmanager
+def _patch_openai_client(fake_cls):
+    """Inject *fake_cls* as ``OpenAIClient`` in ``automation_agent.llm.openai_client``.
+
+    The coordinator imports OpenAIClient lazily via
+    ``from automation_agent.llm.openai_client import OpenAIClient``.
+    Because the package ``__init__.py`` eagerly imports ``ollama`` (which is
+    not always installed), we cannot rely on ``unittest.mock.patch`` to
+    navigate the dotted module path. Instead we pre-seed ``sys.modules``
+    with a lightweight stub module containing *fake_cls*.
+    """
+    mod_name = "automation_agent.llm.openai_client"
+    parent_name = "automation_agent.llm"
+
+    # Ensure the parent package is importable (stub it if missing).
+    had_parent = parent_name in sys.modules
+    if not had_parent:
+        parent_mod = types.ModuleType(parent_name)
+        parent_mod.__path__ = []  # type: ignore[attr-defined]
+        sys.modules[parent_name] = parent_mod
+
+    had_mod = mod_name in sys.modules
+    original_mod = sys.modules.get(mod_name)
+
+    fake_mod = types.ModuleType(mod_name)
+    fake_mod.OpenAIClient = fake_cls  # type: ignore[attr-defined]
+    sys.modules[mod_name] = fake_mod
+
+    try:
+        yield fake_cls
+    finally:
+        if had_mod and original_mod is not None:
+            sys.modules[mod_name] = original_mod
+        else:
+            sys.modules.pop(mod_name, None)
+        if not had_parent:
+            sys.modules.pop(parent_name, None)
+
+
+def _make_openai_mock(locate_return=None, locate_side_effect=None):
+    """Build a mock OpenAIClient class whose instances expose ``find_element``.
+
+    Returns (MockClass, captured_kwargs_dict).
+    ``captured_kwargs_dict`` is populated when the constructor runs.
+    """
+    captured: dict = {}
+    _mock = AsyncMock(return_value=locate_return, side_effect=locate_side_effect)
+
+    class MockOpenAIClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def find_element(self, *args, **kwargs):
+            return await _mock(*args, **kwargs)
+
+    return MockOpenAIClient, captured
 
 
 def _make_config(**overrides) -> AgentConfig:
@@ -181,11 +236,8 @@ class TestCloudVsLocalGroundingRouting:
         """grounding_model_provider='openai' must NOT call _call_grounding_model."""
         coord = _make_coordinator(grounding_model_provider="openai")
 
-        # Mock the OpenAI computer-use path to return a result
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=(100, 200, 0.8))
-
-        with patch(_OPENAI_CLIENT_PATCH, return_value=mock_client):
+        MockCls, _ = _make_openai_mock(locate_return=(100, 200, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Search button")
 
         coord._call_grounding_model.assert_not_called()
@@ -279,13 +331,8 @@ class TestCloudVsLocalGroundingRouting:
             grounding_model="",
         )
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=(300, 400, 0.8))
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        MockCls, _ = _make_openai_mock(locate_return=(300, 400, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Submit button")
 
         coord._call_grounding_model.assert_not_called()
@@ -304,17 +351,12 @@ class TestGPTComputerUseGrounding:
     """Tests for the OpenAI computer-use branch in find_element."""
 
     @pytest.mark.asyncio
-    async def test_locate_element_returns_coordinates(self):
-        """OpenAI locate_element returns (x, y, conf) -> FindElementResult."""
+    async def test_find_element_returns_coordinates(self):
+        """OpenAI find_element returns (x, y, conf) -> FindElementResult."""
         coord = _make_coordinator(grounding_model_provider="openai")
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=(512, 384, 0.8))
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        MockCls, _ = _make_openai_mock(locate_return=(512, 384, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Login button")
 
         assert result is not None
@@ -326,43 +368,15 @@ class TestGPTComputerUseGrounding:
         assert "GPT computer-use" in result.raw_response
 
     @pytest.mark.asyncio
-    async def test_locate_element_not_found_falls_to_vision(self):
-        """OpenAI locate_element returns None -> falls through to text vision."""
+    async def test_find_element_not_found_falls_to_vision(self):
+        """OpenAI find_element returns None -> falls through to text vision."""
         coord = _make_coordinator(grounding_model_provider="openai")
         coord._call_vision_model = AsyncMock(
             return_value="FOUND: x=200 y=300 confidence=0.7"
         )
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=None)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
-            result = await coord.find_element("Login button")
-
-        # Should have fallen through to text vision
-        coord._call_vision_model.assert_called()
-        # The text vision returns coords, so result should be non-None
-        assert result is not None
-        assert result.source == "vision"
-
-    @pytest.mark.asyncio
-    async def test_locate_element_raises_falls_to_vision(self):
-        """OpenAI locate_element raises exception -> graceful fallback to text vision."""
-        coord = _make_coordinator(grounding_model_provider="openai")
-        coord._call_vision_model = AsyncMock(
-            return_value="FOUND: x=100 y=150 confidence=0.6"
-        )
-
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(side_effect=RuntimeError("API error"))
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        MockCls, _ = _make_openai_mock(locate_return=None)
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Login button")
 
         # Should have fallen through to text vision
@@ -371,17 +385,35 @@ class TestGPTComputerUseGrounding:
         assert result.source == "vision"
 
     @pytest.mark.asyncio
-    async def test_locate_element_import_error_falls_to_vision(self):
-        """ImportError for OpenAIClient -> graceful fallback to text vision."""
+    async def test_find_element_raises_falls_to_vision(self):
+        """OpenAI find_element raises exception -> graceful fallback to text vision."""
         coord = _make_coordinator(grounding_model_provider="openai")
         coord._call_vision_model = AsyncMock(
             return_value="FOUND: x=100 y=150 confidence=0.6"
         )
 
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            side_effect=ImportError("No module openai_client"),
-        ):
+        MockCls, _ = _make_openai_mock(locate_side_effect=RuntimeError("API error"))
+        with _patch_openai_client(MockCls):
+            result = await coord.find_element("Login button")
+
+        # Should have fallen through to text vision
+        coord._call_vision_model.assert_called()
+        assert result is not None
+        assert result.source == "vision"
+
+    @pytest.mark.asyncio
+    async def test_find_element_import_error_falls_to_vision(self):
+        """ImportError when constructing OpenAIClient -> graceful fallback to text vision."""
+        coord = _make_coordinator(grounding_model_provider="openai")
+        coord._call_vision_model = AsyncMock(
+            return_value="FOUND: x=100 y=150 confidence=0.6"
+        )
+
+        class ExplodingClient:
+            def __init__(self, **kwargs):
+                raise ImportError("No module named 'openai'")
+
+        with _patch_openai_client(ExplodingClient):
             result = await coord.find_element("Login button")
 
         coord._call_vision_model.assert_called()
@@ -396,23 +428,12 @@ class TestGPTComputerUseGrounding:
         )
         coord = _make_coordinator(config=config)
 
-        captured_kwargs = {}
-
-        class FakeOpenAIClient:
-            def __init__(self, **kwargs):
-                captured_kwargs.update(kwargs)
-
-            async def locate_element(self, *args, **kwargs):
-                return (100, 200, 0.8)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeOpenAIClient,
-        ):
+        MockCls, captured = _make_openai_mock(locate_return=(100, 200, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Button")
 
-        assert captured_kwargs.get("model") == "gpt-5.4"
-        assert captured_kwargs.get("api_key") == "sk-test"
+        assert captured.get("model") == "gpt-5.4"
+        assert captured.get("api_key") == "sk-test"
         assert result is not None
 
     @pytest.mark.asyncio
@@ -424,50 +445,36 @@ class TestGPTComputerUseGrounding:
         )
         coord = _make_coordinator(config=config)
 
-        captured_kwargs = {}
-
-        class FakeOpenAIClient:
-            def __init__(self, **kwargs):
-                captured_kwargs.update(kwargs)
-
-            async def locate_element(self, *args, **kwargs):
-                return (100, 200, 0.8)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeOpenAIClient,
-        ):
+        MockCls, captured = _make_openai_mock(locate_return=(100, 200, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Button")
 
-        assert captured_kwargs.get("model") == "gpt-4o"
+        assert captured.get("model") == "gpt-4o"
 
     @pytest.mark.asyncio
-    async def test_screenshot_dimensions_passed_to_locate_element(self):
-        """locate_element receives screenshot resolution from config."""
+    async def test_screenshot_dimensions_passed_to_find_element(self):
+        """find_element receives screenshot resolution from config."""
         config = _make_config(
             grounding_model_provider="openai",
             screenshot_resolution=(1024, 768),
         )
         coord = _make_coordinator(config=config)
 
-        locate_args = []
+        locate_args_captured = []
 
-        class FakeOpenAIClient:
+        class CapturingClient:
             def __init__(self, **kwargs):
                 pass
 
-            async def locate_element(self, description, screenshot_b64, w, h):
-                locate_args.append((description, w, h))
+            async def find_element(self, description, screenshot_b64, w, h):
+                locate_args_captured.append((description, w, h))
                 return (100, 200, 0.8)
 
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeOpenAIClient,
-        ):
+        with _patch_openai_client(CapturingClient):
             await coord.find_element("Button")
 
-        assert len(locate_args) == 1
-        desc, w, h = locate_args[0]
+        assert len(locate_args_captured) == 1
+        desc, w, h = locate_args_captured[0]
         assert desc == "Button"
         assert w == 1024
         assert h == 768
@@ -478,13 +485,8 @@ class TestGPTComputerUseGrounding:
         coord = _make_coordinator(grounding_model_provider="openai")
         coord._call_vision_model = AsyncMock(return_value="NOT_FOUND")
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=None)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        MockCls, _ = _make_openai_mock(locate_return=None)
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Nonexistent button")
 
         assert result is None
@@ -492,22 +494,15 @@ class TestGPTComputerUseGrounding:
     @pytest.mark.asyncio
     async def test_openai_timeout_falls_to_vision(self):
         """Timeout in OpenAI call -> graceful fallback to text vision."""
-        from automation_agent.llm.exceptions import ModelTimeoutError
-
         coord = _make_coordinator(grounding_model_provider="openai")
         coord._call_vision_model = AsyncMock(
             return_value="FOUND: x=100 y=200 confidence=0.7"
         )
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(
-            side_effect=ModelTimeoutError("timeout")
+        MockCls, _ = _make_openai_mock(
+            locate_side_effect=TimeoutError("timeout")
         )
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Button")
 
         coord._call_vision_model.assert_called()
@@ -519,13 +514,8 @@ class TestGPTComputerUseGrounding:
         """raw_response field includes GPT computer-use label."""
         coord = _make_coordinator(grounding_model_provider="openai")
 
-        mock_client = MagicMock()
-        mock_client.locate_element = AsyncMock(return_value=(42, 99, 0.8))
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            return_value=mock_client,
-        ):
+        MockCls, _ = _make_openai_mock(locate_return=(42, 99, 0.8))
+        with _patch_openai_client(MockCls):
             result = await coord.find_element("Close icon")
 
         assert result is not None
@@ -626,19 +616,8 @@ class TestGroundingEdgeCases:
         )
         coord = _make_coordinator(config=config)
 
-        captured = {}
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                captured.update(kwargs)
-
-            async def locate_element(self, *a, **kw):
-                return (10, 20, 0.8)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeClient,
-        ):
+        MockCls, captured = _make_openai_mock(locate_return=(10, 20, 0.8))
+        with _patch_openai_client(MockCls):
             await coord.find_element("OK button")
 
         assert captured["api_key"] == "sk-real-key-123"
@@ -652,19 +631,8 @@ class TestGroundingEdgeCases:
         )
         coord = _make_coordinator(config=config)
 
-        captured = {}
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                captured.update(kwargs)
-
-            async def locate_element(self, *a, **kw):
-                return (10, 20, 0.8)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeClient,
-        ):
+        MockCls, captured = _make_openai_mock(locate_return=(10, 20, 0.8))
+        with _patch_openai_client(MockCls):
             await coord.find_element("OK button")
 
         assert captured["timeout"] == 60
@@ -735,22 +703,10 @@ class TestGroundingEdgeCases:
         config = _make_config(grounding_model_provider="openai:gpt-5.4")
         coord = _make_coordinator(config=config)
 
-        captured = {}
-
-        class FakeClient:
-            def __init__(self, **kwargs):
-                captured.update(kwargs)
-
-            async def locate_element(self, *a, **kw):
-                return (10, 20, 0.8)
-
-        with patch(
-            _OPENAI_CLIENT_PATCH,
-            FakeClient,
-        ):
+        MockCls, captured = _make_openai_mock(locate_return=(10, 20, 0.8))
+        with _patch_openai_client(MockCls):
             await coord.find_element("Button")
 
-        # The model should be gpt-5.4, not "gpt-5.4" or something else
         assert captured["model"] == "gpt-5.4"
 
     @pytest.mark.asyncio

@@ -7,7 +7,7 @@ the agent removes the premature "done" and triggers a replan.
 All components (planner, coordinator, actuator, skill_registry) are mocked.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,11 +18,9 @@ from automation_agent.orchestrator.agent import AutomationAgent
 from automation_agent.shared_models import (
     ActionPlan,
     ActionStep,
-    ExecutionResult,
-    FindElementResult,
     StepResult,
 )
-from automation_agent.skills.models import Skill, SkillParam, SkillRequirements
+from automation_agent.skills.models import Skill, SkillRequirements
 
 
 # ---------------------------------------------------------------------------
@@ -160,13 +158,8 @@ class TestSuccessConditionGateBasic:
         mock_skill_registry.expand = MagicMock(return_value="Steps here")
         mock_skill_registry.get_skill = MagicMock(return_value=skill)
 
-        # First plan: activate_app + done
+        # Plan with just done so iterations=1 < replan_limit=10
         mock_planner.plan = AsyncMock(return_value=_make_plan([
-            ActionStep(
-                action="activate_app",
-                params={"app_name": "Safari"},
-                verify="Safari is frontmost",
-            ),
             ActionStep(action="done", params={}, verify=""),
         ]))
 
@@ -175,32 +168,13 @@ class TestSuccessConditionGateBasic:
             ActionStep(action="done", params={}, verify=""),
         ]))
 
-        # activate_app tier 1 passes (app name match),
-        # but success condition vision check fails
-        call_count = 0
-
-        async def verify_side_effect(cond, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            # Success condition check returns False
-            if "confirmation" in cond.lower():
-                return False
-            return True
-
-        mock_coordinator.verify_condition = AsyncMock(side_effect=verify_side_effect)
-
-        # The verifier inside the agent uses coordinator + actuator directly.
-        # For the success gate, it creates an ActionStep with verify=sc and calls
-        # self.verifier.verify(). We need the verifier to return success=False
-        # for the success condition check.
         logger = EventLogger(tmp_log_dir)
+        config = _make_config(infeasibility_replan_limit=10)
         agent = _make_agent(
-            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
+            mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger, config
         )
 
         # Patch the verifier's verify method to control success condition outcome
-        original_verify = agent.verifier.verify
-
         sc_check_count = 0
 
         async def patched_verify(step, actuator_result, coordinator=None, actuator=None):
@@ -214,7 +188,9 @@ class TestSuccessConditionGateBasic:
                     verification_method="vision",
                     evidence="Order confirmation page not visible",
                 )
-            return await original_verify(step, actuator_result, coordinator=coordinator, actuator=actuator)
+            return StepResult(
+                step=step, success=True, verification_method="", evidence="done"
+            )
 
         agent.verifier.verify = patched_verify
 
@@ -234,11 +210,12 @@ class TestSuccessConditionGateBasic:
         """No skill matched (skill_name=None) => done accepted without success condition check."""
         mock_skill_registry.match = AsyncMock(return_value=None)
 
+        # Use Safari which matches the mock actuator's default state
         mock_planner.plan = AsyncMock(return_value=_make_plan([
             ActionStep(
                 action="activate_app",
-                params={"app_name": "Calculator"},
-                verify="Calculator is frontmost",
+                params={"app_name": "Safari"},
+                verify="Safari is frontmost",
             ),
             ActionStep(action="done", params={}, verify=""),
         ]))
@@ -248,7 +225,7 @@ class TestSuccessConditionGateBasic:
             mock_planner, mock_skill_registry, mock_coordinator, mock_actuator, logger
         )
 
-        result = await agent.execute("Open Calculator")
+        result = await agent.execute("Open Safari")
 
         assert result.success is True
         # get_skill should NOT have been called since skill_name is None
