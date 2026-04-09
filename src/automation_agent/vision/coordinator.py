@@ -979,7 +979,7 @@ class ScreenCoordinatorImpl:
                     timeout=self.config.vision_server_timeout,
                 )
                 w, h = self.config.screenshot_resolution
-                result = await client.locate_element(
+                result = await client.find_element(
                     description, screenshot_b64, w, h,
                 )
                 if result is not None:
