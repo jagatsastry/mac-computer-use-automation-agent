@@ -967,7 +967,50 @@ class ScreenCoordinatorImpl:
                     exc_info=True,
                 )
 
-        # Fall back to general vision model
+        # OpenAI computer-use grounding: use locate_element() which uses
+        # the Responses API with computer tool, not chat completions.
+        if _grounding_provider == "openai":
+            try:
+                from automation_agent.llm.openai_client import OpenAIClient
+                _gp, _gm = self.config.resolve_step_model("grounding")
+                client = OpenAIClient(
+                    api_key=self.config.openai_api_key or "",
+                    model=_gm or self.config.openai_model,
+                    timeout=self.config.vision_server_timeout,
+                )
+                w, h = self.config.screenshot_resolution
+                result = await client.locate_element(
+                    description, screenshot_b64, w, h,
+                )
+                if result is not None:
+                    x, y, conf = result
+                    _dur = int((time.monotonic() - _find_start) * 1000)
+                    logger.info(
+                        "👁️ Element found via GPT computer-use",
+                        description=description,
+                        x=x, y=y, confidence=conf,
+                    )
+                    self._log_element_search(
+                        element=description,
+                        prompt_summary=f"GPT computer-use: {description}",
+                        response=f"({x}, {y}) conf={conf}",
+                        source="grounding",
+                        confidence=conf,
+                        duration_ms=_dur,
+                        screenshot_b64=screenshot_b64,
+                    )
+                    return FindElementResult(
+                        x=x, y=y, confidence=conf, source="grounding",
+                        raw_response=f"GPT computer-use: ({x}, {y})",
+                    )
+                logger.info("👁️ GPT computer-use returned NOT_FOUND")
+            except Exception:
+                logger.warning(
+                    "👁️ GPT computer-use failed, falling back to text vision",
+                    exc_info=True,
+                )
+
+        # Fall back to general vision model (text prompt + parse coordinates)
         response = await self._call_vision_model(
             prompt, screenshot_b64, step="grounding",
         )
