@@ -158,12 +158,31 @@ class AgentConfig(BaseSettings):
     @field_validator("openai_api_key", mode="before")
     @classmethod
     def get_openai_key(cls, v: Optional[str]) -> Optional[str]:
-        """Check multiple env vars for OpenAI API key."""
+        """Check multiple env vars for OpenAI API key.
+
+        Checks: AGENT_OPENAI_API_KEY (via pydantic prefix), then
+        OPENAI_API_KEY (standard), then reads .env file directly.
+        """
         import os
 
         if v:
             return v
-        return os.environ.get("OPENAI_API_KEY")
+        key = os.environ.get("OPENAI_API_KEY")
+        if key:
+            return key
+        # Also try reading from .env file directly (pydantic prefix
+        # means AGENT_OPENAI_API_KEY, but users set OPENAI_API_KEY)
+        try:
+            from pathlib import Path
+            env_path = Path(".env")
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("OPENAI_API_KEY="):
+                        return line.split("=", 1)[1].strip().strip("'\"")
+        except Exception:
+            pass
+        return None
 
     openai_model: str = Field(
         default="gpt-5.4",
