@@ -26,6 +26,11 @@ pytest -k "test_plan_basic"               # Single test by name
 pytest -m unit                            # By marker
 pytest -m "not e2e"                       # Skip e2e (requires live macOS desktop)
 
+# Sandboxed e2e (real LLM runs in a Docker desktop — host screen untouched)
+scripts/sandbox/run_e2e.sh                # Full scenario suite (see scripts/sandbox/README.md)
+scripts/sandbox/run_e2e.sh --list         # List scenarios
+AGENT_ACTUATOR_BACKEND=sandbox automation-agent "Open http://localhost:8000/"
+
 # Linting & formatting
 ruff check src/ tests/                    # Lint
 black src/ tests/                         # Format
@@ -33,6 +38,10 @@ mypy src/                                 # Type check
 ```
 
 **Test markers**: `unit`, `integration`, `e2e`, `manual`, `legacy` — defined in `pyproject.toml`.
+
+**Interpreter gotcha**: `.venv` runs Python 3.9 even though the project targets 3.11. New modules need `from __future__ import annotations`; never let ruff's UP fixes introduce `X | None` at runtime positions or `datetime.UTC`. `black` is not installed in this venv.
+
+**Hermetic unit tests**: `tests/unit/conftest.py` strips `AGENT_*` env vars and disables `.env` loading for every unit test. Tests needing specific settings pass them explicitly (e.g. `skill_matching_enabled=True`).
 
 ## Architecture: 5-Component Design
 
@@ -149,6 +158,14 @@ Skill learning settings:
 - `AGENT_SKILL_LIBRARIAN_MAX_TIPS` — Max learned tips per skill (default 10)
 
 Config is in `src/automation_agent/config.py` using Pydantic Settings.
+
+## Sandboxed E2E Testing
+
+`scripts/sandbox/` runs the real agent (LLM planning, vision grounding, 3-tier verification) against a Docker X11 desktop instead of the live macOS desktop — the host screen/mouse/keyboard are never touched. `SandboxActuator` + `SandboxScreenCapture` + `CdpClient` live in `src/automation_agent/sandbox/`; selected via `AGENT_ACTUATOR_BACKEND=sandbox`. Scenarios are judged by independent ground truth (browser URL/heading/scroll via Chrome DevTools Protocol), never the agent's self-report. Container: Xvfb at 1024×768 (identical to `screenshot_resolution` → image coords == screen coords), Openbox, Chromium (`launch-browser` wrapper adds CDP + `--remote-allow-origins=*`), galculator/mousepad/xterm, hermetic test site on :8000. Watch live via VNC localhost:15900. Full docs: `scripts/sandbox/README.md`.
+
+`scripts/vm/` is the full-fidelity macOS variant (Tart VM, cirruslabs image, TCC pre-granted via `grant_tcc.py` — SIP is disabled in those images): `setup_vm.sh` provisions a golden base; `run_vm_e2e.sh "<task>"` executes in a disposable clone.
+
+**Precondition semantics** (`orchestrator/agent.py`): a step precondition hard-blocks execution only when it is CONCLUSIVELY denied (verifier returned a non-empty `verification_method`) AND the step is destructive. Inconclusive (all tiers UNCLEAR) always proceeds — on blank screens most preconditions are unknowable and the action may establish the state. Conclusive denial on a non-destructive step proceeds with an advisory log: LLM preconditions are often over-specific scenery claims ("the macOS desktop is visible") and the step's mandatory `verify` still gates the outcome (`tests/unit/test_precondition_semantics.py`).
 
 ## LLM Backends
 

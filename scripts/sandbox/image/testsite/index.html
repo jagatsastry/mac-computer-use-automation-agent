@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sandbox Test Portal</title>
+<style>
+  body { font-family: "DejaVu Sans", sans-serif; background: #f4f6f8; margin: 0; }
+  header { background: #1a3c6e; color: white; padding: 24px 40px; }
+  h1 { margin: 0; font-size: 32px; }
+  main { padding: 40px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 760px; }
+  a.tile { display: block; background: white; border: 2px solid #c7d0dc; border-radius: 10px;
+           padding: 28px; text-decoration: none; color: #1a3c6e; font-size: 24px;
+           font-weight: bold; text-align: center; }
+  a.tile small { display: block; font-size: 14px; color: #5a6b80; font-weight: normal; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header><h1>Sandbox Test Portal</h1></header>
+<main>
+  <div class="grid">
+    <a class="tile" id="nav-search" href="/search.html">Product Search<small>Search the catalog</small></a>
+    <a class="tile" id="nav-form" href="/form.html">Contact Form<small>Send us a message</small></a>
+    <a class="tile" id="nav-shop" href="/shop.html">Mini Shop<small>Add items to your cart</small></a>
+    <a class="tile" id="nav-article" href="/article.html">Long Article<small>Scrollable reading page</small></a>
+  </div>
+</main>
+</body>
+</html>

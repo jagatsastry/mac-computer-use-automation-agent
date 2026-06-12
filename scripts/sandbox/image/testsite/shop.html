@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mini Shop</title>
+<style>
+  body { font-family: "DejaVu Sans", sans-serif; background: #f4f6f8; margin: 0; }
+  header { background: #1a3c6e; color: white; padding: 24px 40px;
+           display: flex; justify-content: space-between; align-items: center; }
+  h1 { margin: 0; font-size: 32px; }
+  #cart-badge { background: #e65100; border-radius: 20px; padding: 8px 18px;
+                font-size: 20px; font-weight: bold; }
+  main { padding: 40px; }
+  .product { background: white; border: 1px solid #c7d0dc; border-radius: 8px;
+             padding: 20px; margin-bottom: 16px; max-width: 640px;
+             display: flex; justify-content: space-between; align-items: center; }
+  .product h2 { margin: 0; font-size: 22px; color: #1a3c6e; }
+  .price { font-size: 20px; color: #2e7d32; font-weight: bold; margin-right: 18px; }
+  button { font-size: 18px; padding: 10px 22px; background: #e65100; color: white;
+           border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+  a#view-cart { display: inline-block; margin-top: 18px; font-size: 20px; color: #1a3c6e; }
+</style>
+</head>
+<body>
+<header><h1>Mini Shop</h1><div id="cart-badge">Cart: 0</div></header>
+<main>
+  <div class="product"><h2>Red Mug</h2>
+    <div><span class="price">$9</span><button class="add" data-item="Red Mug">Add to Cart</button></div></div>
+  <div class="product"><h2>Blue Notebook</h2>
+    <div><span class="price">$5</span><button class="add" data-item="Blue Notebook">Add to Cart</button></div></div>
+  <div class="product"><h2>Green Lamp</h2>
+    <div><span class="price">$24</span><button class="add" data-item="Green Lamp">Add to Cart</button></div></div>
+  <a id="view-cart" href="/cart.html">View Cart →</a>
+</main>
+<script>
+  const badge = document.getElementById("cart-badge");
+  const items = JSON.parse(sessionStorage.getItem("cart") || "[]");
+  const render = () => badge.textContent = `Cart: ${items.length}`;
+  render();
+  document.querySelectorAll("button.add").forEach(btn =>
+    btn.addEventListener("click", () => {
+      items.push(btn.dataset.item);
+      sessionStorage.setItem("cart", JSON.stringify(items));
+      render();
+    }));
+</script>
+</body>
+</html>

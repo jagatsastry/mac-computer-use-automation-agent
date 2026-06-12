@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Thank You</title>
+<style>
+  body { font-family: "DejaVu Sans", sans-serif; background: #f4f6f8; margin: 0; }
+  header { background: #2e7d32; color: white; padding: 24px 40px; }
+  h1 { margin: 0; font-size: 32px; }
+  main { padding: 40px; font-size: 22px; }
+  #echo { color: #1a3c6e; font-weight: bold; }
+</style>
+</head>
+<body>
+<header><h1>Thank You</h1></header>
+<main>
+  <p>Your message has been sent successfully.</p>
+  <p id="echo"></p>
+</main>
+<script>
+  const p = new URLSearchParams(window.location.search);
+  const name = p.get("name") || "";
+  if (name) document.getElementById("echo").textContent = `We will reply to ${name} soon.`;
+</script>
+</body>
+</html>

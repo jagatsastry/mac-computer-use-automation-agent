@@ -84,7 +84,18 @@ async def run_agent(
     # Initialize components
     planner = ActionPlannerImpl(config)
     skill_registry = SkillRegistryImpl(config=config)
-    coordinator = ScreenCoordinatorImpl(config)
+    sandbox_capture = None
+    if config.actuator_backend == "sandbox":
+        # Sandbox mode: screenshots come from the container display and the
+        # macOS accessibility tree is irrelevant — vision-only grounding.
+        from .sandbox.capture import SandboxScreenCapture
+
+        config.use_accessibility = False
+        sandbox_capture = SandboxScreenCapture(
+            container=config.sandbox_container,
+            target_resolution=config.screenshot_resolution,
+        )
+    coordinator = ScreenCoordinatorImpl(config, capture=sandbox_capture)
     actuator = create_actuator(config)
     logger.info("using_actuator", actuator=type(actuator).__name__)
     print(f"[INFO] Using actuator: {type(actuator).__name__}")

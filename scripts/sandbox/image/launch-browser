@@ -1,0 +1,41 @@
+#!/bin/bash
+# Open a URL in the sandbox browser. Reuses the running Chromium instance
+# (new tab) when one exists; otherwise starts Chromium with CDP enabled.
+URL="${1:-http://localhost:8000/}"
+PROFILE=/tmp/chromium-profile
+
+FLAGS=(
+    --no-sandbox
+    --test-type
+    --user-data-dir="$PROFILE"
+    --remote-debugging-port=9222
+    --remote-allow-origins=*
+    --no-first-run
+    --no-default-browser-check
+    --disable-features=FirstRunUi,PrivacySandboxSettings4
+    --disable-session-crashed-bubble
+    --hide-crash-restore-bubble
+    --disable-infobars
+    --disable-search-engine-choice-screen
+    --password-store=basic
+    --start-maximized
+    --disable-dev-shm-usage
+)
+
+if pgrep -f "chromium.*user-data-dir=$PROFILE" >/dev/null 2>&1; then
+    # Running instance: this just opens a new tab and returns
+    chromium "${FLAGS[@]}" "$URL" >/dev/null 2>&1 &
+else
+    chromium "${FLAGS[@]}" "$URL" >/tmp/chromium.log 2>&1 &
+fi
+
+# Bring the browser window to the front once it maps
+for i in $(seq 1 40); do
+    WIN=$(xdotool search --onlyvisible --class chromium 2>/dev/null | head -1)
+    if [ -n "$WIN" ]; then
+        xdotool windowactivate "$WIN" 2>/dev/null || true
+        exit 0
+    fi
+    sleep 0.25
+done
+exit 0

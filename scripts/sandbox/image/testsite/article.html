@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Long Article</title>
+<style>
+  body { font-family: "DejaVu Sans", sans-serif; background: #ffffff; margin: 0; }
+  header { background: #1a3c6e; color: white; padding: 24px 40px; }
+  h1 { margin: 0; font-size: 32px; }
+  main { padding: 40px; max-width: 720px; font-size: 19px; line-height: 1.7; }
+  h2 { color: #1a3c6e; }
+  #end-marker { background: #2e7d32; color: white; font-size: 26px; font-weight: bold;
+                padding: 24px; border-radius: 10px; text-align: center; margin: 40px 0; }
+</style>
+</head>
+<body>
+<header><h1>Long Article</h1></header>
+<main id="content"></main>
+<script>
+  const main = document.getElementById("content");
+  const sections = ["Introduction", "Background", "Methodology", "Findings",
+                    "Discussion", "Limitations", "Future Work"];
+  sections.forEach((title, i) => {
+    const h = document.createElement("h2");
+    h.textContent = `${i + 1}. ${title}`;
+    main.appendChild(h);
+    for (let p = 0; p < 4; p++) {
+      const para = document.createElement("p");
+      para.textContent =
+        `This is paragraph ${p + 1} of the ${title.toLowerCase()} section. ` +
+        "It exists to make the page long enough that scrolling is required. ".repeat(3);
+      main.appendChild(para);
+    }
+  });
+  const end = document.createElement("div");
+  end.id = "end-marker";
+  end.textContent = "END OF ARTICLE — you reached the bottom";
+  main.appendChild(end);
+</script>
+</body>
+</html>
