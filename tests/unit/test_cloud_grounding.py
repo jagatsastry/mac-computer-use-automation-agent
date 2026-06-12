@@ -130,17 +130,23 @@ def _make_coordinator(config=None, **config_overrides) -> ScreenCoordinatorImpl:
 class TestGroundingModelProviderResolution:
     """resolve_step_model('grounding') must respect grounding_model_provider."""
 
-    def test_default_grounding_provider_is_openai(self):
-        """Default grounding_model_provider='openai'."""
-        config = _make_config()
-        assert config.grounding_model_provider == "openai"
+    def test_default_grounding_provider_is_none(self):
+        """Default grounding_model_provider is None (no per-step override).
 
-    def test_resolve_grounding_default_openai(self):
-        """resolve_step_model('grounding') -> ('openai', 'gpt-5.4') by default."""
+        Cloud grounding must be opt-in: an 'openai' default forced an OpenAI
+        dependency (and API key) on every install, so the default is None and
+        grounding falls back to the global model_provider.
+        """
+        config = _make_config()
+        assert config.grounding_model_provider is None
+
+    def test_resolve_grounding_default_falls_back_to_global_provider(self):
+        """resolve_step_model('grounding') falls back to the global provider
+        and its default model when grounding_model_provider is unset."""
         config = _make_config()
         provider, model = config.resolve_step_model("grounding")
-        assert provider == "openai"
-        assert model == "gpt-5.4"
+        assert provider == "local"
+        assert model == "molmo"
 
     def test_resolve_grounding_explicit_openai_with_model(self):
         """grounding_model_provider='openai:gpt-4o' resolves correctly."""

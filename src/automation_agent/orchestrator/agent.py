@@ -1578,7 +1578,37 @@ class AutomationAgent:
                 actuator=self.actuator,
             )
             _pre_dur = int((time.monotonic() - _pre_start) * 1000)
-            if not pre_result.success:
+            # Precondition gating semantics:
+            # - inconclusive (verification_method empty — e.g. a blank desktop
+            #   where "a browser is open" is unknowable): proceed; the action
+            #   may establish the state and its own verify will judge.
+            # - conclusively denied + DESTRUCTIVE step: hard block (acting on
+            #   the wrong screen is exactly what the gate exists to prevent).
+            # - conclusively denied + non-destructive step: advisory only.
+            #   LLM preconditions are often over-specific scenery claims
+            #   ("the macOS desktop is visible") whose denial says nothing
+            #   about whether the action can succeed; the mandatory verify
+            #   still gates the outcome.
+            _pre_conclusive = bool(pre_result.verification_method)
+            if not pre_result.success and not _pre_conclusive:
+                slog.info(
+                    "precondition_inconclusive_proceeding",
+                    condition=precondition,
+                    duration_ms=_pre_dur,
+                )
+            elif not pre_result.success and not self._is_destructive_step(step):
+                slog.warning(
+                    "precondition_denied_advisory_proceeding",
+                    condition=precondition,
+                    evidence=pre_result.evidence,
+                    duration_ms=_pre_dur,
+                )
+                self._issues.append(
+                    f"Step {index}: precondition \"{precondition[:60]}\" denied"
+                    f" ({pre_result.evidence[:80]}) — proceeded anyway;"
+                    " step verify decides"
+                )
+            elif not pre_result.success:
                 slog.warning(
                     "precondition_failed",
                     condition=precondition,
@@ -3497,11 +3527,17 @@ class AutomationAgent:
                                     confidence=location.confidence,
                                     duration_ms=_focus_dur,
                                 )
+                            _conf = location.confidence
+                            _conf_str = (
+                                f"{_conf:.2f}"
+                                if isinstance(_conf, (int, float))
+                                else "n/a"
+                            )
                             self.logger.log_event(
                                 EventType.ELEMENT_FOUND,
                                 f"type_text click-to-focus: '{element_desc}' "
                                 f"at ({location.x},{location.y}) "
-                                f"conf={location.confidence:.2f} "
+                                f"conf={_conf_str} "
                                 f"via {location.source} ({_focus_dur}ms)",
                             )
                             await asyncio.sleep(
@@ -4306,12 +4342,18 @@ class AutomationAgent:
             screen_x, screen_y = result.x, result.y
         else:
             image_x, image_y = result.x, result.y
-            screen_x, screen_y = self._image_to_screen_coords(
-                result.x,
-                result.y,
-                image_width,
-                image_height,
-            )
+            if result.screen_x is not None and result.screen_y is not None:
+                # The producer already supplied screen-space coordinates
+                # (e.g. a coordinator that did its own mapping) — keep them
+                # instead of recomputing from image space.
+                screen_x, screen_y = result.screen_x, result.screen_y
+            else:
+                screen_x, screen_y = self._image_to_screen_coords(
+                    result.x,
+                    result.y,
+                    image_width,
+                    image_height,
+                )
 
         return FindElementResult(
             x=image_x,

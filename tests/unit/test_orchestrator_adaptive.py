@@ -28,7 +28,13 @@ from automation_agent.shared_models import (
 
 
 def _make_config(**overrides) -> AgentConfig:
-    defaults = {"_env_file": None, "anthropic_api_key": "test-key-not-real"}
+    defaults = {
+        "_env_file": None,
+        "anthropic_api_key": "test-key-not-real",
+        # These tests exercise the skill-matching machinery, which is gated
+        # behind AGENT_SKILL_MATCHING_ENABLED (default False) since b8e0989.
+        "skill_matching_enabled": True,
+    }
     defaults.update(overrides)
     return AgentConfig(**defaults)
 

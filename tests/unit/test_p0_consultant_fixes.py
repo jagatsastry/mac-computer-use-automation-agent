@@ -607,6 +607,9 @@ class TestP0_1_CurrentStepsReachPlanner:
             _env_file=None,
             anthropic_api_key="test-key-not-real",
             model_provider="local",
+            # Skill matching is gated behind AGENT_SKILL_MATCHING_ENABLED
+            # (default False) since b8e0989; this test exercises it directly.
+            skill_matching_enabled=True,
         )
         logger = EventLogger(tmp / "logs")
 
@@ -770,6 +773,9 @@ class TestP0_1_CurrentStepsReachPlanner:
             _env_file=None,
             anthropic_api_key="test-key-not-real",
             model_provider="local",
+            # Skill matching is gated behind AGENT_SKILL_MATCHING_ENABLED
+            # (default False) since b8e0989; this test exercises it directly.
+            skill_matching_enabled=True,
         )
         logger = EventLogger(tmp / "logs")
 

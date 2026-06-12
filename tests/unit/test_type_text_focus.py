@@ -2,7 +2,9 @@
 
 Validates that type_text with an element parameter captures a screenshot,
 finds the element, and clicks it before typing. Also tests confidence
-gating, fallthrough on failure, and the _skip_focus flag.
+gating, the _skip_focus flag, and that the step FAILS when the
+click-to-focus element cannot be found (commit 10eee28: never type
+blindly into whatever happens to be focused).
 
 All external calls are mocked -- no real API calls.
 """
@@ -130,8 +132,9 @@ async def test_type_text_no_element_no_click():
 
 
 @pytest.mark.asyncio
-async def test_type_text_find_element_fails_fallthrough():
-    """If find_element returns None, type_text should still proceed."""
+async def test_type_text_find_element_not_found_fails_step():
+    """If find_element returns None, the step must FAIL — never type blindly
+    into whatever happens to be focused (commit 10eee28)."""
     coordinator = AsyncMock()
     coordinator.capabilities = MagicMock(return_value=frozenset())
     coordinator.capture_screenshot = AsyncMock(return_value="base64data")
@@ -146,13 +149,16 @@ async def test_type_text_find_element_fails_fallthrough():
     result = await agent._dispatch_action(step)
 
     agent.actuator.click.assert_not_called()
-    agent.actuator.type_text.assert_called_once_with("hello")
-    assert result.get("success") is True
+    agent.actuator.type_text.assert_not_called()
+    assert result.get("success") is False
+    assert "nonexistent field" in result.get("error", "")
+    assert "not found" in result.get("error", "")
 
 
 @pytest.mark.asyncio
-async def test_type_text_find_element_exception_fallthrough():
-    """If find_element raises, type_text should still proceed."""
+async def test_type_text_find_element_exception_fails_step():
+    """If find_element raises, the step must FAIL — never type blindly
+    into whatever happens to be focused (commit 10eee28)."""
     coordinator = AsyncMock()
     coordinator.capabilities = MagicMock(return_value=frozenset())
     coordinator.capture_screenshot = AsyncMock(return_value="base64data")
@@ -167,8 +173,10 @@ async def test_type_text_find_element_exception_fallthrough():
     result = await agent._dispatch_action(step)
 
     agent.actuator.click.assert_not_called()
-    agent.actuator.type_text.assert_called_once_with("hello")
-    assert result.get("success") is True
+    agent.actuator.type_text.assert_not_called()
+    assert result.get("success") is False
+    assert "search field" in result.get("error", "")
+    assert "vision error" in result.get("error", "")
 
 
 @pytest.mark.asyncio
@@ -264,8 +272,9 @@ async def test_type_text_no_confidence_attr_still_clicks():
 
 
 @pytest.mark.asyncio
-async def test_type_text_find_element_x_none_fallthrough():
-    """FindElementResult with x=None should fall through to typing at current focus."""
+async def test_type_text_find_element_x_none_fails_step():
+    """FindElementResult with x=None has no usable coordinates: the step
+    must FAIL rather than type blindly at the current focus (commit 10eee28)."""
     coordinator = AsyncMock()
     coordinator.capabilities = MagicMock(return_value=frozenset())
     coordinator.capture_screenshot = AsyncMock(return_value="base64data")
@@ -283,7 +292,9 @@ async def test_type_text_find_element_x_none_fallthrough():
     )
     result = await agent._dispatch_action(step)
 
-    # x=None means no coordinates — no click, but type still proceeds
+    # x=None means no coordinates — no click is possible, and typing
+    # without focus is forbidden, so the step fails.
     agent.actuator.click.assert_not_called()
-    agent.actuator.type_text.assert_called_once_with("hello")
-    assert result.get("success") is True
+    agent.actuator.type_text.assert_not_called()
+    assert result.get("success") is False
+    assert "Cannot type" in result.get("error", "")

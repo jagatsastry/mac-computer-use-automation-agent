@@ -198,7 +198,7 @@ class AgentConfig(BaseSettings):
         description="Model for plan generation (e.g., 'gemini:gemini-2.5-flash')",
     )
     grounding_model_provider: Optional[str] = Field(
-        default="openai",
+        default=None,
         description="Model for element grounding (e.g., 'openai:gpt-5.4')",
     )
     verification_model: Optional[str] = Field(
@@ -234,6 +234,22 @@ class AgentConfig(BaseSettings):
     use_accessibility: bool = Field(
         default=True,
         description="Use macOS Accessibility API for fast UI element lookup",
+    )
+
+    # Actuator backend selection
+    actuator_backend: str = Field(
+        default="applescript",
+        description="Actuator backend: 'applescript' (live macOS desktop) or "
+        "'sandbox' (Docker X11 container — never touches the host desktop)",
+    )
+    sandbox_container: str = Field(
+        default="agent-sandbox",
+        description="Docker container name for the sandbox desktop",
+    )
+    sandbox_cdp_port: int = Field(
+        default=19222,
+        description="Host port publishing the sandbox browser's DevTools endpoint",
+        gt=0,
     )
     # Screenshot / Vision Configuration
     screenshot_resolution: Tuple[int, int] = Field(
