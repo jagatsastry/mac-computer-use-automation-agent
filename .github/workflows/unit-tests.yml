@@ -1,0 +1,29 @@
+name: unit-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    # macOS runner: the package depends on pyobjc, which only installs on macOS.
+    # Unit tests are fully mocked (no desktop, no API keys, no .env — the
+    # hermetic conftest strips AGENT_* env) so they run fine headless.
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Unit tests
+        run: python -m pytest tests/unit/ -q
+      - name: Lint (sandbox + new modules must stay clean)
+        run: |
+          python -m pip install ruff
+          python -m ruff check src/automation_agent/sandbox/ scripts/sandbox/run_e2e.py

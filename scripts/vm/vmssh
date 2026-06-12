@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+# Password-auth SSH into the tart VM (cirruslabs images: admin/admin).
+# Used only until setup_vm.sh installs the host's public key; afterwards
+# plain `ssh admin@$(tart ip <vm>)` works.
+#
+# Usage: vmssh <ip> <command...>
+set timeout 120
+set ip [lindex $argv 0]
+set cmd [join [lrange $argv 1 end] " "]
+
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=10 admin@$ip $cmd
+expect {
+    -re "(?i)password:" { send "admin\r"; exp_continue }
+    eof
+}
+catch wait result
+exit [lindex $result 3]
