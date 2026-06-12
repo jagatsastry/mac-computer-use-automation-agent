@@ -14,6 +14,16 @@ import os
 
 import pytest
 
+# Pre-import numpy before any test runs. Several tests wrap bodies in
+# patch.dict("sys.modules", ...); if numpy's FIRST import happens inside
+# such a window, the exit-restore erases numpy's modules while its C
+# extension stays initialized — and numpy>=2.1 then fails every later
+# import with "cannot load module more than once per process".
+try:
+    import numpy  # noqa: F401
+except ImportError:
+    pass
+
 from automation_agent.config import AgentConfig
 
 

@@ -1502,7 +1502,7 @@ class TestSkillDirFromRegistry:
         import asyncio
 
         obs = _make_observations(5, confidence=0.9, run_ids=["r1", "r2", "r3", "r4", "r5"])
-        decision = asyncio.get_event_loop().run_until_complete(
+        decision = asyncio.run(
             lib._commit_patch_parent(
                 skill_name="return-amazon-order",
                 parent_skill=skill,
