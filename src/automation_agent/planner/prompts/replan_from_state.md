@@ -42,7 +42,7 @@ Generate the remaining steps FROM STEP {{current_step_index}} ONWARDS.
 - `press_key`: Press key combination. Params: `keys` (list of strings, e.g. ["cmd", "c"])
 - `open_url`: Open URL in default browser and bring it to front. Params: `url` (string)
 - `quit_app`: Quit an application. Params: `app_name` (string)
-- `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at)
+- `scroll`: Scroll the page. Params: `direction` ("up", "down", "left", "right"), `amount` (number of scroll clicks, default 3). Optional: `x`, `y` (coordinates to scroll at). To reach the very bottom (or top) of a long page, prefer `press_key` with `["End"]` (or `["Home"]`) — it jumps the whole way in one step; a default scroll of 3 only nudges ~one screen, so reaching the bottom by scrolling needs a large `amount` (15-20) or several repeated scroll steps.
 - `observe`: Take a screenshot and describe what's on screen. Params: none
 - `wait_for_user`: Pause and wait for user action. Params: `message` (string)
 - `done`: Task complete. Params: none. Optional: `abort_reason` (string) — set when the task is impossible in the current page state

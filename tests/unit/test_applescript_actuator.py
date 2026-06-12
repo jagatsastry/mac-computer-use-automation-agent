@@ -89,6 +89,16 @@ class TestPressKey:
         assert "key code 36" in script
         assert result["success"] is True
 
+    def test_press_key_end_home_use_key_codes(self, actuator, mock_run_success):
+        # End/Home must map to key codes, not be typed as literal text — the
+        # planner uses them to jump to page bottom/top.
+        actuator.press_key(["End"])
+        assert "key code 119" in mock_run_success.call_args[0][0][2]
+        actuator.press_key(["Home"])
+        assert "key code 115" in mock_run_success.call_args[0][0][2]
+        actuator.press_key(["pagedown"])
+        assert "key code 121" in mock_run_success.call_args[0][0][2]
+
     def test_press_key_with_modifier(self, actuator, mock_run_success):
         actuator.press_key(["cmd", "c"])
 

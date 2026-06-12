@@ -293,10 +293,6 @@ SCENARIOS = [
             "to the bottom of the page until the 'END OF ARTICLE' marker is visible"
         ),
         ground_truth=gt_scrolled_to_bottom,
-        # Iterative scroll-until-condition: needs the planner to keep scrolling
-        # until the bottom is reached, not a fixed handful of scroll steps.
-        # Tracked gap.
-        stress=True,
     ),
 ]
 

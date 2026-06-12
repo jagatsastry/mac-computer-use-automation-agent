@@ -115,6 +115,8 @@ class AppleScriptActuator:
             "delete": 51, "escape": 53, "esc": 53,
             "up": 126, "down": 125, "left": 123, "right": 124,
             "f1": 122, "f2": 120, "f3": 99, "f4": 118,
+            "home": 115, "end": 119, "pageup": 116, "pagedown": 121,
+            "forwarddelete": 117,
         }
         mod_map = {
             "cmd": "command down", "command": "command down",
