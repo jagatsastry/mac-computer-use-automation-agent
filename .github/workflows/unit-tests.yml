@@ -20,7 +20,11 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        # Full extras to mirror the development venv: test_planner exercises
+        # the anthropic client, and the embedding tests need fastembed
+        # installed (its absent-fallback path re-imports numpy, which
+        # numpy>=2 forbids).
+        run: python -m pip install -e ".[dev,anthropic,gemini,embeddings]"
       - name: Unit tests
         run: python -m pytest tests/unit/ -q
       - name: Lint (sandbox + new modules must stay clean)
