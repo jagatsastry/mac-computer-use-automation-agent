@@ -1171,11 +1171,18 @@ class ScreenCoordinatorImpl:
         """Verify a target using both a tight crop and a wider context crop."""
         prompt = (
             "You are validating a UI grounding target using two images of the same point.\n"
-            "Image 1 is a tight detail crop centered on the proposed target.\n"
-            "Image 2 is a wider context crop centered on the same point.\n\n"
+            "Image 1 is a tight detail crop centered on the proposed click point — use it\n"
+            "to judge the KIND of element there (button, link, field, icon, ...).\n"
+            "Image 2 is a wide horizontal slice of the page with a magenta crosshair marker\n"
+            "at the same click point — use it to read any row or column labels that\n"
+            "identify WHICH item the marked point belongs to.\n\n"
             f"Target description: {target_description}\n\n"
-            "Respond with ONLY YES if both images support that the centered target matches.\n"
-            "Respond with ONLY NO otherwise."
+            "Answer ONLY YES if the marked point in image 2 falls on the target element\n"
+            "(using the row/column labels to disambiguate) and image 1 is consistent with\n"
+            "that kind of element. The surrounding crop may omit distant layout — do not\n"
+            "answer NO merely because some context is off-frame. Answer ONLY NO if the\n"
+            "marked point is on empty space or a clearly different item.\n"
+            "Respond with ONLY YES or ONLY NO."
         )
         response = await self._call_vision_model_with_images(
             prompt, [detail_b64, context_b64], step="verification",

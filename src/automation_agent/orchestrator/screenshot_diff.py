@@ -28,9 +28,24 @@ class ScreenshotDiffVerifier:
     or a ``capture_screen()`` method returning a PIL Image.
     """
 
-    def __init__(self, capturer: Any, change_threshold: float = 0.01):
+    def __init__(
+        self,
+        capturer: Any,
+        change_threshold: float = 0.01,
+        strong_diff: int = 40,
+        min_changed_pixels: int = 60,
+    ):
         self.capturer = capturer
         self.change_threshold = change_threshold
+        # A "strong" pixel change (intensity delta > strong_diff on any channel)
+        # is what a text glyph / icon produces; antialiasing and JPEG noise stay
+        # under it. min_changed_pixels is the absolute floor of strong pixels
+        # that counts as a real change even when it covers < change_threshold of
+        # the frame — catches small but meaningful updates like a counter badge
+        # incrementing, whose false "no effect" reading drove destructive
+        # re-click loops.
+        self.strong_diff = strong_diff
+        self.min_changed_pixels = min_changed_pixels
         self._before: Optional[np.ndarray] = None
 
     def _grab(self) -> np.ndarray:
@@ -49,6 +64,25 @@ class ScreenshotDiffVerifier:
         """
         self._before = self._grab()
 
+    def _is_changed(self, before: np.ndarray, after: np.ndarray) -> bool:
+        """Two-signal change test: fraction-of-frame OR small-strong-cluster.
+
+        A frame counts as changed if either a meaningful FRACTION of pixels
+        moved a little (large/global change), or an absolute FLOOR of pixels
+        moved a lot (small localized glyph/icon change). The second signal
+        catches updates too small for the fraction threshold — e.g. a counter
+        badge ticking up — without tripping on scattered low-magnitude noise.
+        """
+        diff = np.abs(before.astype(np.float32) - after.astype(np.float32))
+        changed_fraction = float(np.mean(diff > 10))
+        if changed_fraction > self.change_threshold:
+            return True
+        if diff.ndim == 3:
+            strong = np.any(diff > self.strong_diff, axis=-1)
+        else:
+            strong = diff > self.strong_diff
+        return int(np.count_nonzero(strong)) >= self.min_changed_pixels
+
     def screen_changed(self) -> bool:
         """Check if the full screen changed since capture_before().
 
@@ -60,9 +94,7 @@ class ScreenshotDiffVerifier:
         after = self._grab()
         if self._before.shape != after.shape:
             return True
-        diff = np.abs(self._before.astype(np.float32) - after.astype(np.float32))
-        changed_fraction = float(np.mean(diff > 10))
-        return changed_fraction > self.change_threshold
+        return self._is_changed(self._before, after)
 
     def region_changed(self, x: int, y: int, radius: int = 100) -> bool:
         """Check if the region around (x, y) changed since capture_before().
@@ -90,6 +122,4 @@ class ScreenshotDiffVerifier:
             return True
         pre_region = self._before[y1:y2, x1:x2]
         post_region = after[y1:y2, x1:x2]
-        diff = np.abs(pre_region.astype(np.float32) - post_region.astype(np.float32))
-        changed_fraction = float(np.mean(diff > 10))
-        return changed_fraction > self.change_threshold
+        return self._is_changed(pre_region, post_region)

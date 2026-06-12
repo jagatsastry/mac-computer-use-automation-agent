@@ -1056,6 +1056,113 @@ class TestValidateCandidate:
         assert "OK button" in condition_arg
 
     @pytest.mark.asyncio
+    async def test_validation_crop_is_full_width_for_row_context(self, tmp_path):
+        """Row-disambiguated targets ("Add to Cart in the Green Lamp row") need
+        the row label visible. The validation crop must span (close to) the full
+        image width, not a tight square that excludes the far-left label."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        captured = {}
+
+        async def capture_condition(condition, screenshot_b64=None):
+            captured["condition"] = condition
+            captured["b64"] = screenshot_b64
+            return True
+
+        coordinator = AsyncMock()
+        coordinator.verify_condition = AsyncMock(side_effect=capture_condition)
+        coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())
+        coordinator.describe_screen = AsyncMock(return_value="screen")
+        # No multiscale capability → exercises the single verify_condition path
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+
+        agent = _make_agent(log_dir, coordinator=coordinator)
+        # 1024-wide screenshot; candidate near the right edge (a row button)
+        screenshot = _make_jpeg_b64(1024, 768)
+
+        result = await agent._validate_candidate(
+            900, 452, "Add to Cart button in the Green Lamp row", screenshot_b64=screenshot
+        )
+        assert result is True
+
+        from PIL import Image
+
+        crop_bytes = base64.b64decode(captured["b64"])
+        crop_img = Image.open(io.BytesIO(crop_bytes))
+        # Must be much wider than the old 128px square so the row label is in frame
+        assert crop_img.size[0] >= 768, f"crop width {crop_img.size[0]} too narrow for row context"
+        # And a band, not full height (keeps neighboring rows out)
+        assert crop_img.size[1] < crop_img.size[0]
+
+    @pytest.mark.asyncio
+    async def test_multiscale_path_gets_full_width_band_as_context(self, tmp_path):
+        """When the coordinator supports verify_multiscale_target (the real
+        ScreenCoordinatorImpl path), the context image must be the full-width
+        row band — NOT a tight square that drops the row label."""
+        from PIL import Image
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        class MultiscaleCoord:
+            def __init__(self):
+                self.detail_b64 = None
+                self.context_b64 = None
+
+            async def capture_screenshot(self):
+                return _make_jpeg_b64(1024, 768)
+
+            async def verify_multiscale_target(self, target, detail_b64, context_b64):
+                self.detail_b64 = detail_b64
+                self.context_b64 = context_b64
+                return True
+
+            def capabilities(self):
+                return frozenset()
+
+        coordinator = MultiscaleCoord()
+        agent = _make_agent(log_dir, coordinator=coordinator)
+        screenshot = _make_jpeg_b64(1024, 768)
+
+        result = await agent._validate_candidate(
+            900, 452, "Add to Cart button in the Green Lamp row", screenshot_b64=screenshot
+        )
+        assert result is True
+
+        context_img = Image.open(io.BytesIO(base64.b64decode(coordinator.context_b64)))
+        assert context_img.size[0] == 1024  # full width band
+        assert context_img.size[1] <= 200
+        # detail stays a tight square for element-type judgement
+        detail_img = Image.open(io.BytesIO(base64.b64decode(coordinator.detail_b64)))
+        assert detail_img.size[0] <= 130
+
+    @pytest.mark.asyncio
+    async def test_validation_prompt_is_crop_aware_and_names_target(self, tmp_path):
+        """The prompt must keep the target description AND tell the model it's a
+        marked crop, so it judges the marked point using row context rather than
+        rejecting because surrounding layout is absent."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        coordinator = AsyncMock()
+        coordinator.verify_condition = AsyncMock(return_value=True)
+        coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())
+        coordinator.describe_screen = AsyncMock(return_value="screen")
+        coordinator.capabilities = MagicMock(return_value=frozenset())
+
+        agent = _make_agent(log_dir, coordinator=coordinator)
+        screenshot = _make_jpeg_b64(1024, 768)
+
+        await agent._validate_candidate(
+            900, 452, "Add to Cart button in the Green Lamp row", screenshot_b64=screenshot
+        )
+        condition = coordinator.verify_condition.call_args[0][0]
+        assert "Add to Cart button in the Green Lamp row" in condition
+        # crop-aware language: references the marker/highlight
+        assert any(word in condition.lower() for word in ("marker", "marked", "highlight"))
+
+    @pytest.mark.asyncio
     async def test_returns_false_when_vision_denies(self, tmp_path):
         """verify_condition returns False → _validate_candidate returns False."""
         log_dir = tmp_path / "logs"
@@ -1229,8 +1336,11 @@ class TestValidateCandidate:
         actuator.click.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_validate_candidate_crops_200x200(self, tmp_path):
-        """_validate_candidate passes a cropped sub-image to verify_condition."""
+    async def test_validate_candidate_crops_to_row_band(self, tmp_path):
+        """_validate_candidate passes a row-band sub-image to verify_condition:
+        full image width (so row labels are visible) but a short height (so
+        neighboring rows stay out of frame). Replaces the old 200x200 square
+        crop, which excluded the disambiguating label of wide list rows."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
@@ -1238,14 +1348,13 @@ class TestValidateCandidate:
         coordinator.verify_condition = AsyncMock(return_value=True)
         coordinator.capture_screenshot = AsyncMock(return_value=_make_narrow_jpeg_b64())
         coordinator.describe_screen = AsyncMock(return_value="screen")
+        coordinator.capabilities = MagicMock(return_value=frozenset())
 
         agent = _make_agent(log_dir, coordinator=coordinator)
-        # Use a large screenshot so we can verify the crop size
         full_screenshot = _make_jpeg_b64(800, 600)
 
         await agent._validate_candidate(400, 300, "button", screenshot_b64=full_screenshot)
 
-        # Verify the screenshot_b64 passed to verify_condition is smaller than the original
         cropped_b64 = coordinator.verify_condition.call_args[1].get(
             "screenshot_b64"
         ) or coordinator.verify_condition.call_args[0][1]
@@ -1255,9 +1364,10 @@ class TestValidateCandidate:
 
         cropped_img = Image.open(io.BytesIO(cropped_bytes))
         cw, ch = cropped_img.size
-        # Should be at most 200x200
-        assert cw <= 200
+        # Full width band, shorter than the source height
+        assert cw == 800
         assert ch <= 200
+        assert ch < cw
 
     @pytest.mark.asyncio
     async def test_validate_candidate_edge_element_clamps_crop(self, tmp_path):

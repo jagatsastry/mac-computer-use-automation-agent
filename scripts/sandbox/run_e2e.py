@@ -126,6 +126,13 @@ class Scenario:
     name: str
     prompt: str
     ground_truth: Callable[[object, object], tuple[bool, str]]
+    # Stress scenarios exercise known-hard agent behaviors that are not yet
+    # reliable (iterative "scroll to the very bottom", exact-once clicks on
+    # controls the planner sometimes writes unverifiable postconditions for).
+    # They are excluded from the default suite (kept green + rerunnable) and
+    # run only with --stress, so the gaps stay tracked without masking
+    # regressions in the stable set.
+    stress: bool = False
 
 
 def _page(cdp) -> tuple[str, str]:
@@ -178,6 +185,50 @@ def gt_scrolled(actuator, cdp):
     return ok, f"url={url} scrollY={scroll_y}"
 
 
+def _cart_items(cdp):
+    raw = cdp.evaluate("localStorage.getItem('cart') || '[]'")
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else []
+    except json.JSONDecodeError:
+        items = []
+    return items
+
+
+def gt_cart(expected_items, require_cart_page):
+    """Cart contents must match EXACTLY — catches wrong-button clicks."""
+
+    def check(actuator, cdp):
+        url, _ = _page(cdp)
+        items = _cart_items(cdp)
+        ok = sorted(items) == sorted(expected_items)
+        if require_cart_page:
+            ok = ok and "cart.html" in url
+        return ok, f"cart={items} url={url}"
+
+    return check
+
+
+def gt_tile_navigation(actuator, cdp):
+    """Reached shop.html AND document.referrer proves link-click navigation
+    (open_url would leave referrer empty)."""
+    url, heading = _page(cdp)
+    referrer = cdp.evaluate("document.referrer") or ""
+    ok = "shop.html" in url and "Mini Shop" in heading and referrer.rstrip("/").endswith(
+        "localhost:8000"
+    )
+    return ok, f"url={url} referrer={referrer!r}"
+
+
+def gt_scrolled_to_bottom(actuator, cdp):
+    url, _ = _page(cdp)
+    at_bottom = cdp.evaluate(
+        "window.scrollY >= document.documentElement.scrollHeight - window.innerHeight - 100"
+    )
+    scroll_y = cdp.scroll_position("y")
+    ok = "article.html" in url and at_bottom is True
+    return ok, f"url={url} scrollY={scroll_y} at_bottom={at_bottom}"
+
+
 SCENARIOS = [
     Scenario(
         name="open_portal",
@@ -210,6 +261,49 @@ SCENARIOS = [
         name="scroll_article",
         prompt=f"Open {SITE}/article.html in the browser and scroll down the page",
         ground_truth=gt_scrolled,
+    ),
+    Scenario(
+        name="shop_add_notebook",
+        prompt=(
+            f"Open {SITE}/shop.html in the browser, click the 'Add to Cart' button "
+            "for the Blue Notebook, then click the 'View Cart' link"
+        ),
+        ground_truth=gt_cart(["Blue Notebook"], require_cart_page=True),
+        # Grounding the right row is fixed (positional always-validate), but
+        # exact-once still flakes on the duplicate-add bug (see shop_green_lamp).
+        stress=True,
+    ),
+    Scenario(
+        name="shop_green_lamp",
+        prompt=(
+            f"Open {SITE}/shop.html in the browser and click the 'Add to Cart' "
+            "button in the Green Lamp row"
+        ),
+        ground_truth=gt_cart(["Green Lamp"], require_cart_page=False),
+        # Exact-once: the planner sometimes writes an unverifiable click
+        # postcondition ("the button is no longer visible"), the vision verify
+        # denies it, and the retry re-clicks → duplicate adds. Tracked gap.
+        stress=True,
+    ),
+    Scenario(
+        name="portal_tile_nav",
+        prompt=(
+            f"Open {SITE}/ in the browser, then click the 'Mini Shop' tile to "
+            "navigate to the shop page"
+        ),
+        ground_truth=gt_tile_navigation,
+    ),
+    Scenario(
+        name="scroll_to_bottom",
+        prompt=(
+            f"Open {SITE}/article.html in the browser and scroll all the way down "
+            "to the bottom of the page until the 'END OF ARTICLE' marker is visible"
+        ),
+        ground_truth=gt_scrolled_to_bottom,
+        # Iterative scroll-until-condition: needs the planner to keep scrolling
+        # until the bottom is reached, not a fixed handful of scroll steps.
+        # Tracked gap.
+        stress=True,
     ),
 ]
 
@@ -377,11 +471,14 @@ def main() -> int:
     parser.add_argument("--overlay", action="store_true",
                         help="show the on-host status overlay during runs (off by default: sandbox runs aim for zero host-screen footprint)")
     parser.add_argument("--list", action="store_true", help="list scenarios and exit")
+    parser.add_argument("--stress", action="store_true",
+                        help="include stress scenarios (known-hard, not yet reliable)")
     args = parser.parse_args()
 
     if args.list:
         for s in SCENARIOS:
-            print(f"{s.name:18s} {s.prompt}")
+            tag = " [stress]" if s.stress else ""
+            print(f"{s.name:18s}{tag} {s.prompt}")
         return 0
 
     # Resolve .env, logs/ etc. against the repo root regardless of caller cwd
@@ -414,7 +511,9 @@ def main() -> int:
                 sys.exit(f"Unknown scenarios: {missing}. Use --list.")
             selected = [by_name[n] for n in args.scenarios.split(",")]
         else:
-            selected = SCENARIOS
+            # Default suite excludes stress scenarios so it stays green and
+            # rerunnable; --stress opts into the known-hard ones.
+            selected = [s for s in SCENARIOS if args.stress or not s.stress]
 
     records = []
     for round_idx in range(1, args.runs + 1):

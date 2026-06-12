@@ -34,13 +34,13 @@
 </main>
 <script>
   const badge = document.getElementById("cart-badge");
-  const items = JSON.parse(sessionStorage.getItem("cart") || "[]");
+  const items = JSON.parse(localStorage.getItem("cart") || "[]");
   const render = () => badge.textContent = `Cart: ${items.length}`;
   render();
   document.querySelectorAll("button.add").forEach(btn =>
     btn.addEventListener("click", () => {
       items.push(btn.dataset.item);
-      sessionStorage.setItem("cart", JSON.stringify(items));
+      localStorage.setItem("cart", JSON.stringify(items));
       render();
     }));
 </script>

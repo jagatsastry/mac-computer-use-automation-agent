@@ -3410,7 +3410,11 @@ class AutomationAgent:
                     # results (>= 0.9). Previously skipped all grounding/vision
                     # sources, but low-confidence vision results can be hallucinated
                     # (e.g. clicking in whitespace) and need crop validation.
-                    skip_validation = confidence >= 0.9
+                    # Positional targets ("for the Blue Notebook", "in the X row")
+                    # always validate — grounding is overconfident about which row.
+                    skip_validation = self._should_skip_preclick_validation(
+                        confidence, params["element"]
+                    )
                     if not skip_validation:
                         try:
                             is_valid = await self._validate_candidate(
@@ -4176,6 +4180,39 @@ class AutomationAgent:
             error=f"Element not found after {max_scrolls} scrolls: {element_desc}",
         )
 
+    # Phrases that pin a click target to a specific row / item / position, where
+    # grounding is often overconfident about WHICH one (right control, wrong row).
+    _POSITIONAL_PATTERNS = (
+        r"\b(?:in|for|of|next to|beside|near|under|above|below)\s+the\b",
+        r"\bfor\s+(?:the\s+)?['\"]",
+        r"\b\d+(?:st|nd|rd|th)\b",
+        r"\b(?:first|second|third|fourth|fifth|last)\b",
+        r"\brow\b",
+        r"\bnext to\b|\bbeside\b",
+        r"@",  # "Edit next to john@example.com"
+    )
+
+    @classmethod
+    def _is_positional_target(cls, description: str) -> bool:
+        """True when the target description disambiguates by row/item/position."""
+        if not description:
+            return False
+        text = description.lower()
+        return any(re.search(pat, text) for pat in cls._POSITIONAL_PATTERNS)
+
+    @classmethod
+    def _should_skip_preclick_validation(cls, confidence: float, description: str) -> bool:
+        """Skip pre-click validation only when grounding is high-confidence AND
+        the target is not positionally disambiguated.
+
+        Grounding models report conf>=0.9 while pointing one row off on
+        list/table layouts; for positional targets we keep the row-band
+        validator on as a safety net regardless of self-reported confidence.
+        """
+        if confidence < 0.9:
+            return False
+        return not cls._is_positional_target(description)
+
     def _get_confidence_threshold(self, step: ActionStep) -> float:
         """Return the confidence threshold for a step (Rec 2).
 
@@ -4433,11 +4470,13 @@ class AutomationAgent:
         target_description: str,
         screenshot_b64: Optional[str] = None,
     ) -> Optional[bool]:
-        """Pre-click validation with detail and context crops around a candidate.
+        """Pre-click validation with a tight detail crop plus a marked row-band.
 
-        If the coordinator explicitly supports multiscale validation, use a tight
-        detail crop plus a wider context crop. Otherwise, fall back to the legacy
-        single-crop verify_condition() path.
+        The context image is a full-width horizontal band through the candidate
+        with a marker at the click point, so row/column labels that disambiguate
+        list and table items stay in frame. If the coordinator supports
+        multiscale validation, the detail crop + band are sent together;
+        otherwise a single crop-aware verify_condition() call is used.
 
         Args:
             candidate_x: Pixel x of the candidate element center.
@@ -4464,20 +4503,77 @@ class AutomationAgent:
         img = Image.open(io.BytesIO(img_bytes))
 
         detail_b64 = self._crop_square_b64(img, candidate_x, candidate_y, size=128)
-        context_b64 = self._crop_square_b64(img, candidate_x, candidate_y, size=512)
 
-        if detail_b64 is None or context_b64 is None:
+        if detail_b64 is None:
             return True
+
+        # Context crop is a full-width horizontal band through the candidate with
+        # a marker drawn at the click point. A tight square crop (the old 512px
+        # context) excludes the disambiguating label of list/table rows — e.g.
+        # the product name on the far left of an "Add to Cart" row — causing
+        # false-negative rejections of correctly-grounded clicks. The full-width
+        # band keeps that label in frame; the marker says which point to judge.
+        band_b64 = self._crop_marked_band_b64(img, candidate_x, candidate_y, band_height=200)
+        if band_b64 is None:
+            band_b64 = self._crop_square_b64(img, candidate_x, candidate_y, size=512)
 
         if self._has_explicit_method(self.coordinator, "verify_multiscale_target"):
             return await self.coordinator.verify_multiscale_target(
                 target_description,
                 detail_b64,
-                context_b64,
+                band_b64,
             )
 
-        condition = f"The element at the center of this image is: {target_description}"
-        return await self.coordinator.verify_condition(condition, screenshot_b64=detail_b64)
+        condition = (
+            f"A marker (magenta crosshair) highlights one point in this image, "
+            f"which is a horizontal slice of a larger page. Is the marked point on "
+            f"this target element: {target_description}? Use any row or column labels "
+            f"visible in the slice to judge. Answer yes if the marked point falls on "
+            f"the target (or clearly within it); answer no only if the marked point "
+            f"is on empty space or a clearly different element."
+        )
+        return await self.coordinator.verify_condition(condition, screenshot_b64=band_b64)
+
+    @staticmethod
+    def _crop_marked_band_b64(
+        img, center_x: int, center_y: int, band_height: int = 200
+    ) -> Optional[str]:
+        """Crop a full-width horizontal band around a point and mark the point.
+
+        Returns a base64 JPEG of the band with a magenta crosshair + box drawn at
+        the candidate location (in band-local coordinates), or None if cropping is
+        not possible.
+        """
+        try:
+            from PIL import ImageDraw
+        except ImportError:
+            return None
+
+        width = img.size[0]
+        half_h = band_height // 2
+        top = max(0, center_y - half_h)
+        bottom = min(img.size[1], center_y + half_h)
+        if top >= bottom or width <= 0:
+            return None
+
+        band = img.crop((0, top, width, bottom)).convert("RGB")
+        local_x = center_x
+        local_y = center_y - top
+
+        draw = ImageDraw.Draw(band)
+        marker = (255, 0, 255)
+        box = 14
+        draw.rectangle(
+            [local_x - box, local_y - box, local_x + box, local_y + box],
+            outline=marker,
+            width=3,
+        )
+        draw.line([local_x - box, local_y, local_x + box, local_y], fill=marker, width=2)
+        draw.line([local_x, local_y - box, local_x, local_y + box], fill=marker, width=2)
+
+        buf = io.BytesIO()
+        band.save(buf, format="JPEG", quality=85)
+        return base64.b64encode(buf.getvalue()).decode()
 
     @staticmethod
     def _crop_square_b64(img, center_x: int, center_y: int, size: int) -> Optional[str]:

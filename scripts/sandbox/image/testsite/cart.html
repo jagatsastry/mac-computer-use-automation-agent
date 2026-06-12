@@ -18,7 +18,7 @@
   <ul id="items"></ul>
 </main>
 <script>
-  const items = JSON.parse(sessionStorage.getItem("cart") || "[]");
+  const items = JSON.parse(localStorage.getItem("cart") || "[]");
   document.getElementById("summary").textContent =
       items.length ? `You have ${items.length} item(s) in your cart.` : "Your cart is empty.";
   const ul = document.getElementById("items");
