@@ -4,7 +4,7 @@
 # accessibility) — the host desktop is never touched.
 #
 # Requires: Apple Silicon, tart (brew install cirruslabs/cli/tart),
-#           ~45GB free disk for the base image.
+#           sshpass (brew install sshpass), ~45GB free disk for the base image.
 #
 # Steps: clone cirruslabs base image -> boot -> install SSH key ->
 #        sync repo -> create venv -> write .env -> grant TCC permissions
@@ -102,6 +102,9 @@ VSSH 'bash /tmp/vm_smoke.sh' || {
     echo "[setup_vm] smoke test FAILED — VM kept running for debugging (tart ip $VM)"
     exit 1
 }
+
+log "stopping VM — the golden base must be stopped before cloning runs"
+"$TART" stop "$VM" 2>/dev/null || true
 
 log "provisioning complete. VM '$VM' is the golden base."
 log "run e2e with: scripts/vm/run_vm_e2e.sh \"Open Calculator\""
