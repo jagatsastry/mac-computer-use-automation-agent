@@ -312,6 +312,7 @@ class StepResult:
             "", "accessibility", "actuator_state", "vision", "both",
             "type_and_check", "lookahead",
             "scroll_recovery", "scroll_recovery_verified",
+            "visible_effect",
         }
         if self.verification_method not in valid_methods:
             raise ValueError(

@@ -557,6 +557,16 @@ class AgentConfig(BaseSettings):
         description="Enable JS injection for browser state verification (type_text, page state)",
     )
 
+    # Idempotency guard: accept a state-changing click (add to cart, submit,
+    # send, buy, ...) when it lands with a confirmed visible effect but its
+    # postcondition can't be verified, instead of re-clicking it. Prevents
+    # duplicate side effects when the planner writes an unobservable verify.
+    accept_state_changing_click_on_visible_effect: bool = Field(
+        default=True,
+        description="Accept state-changing clicks with confirmed visible effect "
+        "rather than re-clicking on unverifiable postcondition (avoids duplicate actions)",
+    )
+
     @field_validator("log_dir")
     @classmethod
     def create_log_dir(cls, v: Path) -> Path:

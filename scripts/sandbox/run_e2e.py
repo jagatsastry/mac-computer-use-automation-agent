@@ -269,9 +269,6 @@ SCENARIOS = [
             "for the Blue Notebook, then click the 'View Cart' link"
         ),
         ground_truth=gt_cart(["Blue Notebook"], require_cart_page=True),
-        # Grounding the right row is fixed (positional always-validate), but
-        # exact-once still flakes on the duplicate-add bug (see shop_green_lamp).
-        stress=True,
     ),
     Scenario(
         name="shop_green_lamp",
@@ -280,10 +277,6 @@ SCENARIOS = [
             "button in the Green Lamp row"
         ),
         ground_truth=gt_cart(["Green Lamp"], require_cart_page=False),
-        # Exact-once: the planner sometimes writes an unverifiable click
-        # postcondition ("the button is no longer visible"), the vision verify
-        # denies it, and the retry re-clicks → duplicate adds. Tracked gap.
-        stress=True,
     ),
     Scenario(
         name="portal_tile_nav",

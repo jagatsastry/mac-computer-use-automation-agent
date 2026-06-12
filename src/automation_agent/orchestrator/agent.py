@@ -2103,6 +2103,40 @@ class AutomationAgent:
         ):
             verification = await self._reflect_failed_action(step, actuator_result, verification)
 
+        # Idempotency guard: a state-changing click (add to cart, submit, send,
+        # buy, ...) that landed (actuator success) AND produced a confirmed
+        # visible effect, but whose postcondition could not be verified, is
+        # accepted as "action performed" rather than re-clicked. Re-clicking a
+        # non-idempotent control duplicates its side effect — the dominant
+        # failure when the planner writes an unobservable verify ("the button
+        # is no longer visible"). Idempotent clicks keep normal retry.
+        if (
+            not verification.success
+            and step.action == "click"
+            and bool(visible_effect)
+            and actuator_result.get("success", False)
+            and getattr(
+                self.config, "accept_state_changing_click_on_visible_effect", True
+            )
+            and self._is_state_changing_click(
+                str(step.params.get("element", "")), step.verify or ""
+            )
+        ):
+            slog.info(
+                "state_changing_click_accepted_on_visible_effect",
+                element=step.params.get("element", ""),
+                prior_evidence=verification.evidence[:80],
+            )
+            verification.success = True
+            verification.verification_method = (
+                verification.verification_method or "visible_effect"
+            )
+            verification.evidence = (
+                "Click performed with confirmed visible effect; postcondition "
+                "unverifiable, not re-clicked to avoid a duplicate action. "
+                f"({verification.evidence})"
+            )
+
         # Track verification stats
         _method = verification.verification_method or ""
         _tier1_actions = {"click", "type_text", "open_url", "activate_app", "scroll"}
@@ -4199,6 +4233,23 @@ class AutomationAgent:
             return False
         text = description.lower()
         return any(re.search(pat, text) for pat in cls._POSITIONAL_PATTERNS)
+
+    # Verbs/nouns indicating a non-idempotent (state-changing) click whose
+    # side effect a re-click would duplicate. Word-boundary matched.
+    # "cart"/"order" as bare nouns are navigation too ("View Cart", "Order
+    # History"); rely on the action verbs (add/buy/checkout/place) instead.
+    _STATE_CHANGING_PATTERNS = (
+        r"\badd to cart\b", r"\badd\b", r"\bsubmit\b", r"\bsend\b", r"\bbuy\b",
+        r"\bpurchase\b", r"\bcheckout\b", r"\bplace order\b",
+        r"\bsave\b", r"\bpost\b", r"\bpublish\b", r"\blike\b", r"\bfollow\b",
+        r"\bsubscribe\b", r"\bvote\b", r"\bconfirm\b", r"\bbook\b", r"\breserve\b",
+    )
+
+    @classmethod
+    def _is_state_changing_click(cls, description: str, verify: str = "") -> bool:
+        """True when a click targets a non-idempotent control (add/submit/send/...)."""
+        text = f"{description} {verify}".lower()
+        return any(re.search(pat, text) for pat in cls._STATE_CHANGING_PATTERNS)
 
     @classmethod
     def _should_skip_preclick_validation(cls, confidence: float, description: str) -> bool:
